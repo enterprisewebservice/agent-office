@@ -43,6 +43,71 @@ func NewAgentHandlers(clients *k8s.Clients, namespace string, cache *k8s.AgentCa
 	}
 }
 
+// agentFromCR converts an unstructured AgentWorkstation CR to the Agent JSON
+// shape the frontend expects (flat fields, not nested under spec/status).
+func agentFromCR(obj map[string]interface{}) map[string]interface{} {
+	metadata, _ := obj["metadata"].(map[string]interface{})
+	spec, _ := obj["spec"].(map[string]interface{})
+	status, _ := obj["status"].(map[string]interface{})
+
+	if spec == nil {
+		spec = map[string]interface{}{}
+	}
+	if status == nil {
+		status = map[string]interface{}{}
+	}
+	if metadata == nil {
+		metadata = map[string]interface{}{}
+	}
+
+	// Extract model info from nested spec.model or flat spec fields
+	provider, _ := spec["provider"].(string)
+	modelName, _ := spec["modelName"].(string)
+	routerRef, _ := spec["routerRef"].(string)
+
+	// Handle nested model object (from CRD spec)
+	if model, ok := spec["model"].(map[string]interface{}); ok {
+		if p, ok := model["provider"].(string); ok && provider == "" {
+			provider = p
+		}
+		if m, ok := model["modelName"].(string); ok && modelName == "" {
+			modelName = m
+		}
+		if r, ok := model["modelRouterRef"].(string); ok && routerRef == "" {
+			routerRef = r
+		}
+	}
+
+	// Extract tools from spec.tools.allow or flat spec.tools
+	var tools []interface{}
+	if toolsObj, ok := spec["tools"].(map[string]interface{}); ok {
+		if allow, ok := toolsObj["allow"].([]interface{}); ok {
+			tools = allow
+		}
+	} else if toolsArr, ok := spec["tools"].([]interface{}); ok {
+		tools = toolsArr
+	}
+
+	result := map[string]interface{}{
+		"name":         metadata["name"],
+		"displayName":  spec["displayName"],
+		"emoji":        spec["emoji"],
+		"description":  spec["description"],
+		"systemPrompt": spec["systemPrompt"],
+		"provider":     provider,
+		"modelName":    modelName,
+		"routerRef":    routerRef,
+		"tools":        tools,
+		"image":        spec["image"],
+		"status": map[string]interface{}{
+			"phase":           status["phase"],
+			"gatewayEndpoint": status["endpoint"],
+		},
+	}
+
+	return result
+}
+
 // ListAgents handles GET /api/agents — lists all AgentWorkstation CRs.
 func (h *AgentHandlers) ListAgents(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -54,8 +119,13 @@ func (h *AgentHandlers) ListAgents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	agents := make([]map[string]interface{}, 0, len(list.Items))
+	for _, item := range list.Items {
+		agents = append(agents, agentFromCR(item.Object))
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(list.Items)
+	json.NewEncoder(w).Encode(agents)
 }
 
 // GetAgent handles GET /api/agents/{name} — gets a single AgentWorkstation CR.
@@ -76,7 +146,7 @@ func (h *AgentHandlers) GetAgent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(agent)
+	json.NewEncoder(w).Encode(agentFromCR(agent.Object))
 }
 
 // CreateAgent handles POST /api/agents — calls the RHDH Scaffolder to provision

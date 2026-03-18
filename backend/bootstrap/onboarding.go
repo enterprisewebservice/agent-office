@@ -34,8 +34,8 @@ You can also help users:
 
 Be conversational and friendly. Use voice-friendly language since many users
 will be talking to you via speech. Keep responses concise and natural.`,
-	"provider":  "anthropic",
-	"modelName": "claude-sonnet-4-20250514",
+	"provider":  "openai",
+	"modelName": "gpt-4o",
 	"tools":     []interface{}{"memory", "web_search", "web_fetch"},
 	"namespace": "agent-office",
 	"owner":     "user:default/deanpeterson",

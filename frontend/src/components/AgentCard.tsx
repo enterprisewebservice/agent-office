@@ -6,11 +6,16 @@ import {
   CardFooter,
   CardHeader,
   CardTitle,
+  DescriptionList,
+  DescriptionListDescription,
+  DescriptionListGroup,
+  DescriptionListTerm,
+  ExpandableSection,
   Label,
   Modal,
   ModalVariant,
 } from '@patternfly/react-core';
-import { TrashIcon, CommentsIcon } from '@patternfly/react-icons';
+import { TrashIcon, CommentsIcon, CogIcon } from '@patternfly/react-icons';
 
 import type { Agent } from '../types';
 import { deleteAgent } from '../api';
@@ -44,13 +49,14 @@ const providerLabel = (provider: string): string => {
     case 'custom':
       return 'Custom';
     default:
-      return provider;
+      return provider || 'Unknown';
   }
 };
 
 const AgentCard: React.FC<AgentCardProps> = ({ agent, onChat, onDeleted }) => {
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isDetailsOpen, setIsDetailsOpen] = useState(false);
 
   const handleDelete = async () => {
     setIsDeleting(true);
@@ -68,29 +74,81 @@ const AgentCard: React.FC<AgentCardProps> = ({ agent, onChat, onDeleted }) => {
 
   return (
     <>
-      <Card
-        isClickable
-        isSelectable
-        style={{ minHeight: '200px', cursor: 'pointer' }}
-      >
+      <Card style={{ minHeight: '200px' }}>
         <CardHeader>
           <CardTitle>
-            <span style={{ fontSize: '1.5rem', marginRight: '0.5rem' }}>{agent.emoji}</span>
-            {agent.displayName}
+            <span style={{ fontSize: '1.5rem', marginRight: '0.5rem' }}>
+              {agent.emoji || '\u{1F916}'}
+            </span>
+            {agent.displayName || agent.name}
           </CardTitle>
         </CardHeader>
-        <CardBody onClick={() => onChat(agent)}>
+        <CardBody>
           <p style={{ marginBottom: '0.75rem', color: 'var(--pf-t--global--text--color--subtle)' }}>
-            {agent.description}
+            {agent.description || 'No description'}
           </p>
-          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
             <Label color="blue" isCompact>
               {providerLabel(agent.provider)}
             </Label>
-            <Label color="purple" isCompact>
-              {agent.modelName}
-            </Label>
+            {agent.modelName && (
+              <Label color="purple" isCompact>
+                {agent.modelName}
+              </Label>
+            )}
+            {agent.tools?.map((tool) => (
+              <Label key={tool} color="cyan" isCompact>
+                {tool}
+              </Label>
+            ))}
           </div>
+
+          <ExpandableSection
+            toggleText={isDetailsOpen ? 'Hide details' : 'Show details'}
+            isExpanded={isDetailsOpen}
+            onToggle={(_e, expanded) => setIsDetailsOpen(expanded)}
+          >
+            <DescriptionList isCompact isHorizontal>
+              <DescriptionListGroup>
+                <DescriptionListTerm>Name</DescriptionListTerm>
+                <DescriptionListDescription>{agent.name}</DescriptionListDescription>
+              </DescriptionListGroup>
+              <DescriptionListGroup>
+                <DescriptionListTerm>Provider</DescriptionListTerm>
+                <DescriptionListDescription>{providerLabel(agent.provider)}</DescriptionListDescription>
+              </DescriptionListGroup>
+              <DescriptionListGroup>
+                <DescriptionListTerm>Model</DescriptionListTerm>
+                <DescriptionListDescription>{agent.modelName || 'auto'}</DescriptionListDescription>
+              </DescriptionListGroup>
+              {agent.systemPrompt && (
+                <DescriptionListGroup>
+                  <DescriptionListTerm>Directive</DescriptionListTerm>
+                  <DescriptionListDescription>
+                    <pre style={{
+                      whiteSpace: 'pre-wrap',
+                      fontSize: '0.85rem',
+                      maxHeight: '200px',
+                      overflow: 'auto',
+                      background: 'var(--pf-t--global--background--color--secondary--default)',
+                      padding: '0.5rem',
+                      borderRadius: '4px',
+                    }}>
+                      {agent.systemPrompt}
+                    </pre>
+                  </DescriptionListDescription>
+                </DescriptionListGroup>
+              )}
+              {agent.status?.gatewayEndpoint && (
+                <DescriptionListGroup>
+                  <DescriptionListTerm>Endpoint</DescriptionListTerm>
+                  <DescriptionListDescription>
+                    <code style={{ fontSize: '0.85rem' }}>{agent.status.gatewayEndpoint}</code>
+                  </DescriptionListDescription>
+                </DescriptionListGroup>
+              )}
+            </DescriptionList>
+          </ExpandableSection>
         </CardBody>
         <CardFooter>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
@@ -102,10 +160,7 @@ const AgentCard: React.FC<AgentCardProps> = ({ agent, onChat, onDeleted }) => {
                 variant="secondary"
                 size="sm"
                 icon={<CommentsIcon />}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onChat(agent);
-                }}
+                onClick={() => onChat(agent)}
               >
                 Chat
               </Button>
@@ -113,10 +168,7 @@ const AgentCard: React.FC<AgentCardProps> = ({ agent, onChat, onDeleted }) => {
                 variant="danger"
                 size="sm"
                 icon={<TrashIcon />}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setIsDeleteModalOpen(true);
-                }}
+                onClick={() => setIsDeleteModalOpen(true)}
               >
                 Delete
               </Button>
@@ -145,8 +197,7 @@ const AgentCard: React.FC<AgentCardProps> = ({ agent, onChat, onDeleted }) => {
           </Button>,
         ]}
       >
-        Are you sure you want to delete <strong>{agent.displayName}</strong>? This action cannot be
-        undone.
+        Are you sure you want to delete <strong>{agent.displayName || agent.name}</strong>? This action cannot be undone.
       </Modal>
     </>
   );
