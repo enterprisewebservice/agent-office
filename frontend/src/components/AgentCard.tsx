@@ -15,7 +15,7 @@ import {
   Modal,
   ModalVariant,
 } from '@patternfly/react-core';
-import { TrashIcon, CommentsIcon, CogIcon } from '@patternfly/react-icons';
+import { TrashIcon, CommentsIcon } from '@patternfly/react-icons';
 
 import type { Agent } from '../types';
 import { deleteAgent } from '../api';
