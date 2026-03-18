@@ -1,14 +1,13 @@
 package handlers
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 
 	"github.com/enterprisewebservice/agent-office/backend/k8s"
-	"github.com/enterprisewebservice/agent-office/backend/templates"
+	"github.com/enterprisewebservice/agent-office/backend/scaffolder"
 )
 
 // CreateAgentRequest defines the JSON body for creating an agent.
@@ -28,17 +27,19 @@ type CreateAgentRequest struct {
 
 // AgentHandlers holds dependencies for agent HTTP handlers.
 type AgentHandlers struct {
-	Clients   *k8s.Clients
-	Namespace string
-	Cache     *k8s.AgentCache
+	Clients    *k8s.Clients
+	Namespace  string
+	Cache      *k8s.AgentCache
+	Scaffolder *scaffolder.Client
 }
 
 // NewAgentHandlers creates a new AgentHandlers instance.
 func NewAgentHandlers(clients *k8s.Clients, namespace string, cache *k8s.AgentCache) *AgentHandlers {
 	return &AgentHandlers{
-		Clients:   clients,
-		Namespace: namespace,
-		Cache:     cache,
+		Clients:    clients,
+		Namespace:  namespace,
+		Cache:      cache,
+		Scaffolder: scaffolder.NewClient(),
 	}
 }
 
@@ -78,7 +79,8 @@ func (h *AgentHandlers) GetAgent(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(agent)
 }
 
-// CreateAgent handles POST /api/agents — creates all resources for a new agent.
+// CreateAgent handles POST /api/agents — calls the RHDH Scaffolder to provision
+// an OpenClaw agent via the openclaw-agent Software Template.
 func (h *AgentHandlers) CreateAgent(w http.ResponseWriter, r *http.Request) {
 	var req CreateAgentRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -87,7 +89,6 @@ func (h *AgentHandlers) CreateAgent(w http.ResponseWriter, r *http.Request) {
 	}
 	defer r.Body.Close()
 
-	// Validate required fields
 	if req.Name == "" {
 		http.Error(w, "name is required", http.StatusBadRequest)
 		return
@@ -97,33 +98,44 @@ func (h *AgentHandlers) CreateAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Convert handler request to template request
-	tmplReq := templates.CreateAgentRequest{
-		Name:         req.Name,
-		DisplayName:  req.DisplayName,
-		Emoji:        req.Emoji,
-		Description:  req.Description,
-		SystemPrompt: req.SystemPrompt,
-		Provider:     req.Provider,
-		ModelName:    req.ModelName,
-		RouterRef:    req.RouterRef,
-		APIKey:       req.APIKey,
-		Tools:        req.Tools,
-		Image:        req.Image,
+	// Convert tools to interface slice for JSON
+	tools := make([]interface{}, len(req.Tools))
+	for i, t := range req.Tools {
+		tools[i] = t
 	}
 
-	ctx := context.Background()
-	if err := k8s.CreateAgentResources(ctx, h.Clients, h.Namespace, tmplReq); err != nil {
-		log.Printf("error creating agent %s: %v", req.Name, err)
+	// Build scaffolder values matching the template parameters
+	values := map[string]interface{}{
+		"name":         req.Name,
+		"displayName":  req.DisplayName,
+		"emoji":        req.Emoji,
+		"description":  req.Description,
+		"systemPrompt": req.SystemPrompt,
+		"provider":     req.Provider,
+		"modelName":    req.ModelName,
+		"routerRef":    req.RouterRef,
+		"apiKey":       req.APIKey,
+		"tools":        tools,
+		"namespace":    h.Namespace,
+		"owner":        "user:default/deanpeterson",
+		"ghOwner":      "enterprisewebservice",
+	}
+
+	taskID, err := h.Scaffolder.CreateAgent(values)
+	if err != nil {
+		log.Printf("error creating agent %s via scaffolder: %v", req.Name, err)
 		http.Error(w, fmt.Sprintf("failed to create agent: %v", err), http.StatusInternalServerError)
 		return
 	}
+
+	log.Printf("scaffolder task %s created for agent %s", taskID, req.Name)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]string{
 		"name":   req.Name,
-		"status": "created",
+		"status": "scaffolding",
+		"taskId": taskID,
 	})
 }
 
