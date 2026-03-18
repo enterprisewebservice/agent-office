@@ -11,8 +11,9 @@ import {
   Label,
   TextInput,
   Title,
+  Tooltip,
 } from '@patternfly/react-core';
-import { PaperPlaneIcon } from '@patternfly/react-icons';
+import { MicrophoneIcon, PaperPlaneIcon, VolumeUpIcon } from '@patternfly/react-icons';
 
 import type { Agent, ChatMessage } from '../types';
 import { createChatWebSocket } from '../api';
@@ -26,8 +27,11 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ agent, onClose }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [wsState, setWsState] = useState<'connecting' | 'open' | 'closed'>('connecting');
+  const [isListening, setIsListening] = useState(false);
+  const [ttsEnabled, setTtsEnabled] = useState(true);
   const wsRef = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const recognitionRef = useRef<any>(null);
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -36,6 +40,73 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ agent, onClose }) => {
   useEffect(() => {
     scrollToBottom();
   }, [messages, scrollToBottom]);
+
+  // Initialize speech recognition
+  useEffect(() => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = false;
+      recognition.interimResults = true;
+      recognition.lang = 'en-US';
+
+      recognition.onresult = (event: any) => {
+        const transcript = Array.from(event.results)
+          .map((result: any) => result[0].transcript)
+          .join('');
+
+        if (event.results[0].isFinal) {
+          // Final result — send the message
+          setInput('');
+          setIsListening(false);
+          if (transcript.trim() && wsRef.current?.readyState === WebSocket.OPEN) {
+            const userMessage: ChatMessage = {
+              role: 'user',
+              content: transcript.trim(),
+              timestamp: new Date().toISOString(),
+            };
+            wsRef.current.send(JSON.stringify(userMessage));
+            setMessages((prev) => [...prev, userMessage]);
+          }
+        } else {
+          // Interim result — show in input box
+          setInput(transcript);
+        }
+      };
+
+      recognition.onerror = () => {
+        setIsListening(false);
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+      };
+
+      recognitionRef.current = recognition;
+    }
+  }, []);
+
+  // Speak assistant messages aloud
+  const speak = useCallback((text: string) => {
+    if (!ttsEnabled || !window.speechSynthesis) return;
+
+    // Cancel any ongoing speech
+    window.speechSynthesis.cancel();
+
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.rate = 1.0;
+    utterance.pitch = 1.0;
+    utterance.volume = 1.0;
+
+    // Try to pick a good voice
+    const voices = window.speechSynthesis.getVoices();
+    const preferred = voices.find(
+      (v) => v.name.includes('Samantha') || v.name.includes('Google') || v.name.includes('Daniel')
+    );
+    if (preferred) utterance.voice = preferred;
+
+    window.speechSynthesis.speak(utterance);
+  }, [ttsEnabled]);
 
   useEffect(() => {
     const ws = createChatWebSocket(agent.name);
@@ -50,15 +121,21 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ agent, onClose }) => {
       try {
         const msg: ChatMessage = JSON.parse(event.data);
         setMessages((prev) => [...prev, msg]);
+        // Speak assistant responses
+        if (msg.role === 'assistant' && msg.content) {
+          speak(msg.content);
+        }
       } catch {
+        const content = event.data;
         setMessages((prev) => [
           ...prev,
           {
             role: 'assistant',
-            content: event.data,
+            content,
             timestamp: new Date().toISOString(),
           },
         ]);
+        speak(content);
       }
     };
 
@@ -72,8 +149,9 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ agent, onClose }) => {
 
     return () => {
       ws.close();
+      window.speechSynthesis?.cancel();
     };
-  }, [agent.name]);
+  }, [agent.name, speak]);
 
   const handleSend = () => {
     if (!input.trim() || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
@@ -96,6 +174,23 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ agent, onClose }) => {
     }
   };
 
+  const toggleListening = () => {
+    if (!recognitionRef.current) return;
+
+    if (isListening) {
+      recognitionRef.current.stop();
+      setIsListening(false);
+    } else {
+      setInput('');
+      recognitionRef.current.start();
+      setIsListening(true);
+    }
+  };
+
+  const hasSpeechRecognition =
+    typeof window !== 'undefined' &&
+    ((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition);
+
   return (
     <DrawerPanelContent widths={{ default: 'width_50' }} style={{ minWidth: '400px' }}>
       <DrawerHead>
@@ -104,6 +199,19 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ agent, onClose }) => {
           {agent.displayName}
         </Title>
         <DrawerActions>
+          <Tooltip content={ttsEnabled ? 'Mute voice' : 'Enable voice'}>
+            <Button
+              variant={ttsEnabled ? 'plain' : 'plain'}
+              onClick={() => {
+                setTtsEnabled(!ttsEnabled);
+                if (ttsEnabled) window.speechSynthesis?.cancel();
+              }}
+              style={{ opacity: ttsEnabled ? 1 : 0.4 }}
+              aria-label="Toggle text-to-speech"
+            >
+              <VolumeUpIcon />
+            </Button>
+          </Tooltip>
           <DrawerCloseButton onClick={onClose} />
         </DrawerActions>
       </DrawerHead>
@@ -176,14 +284,28 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ agent, onClose }) => {
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Input */}
+        {/* Input with voice */}
         <div style={{ padding: '0.75rem 0 0', borderTop: '1px solid var(--pf-t--global--border--color--default)' }}>
           <InputGroup>
+            {hasSpeechRecognition && (
+              <InputGroupItem>
+                <Tooltip content={isListening ? 'Stop listening' : 'Speak'}>
+                  <Button
+                    variant={isListening ? 'danger' : 'control'}
+                    onClick={toggleListening}
+                    isDisabled={wsState !== 'open'}
+                    icon={<MicrophoneIcon />}
+                    aria-label={isListening ? 'Stop listening' : 'Start voice input'}
+                    style={isListening ? { animation: 'pulse 1.5s infinite' } : {}}
+                  />
+                </Tooltip>
+              </InputGroupItem>
+            )}
             <InputGroupItem isFill>
               <TextInput
                 type="text"
                 aria-label="Chat message"
-                placeholder="Type a message..."
+                placeholder={isListening ? 'Listening...' : 'Type a message...'}
                 value={input}
                 onChange={(_e, val) => setInput(val)}
                 onKeyDown={handleKeyDown}
@@ -201,6 +323,15 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ agent, onClose }) => {
             </InputGroupItem>
           </InputGroup>
         </div>
+
+        {/* Pulse animation for microphone */}
+        <style>{`
+          @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(201, 25, 11, 0.4); }
+            70% { box-shadow: 0 0 0 10px rgba(201, 25, 11, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(201, 25, 11, 0); }
+          }
+        `}</style>
       </DrawerPanelBody>
     </DrawerPanelContent>
   );

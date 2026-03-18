@@ -9,8 +9,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/enterprisewebservice/agent-office/backend/bootstrap"
 	"github.com/enterprisewebservice/agent-office/backend/handlers"
 	"github.com/enterprisewebservice/agent-office/backend/k8s"
+	"github.com/enterprisewebservice/agent-office/backend/scaffolder"
 )
 
 func main() {
@@ -33,6 +35,10 @@ func main() {
 
 	go k8s.WatchAgentWorkstations(ctx, clients, namespace, cache)
 	log.Println("started agentworkstation watcher")
+
+	// Initialize scaffolder client and bootstrap default agent
+	sc := scaffolder.NewClient()
+	go bootstrap.EnsureOnboardingAgent(sc, namespace)
 
 	// Initialize handlers
 	agentHandlers := handlers.NewAgentHandlers(clients, namespace, cache)
