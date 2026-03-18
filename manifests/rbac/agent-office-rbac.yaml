@@ -1,0 +1,128 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: agent-office
+  labels:
+    app.kubernetes.io/name: agent-office
+    app.kubernetes.io/part-of: agent-office
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: agent-office
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/name: agent-office
+    app.kubernetes.io/part-of: agent-office
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: agent-office
+  labels:
+    app.kubernetes.io/name: agent-office
+    app.kubernetes.io/part-of: agent-office
+rules:
+  # Core resources — full CRUD
+  - apiGroups: [""]
+    resources:
+      - pods
+      - services
+      - configmaps
+      - secrets
+      - persistentvolumeclaims
+      - namespaces
+      - events
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Deployments — full CRUD
+  - apiGroups: ["apps"]
+    resources:
+      - deployments
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # AgentWorkstation CRD — full CRUD
+  - apiGroups: ["agentoffice.ai"]
+    resources:
+      - agentworkstations
+      - agentworkstations/status
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # SmallModelRouter — read-only (discover available routers)
+  - apiGroups: ["ai.redhat.com"]
+    resources:
+      - smallmodelrouters
+    verbs: ["get", "list", "watch"]
+  # OpenShift Routes — full CRUD
+  - apiGroups: ["route.openshift.io"]
+    resources:
+      - routes
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: agent-office
+  labels:
+    app.kubernetes.io/name: agent-office
+    app.kubernetes.io/part-of: agent-office
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: agent-office
+subjects:
+  - kind: ServiceAccount
+    name: agent-office
+    namespace: agent-office
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-office-server
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/name: agent-office-server
+    app.kubernetes.io/part-of: agent-office
+    app.kubernetes.io/component: backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agent-office-server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: agent-office-server
+        app.kubernetes.io/part-of: agent-office
+        app.kubernetes.io/component: backend
+    spec:
+      serviceAccountName: agent-office
+      containers:
+        - name: server
+          image: quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/agent-office-server:0.1.0
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10

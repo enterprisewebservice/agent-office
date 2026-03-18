@@ -1,0 +1,129 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: agentworkstations.agentoffice.ai
+spec:
+  group: agentoffice.ai
+  names:
+    kind: AgentWorkstation
+    listKind: AgentWorkstationList
+    plural: agentworkstations
+    singular: agentworkstation
+    shortNames:
+      - aw
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Display Name
+          type: string
+          jsonPath: .spec.displayName
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Provider
+          type: string
+          jsonPath: .spec.model.provider
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required:
+                - displayName
+                - systemPrompt
+                - model
+              properties:
+                displayName:
+                  type: string
+                  description: Human-readable name for this agent workstation.
+                emoji:
+                  type: string
+                  description: Emoji icon for the agent in the office view.
+                description:
+                  type: string
+                  description: Brief description of the agent's purpose.
+                systemPrompt:
+                  type: string
+                  description: System prompt that defines the agent's behavior.
+                model:
+                  type: object
+                  required:
+                    - provider
+                  properties:
+                    provider:
+                      type: string
+                      enum:
+                        - smr
+                        - anthropic
+                        - openai
+                        - custom
+                      description: Model provider type.
+                    modelRouterRef:
+                      type: string
+                      description: Reference to a SmallModelRouter CR (when provider is smr).
+                    modelName:
+                      type: string
+                      default: auto
+                      description: Specific model name, or "auto" for router-selected.
+                apiKeySecretRef:
+                  type: string
+                  description: Name of Secret containing the API key (key "api-key").
+                tools:
+                  type: object
+                  properties:
+                    allow:
+                      type: array
+                      items:
+                        type: string
+                      description: List of tool names the agent is allowed to use.
+                resources:
+                  type: object
+                  properties:
+                    requests:
+                      type: object
+                      x-kubernetes-preserve-unknown-fields: true
+                    limits:
+                      type: object
+                      x-kubernetes-preserve-unknown-fields: true
+                office:
+                  type: object
+                  description: Office layout metadata for the UI.
+                  properties:
+                    position:
+                      type: object
+                      properties:
+                        x:
+                          type: integer
+                        y:
+                          type: integer
+                image:
+                  type: string
+                  default: "quay.io/aicatalyst/openclaw:latest"
+                  description: Container image for the agent runtime.
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  enum:
+                    - Pending
+                    - Creating
+                    - Running
+                    - Stopped
+                    - Error
+                message:
+                  type: string
+                gatewayEndpoint:
+                  type: string
+                lastActivity:
+                  type: string
+                  format: date-time

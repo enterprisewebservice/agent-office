@@ -1,0 +1,35 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent-office
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/name: agent-office
+    app.kubernetes.io/part-of: agent-office
+spec:
+  selector:
+    app.kubernetes.io/name: agent-office-server
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: agent-office
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/name: agent-office
+    app.kubernetes.io/part-of: agent-office
+spec:
+  to:
+    kind: Service
+    name: agent-office
+    weight: 100
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect

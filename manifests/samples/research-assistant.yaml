@@ -1,0 +1,28 @@
+apiVersion: agentoffice.ai/v1alpha1
+kind: AgentWorkstation
+metadata:
+  name: research-assistant
+  namespace: agent-office
+spec:
+  displayName: "Research Assistant"
+  emoji: "\U0001F52C"
+  description: "Literature review and data analysis"
+  systemPrompt: "You are a research assistant specializing in literature review and data analysis. Provide thorough, well-cited answers."
+  model:
+    provider: smr
+    modelRouterRef: demo-router
+    modelName: auto
+  tools:
+    allow:
+      - exec
+      - web_search
+      - web_fetch
+      - memory
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  image: "quay.io/aicatalyst/openclaw:latest"
