@@ -17,10 +17,10 @@ import (
 
 // RequestFrame sends an RPC request to the OpenClaw gateway.
 type RequestFrame struct {
-	Type      string      `json:"type"`
-	ID        string      `json:"id"`
-	Method    string      `json:"method"`
-	Arguments interface{} `json:"arguments,omitempty"`
+	Type   string      `json:"type"`
+	ID     string      `json:"id"`
+	Method string      `json:"method"`
+	Params interface{} `json:"params,omitempty"`
 }
 
 // ResponseFrame is the RPC response from the gateway.
@@ -101,7 +101,10 @@ func ConnectToGateway(ctx context.Context, gatewayURL, gatewayToken, agentName s
 	return gc, nil
 }
 
-// authenticate handles the OpenClaw gateway auth handshake.
+// authenticate handles the OpenClaw gateway protocol v3 handshake.
+// 1. Read connect.challenge event
+// 2. Send connect request with auth, protocol version, and client identity
+// 3. Read connect response (hello-ok or error)
 func (gc *GatewayConnection) authenticate(ctx context.Context) error {
 	// Read the connect.challenge frame
 	_, msg, err := gc.conn.ReadMessage()
@@ -112,29 +115,39 @@ func (gc *GatewayConnection) authenticate(ctx context.Context) error {
 	// Parse it — we expect an event frame with event "connect.challenge"
 	var frame map[string]interface{}
 	if err := json.Unmarshal(msg, &frame); err != nil {
-		// Some gateways may not require auth — if so, this is fine
-		log.Printf("gateway did not send challenge frame, proceeding without auth")
+		log.Printf("gateway did not send valid challenge frame, proceeding without auth")
 		return nil
 	}
 
-	// Send auth response with gateway token
-	authReq := RequestFrame{
+	// Send protocol v3 connect request
+	connectReq := RequestFrame{
 		Type:   "req",
 		ID:     uuid.New().String(),
-		Method: "connect.auth",
-		Arguments: map[string]string{
-			"token": gc.gatewayToken,
+		Method: "connect",
+		Params: map[string]interface{}{
+			"minProtocol": 3,
+			"maxProtocol": 3,
+			"client": map[string]string{
+				"id":       "gateway-client",
+				"platform": "node",
+				"mode":     "backend",
+				"version":  "0.1.0",
+			},
+			"auth": map[string]string{
+				"token":    gc.gatewayToken,
+				"password": gc.gatewayToken,
+			},
 		},
 	}
 
 	gc.mu.Lock()
-	err = gc.conn.WriteJSON(authReq)
+	err = gc.conn.WriteJSON(connectReq)
 	gc.mu.Unlock()
 	if err != nil {
-		return fmt.Errorf("sending auth: %w", err)
+		return fmt.Errorf("sending connect: %w", err)
 	}
 
-	// Read auth response
+	// Read connect response
 	_, msg, err = gc.conn.ReadMessage()
 	if err != nil {
 		return fmt.Errorf("reading auth response: %w", err)
@@ -161,7 +174,7 @@ func (gc *GatewayConnection) SendMessage(message string) (string, map[string]str
 		Type:   "req",
 		ID:     reqID,
 		Method: "chat.send",
-		Arguments: ChatSendArgs{
+		Params: ChatSendArgs{
 			SessionKey:     gc.sessionKey,
 			Message:        message,
 			IdempotencyKey: uuid.New().String(),
