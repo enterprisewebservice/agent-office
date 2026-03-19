@@ -34,11 +34,12 @@ spec:
     Be conversational and friendly. Use voice-friendly language since many users
     will be talking to you via speech. Keep responses concise and natural.
   model:
-    provider: openai
-    modelName: "gpt-4o"
+    provider: anthropic
+    modelName: "claude-sonnet-4-6"
   tools:
     allow:
       - memory
       - web_search
       - web_fetch
-  image: "quay.io/aicatalyst/openclaw:latest"
+      - browser
+  image: "quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/openclaw:latest"
