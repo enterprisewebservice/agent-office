@@ -137,6 +137,7 @@ func (gc *GatewayConnection) authenticate(ctx context.Context) error {
 				"token":    gc.gatewayToken,
 				"password": gc.gatewayToken,
 			},
+			"scopes": []string{"operator.write"},
 		},
 	}
 
