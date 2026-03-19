@@ -223,36 +223,68 @@ func (gc *GatewayConnection) SendMessage(message string) (string, map[string]str
 
 		case "event":
 			event, _ := frame["event"].(string)
-			if event != "chat" && event != "chat.message" {
-				continue
-			}
 
-			dataBytes, err := json.Marshal(frame["data"])
-			if err != nil {
-				continue
-			}
-
-			var chatEvent ChatEvent
-			if err := json.Unmarshal(dataBytes, &chatEvent); err != nil {
-				continue
-			}
-
-			switch chatEvent.State {
-			case "delta":
-				fullContent.WriteString(chatEvent.Content)
-			case "final":
-				if chatEvent.Content != "" {
-					// Final may contain the complete content
-					return chatEvent.Content, metadata, nil
+			// Chat events contain the streamed response
+			if event == "chat" || event == "chat.message" {
+				// OpenClaw v3 uses "payload" not "data"
+				payloadData := frame["payload"]
+				if payloadData == nil {
+					payloadData = frame["data"]
 				}
-				return fullContent.String(), metadata, nil
-			case "error":
-				if fullContent.Len() > 0 {
+				if payloadData == nil {
+					continue
+				}
+
+				dataBytes, err := json.Marshal(payloadData)
+				if err != nil {
+					continue
+				}
+
+				var chatEvent ChatEvent
+				if err := json.Unmarshal(dataBytes, &chatEvent); err != nil {
+					continue
+				}
+
+				// v3 uses "errorMessage" instead of nested "error"
+				if chatEvent.Error == "" {
+					if em, ok := payloadData.(map[string]interface{})["errorMessage"]; ok {
+						chatEvent.Error = fmt.Sprintf("%v", em)
+					}
+				}
+
+				switch chatEvent.State {
+				case "delta":
+					fullContent.WriteString(chatEvent.Content)
+				case "final":
+					if chatEvent.Content != "" {
+						return chatEvent.Content, metadata, nil
+					}
+					return fullContent.String(), metadata, nil
+				case "error":
+					if fullContent.Len() > 0 {
+						return fullContent.String(), metadata, nil
+					}
+					return "", nil, fmt.Errorf("agent error: %s", chatEvent.Error)
+				case "aborted":
 					return fullContent.String(), metadata, nil
 				}
-				return "", nil, fmt.Errorf("agent error: %s", chatEvent.Error)
-			case "aborted":
-				return fullContent.String(), metadata, nil
+				continue
+			}
+
+			// Agent lifecycle events — log tool calls for visibility
+			if event == "agent" {
+				if payload, ok := frame["payload"].(map[string]interface{}); ok {
+					if stream, _ := payload["stream"].(string); stream == "tool" {
+						if data, ok := payload["data"].(map[string]interface{}); ok {
+							toolName, _ := data["name"].(string)
+							phase, _ := data["phase"].(string)
+							if toolName != "" {
+								log.Printf("agent tool %s: %s", phase, toolName)
+							}
+						}
+					}
+				}
+				continue
 			}
 		}
 	}
