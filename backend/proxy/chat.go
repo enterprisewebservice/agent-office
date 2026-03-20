@@ -214,11 +214,20 @@ func (gc *GatewayConnection) SendMessage(message string) (string, map[string]str
 		}
 
 		frameType, _ := frame["type"].(string)
+		event, _ := frame["event"].(string)
+		log.Printf("gateway frame: type=%s event=%s len=%d", frameType, event, len(msg))
 
 		switch frameType {
 		case "res":
-			// RPC response to our chat.send — contains the runId
-			// Continue reading for event frames with the actual content
+			// RPC response to our chat.send — check for errors
+			if ok, _ := frame["ok"].(bool); !ok {
+				errObj, _ := frame["error"].(map[string]interface{})
+				errMsg, _ := errObj["message"].(string)
+				if errMsg != "" {
+					log.Printf("chat.send error: %s", errMsg)
+					return "", nil, fmt.Errorf("gateway error: %s", errMsg)
+				}
+			}
 			continue
 
 		case "event":
