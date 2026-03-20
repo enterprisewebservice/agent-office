@@ -215,7 +215,7 @@ func (gc *GatewayConnection) SendMessage(message string) (string, map[string]str
 
 		frameType, _ := frame["type"].(string)
 		event, _ := frame["event"].(string)
-		log.Printf("gateway frame: type=%s event=%s len=%d", frameType, event, len(msg))
+		log.Printf("gateway frame: type=%s event=%s data=%s", frameType, event, string(msg[:min(len(msg), 300)]))
 
 		switch frameType {
 		case "res":
