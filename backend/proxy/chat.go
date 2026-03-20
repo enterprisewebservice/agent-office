@@ -53,10 +53,49 @@ type ChatSendArgs struct {
 
 // ChatEvent is the data payload in chat event frames.
 type ChatEvent struct {
-	State   string `json:"state"`   // "delta", "final", "error", "aborted"
-	Content string `json:"content"` // text content (for delta/final)
-	RunID   string `json:"runId,omitempty"`
-	Error   string `json:"error,omitempty"`
+	State        string       `json:"state"`        // "delta", "final", "error", "aborted"
+	Content      string       `json:"content"`      // text content (legacy)
+	Message      *ChatMessage `json:"message"`      // v3: structured message
+	RunID        string       `json:"runId,omitempty"`
+	Error        string       `json:"error,omitempty"`
+	ErrorMessage string       `json:"errorMessage,omitempty"`
+}
+
+// ChatMessage is the v3 message format inside chat events.
+type ChatMessage struct {
+	Role    string        `json:"role"`
+	Content []ContentPart `json:"content"`
+}
+
+// ContentPart is a typed content block.
+type ContentPart struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
+// GetText extracts text from a ChatEvent, handling both legacy and v3 formats.
+func (ce *ChatEvent) GetText() string {
+	if ce.Content != "" {
+		return ce.Content
+	}
+	if ce.Message != nil {
+		var parts []string
+		for _, p := range ce.Message.Content {
+			if p.Type == "text" && p.Text != "" {
+				parts = append(parts, p.Text)
+			}
+		}
+		return strings.Join(parts, "")
+	}
+	return ""
+}
+
+// GetError extracts error message from a ChatEvent.
+func (ce *ChatEvent) GetError() string {
+	if ce.ErrorMessage != "" {
+		return ce.ErrorMessage
+	}
+	return ce.Error
 }
 
 // GatewayConnection manages a WebSocket connection to an OpenClaw gateway.
@@ -263,17 +302,21 @@ func (gc *GatewayConnection) SendMessage(message string) (string, map[string]str
 
 				switch chatEvent.State {
 				case "delta":
-					fullContent.WriteString(chatEvent.Content)
+					text := chatEvent.GetText()
+					if text != "" {
+						fullContent.WriteString(text)
+					}
 				case "final":
-					if chatEvent.Content != "" {
-						return chatEvent.Content, metadata, nil
+					text := chatEvent.GetText()
+					if text != "" {
+						return text, metadata, nil
 					}
 					return fullContent.String(), metadata, nil
 				case "error":
 					if fullContent.Len() > 0 {
 						return fullContent.String(), metadata, nil
 					}
-					return "", nil, fmt.Errorf("agent error: %s", chatEvent.Error)
+					return "", nil, fmt.Errorf("agent error: %s", chatEvent.GetError())
 				case "aborted":
 					return fullContent.String(), metadata, nil
 				}
