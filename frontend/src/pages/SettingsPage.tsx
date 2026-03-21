@@ -18,7 +18,7 @@ import {
 import { CheckCircleIcon, ExclamationCircleIcon, KeyIcon } from '@patternfly/react-icons';
 
 import type { SmallModelRouter } from '../types';
-import { checkHealth, fetchRouters, fetchClaudeStatus, updateClaudeCredentials, startClaudeAuth, exchangeClaudeCode } from '../api';
+import { checkHealth, fetchRouters, fetchClaudeStatus, startClaudeAuth, exchangeClaudeCode } from '../api';
 import type { ClaudeStatus } from '../api';
 
 const SettingsPage: React.FC = () => {
