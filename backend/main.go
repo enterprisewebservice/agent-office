@@ -43,6 +43,7 @@ func main() {
 	// Initialize handlers
 	agentHandlers := handlers.NewAgentHandlers(clients, namespace, cache)
 	chatHandler := handlers.NewChatHandler(namespace, clients)
+	claudeHandler := handlers.NewClaudeHandler(namespace, clients)
 
 	// Set up routes using Go 1.22 path patterns
 	mux := http.NewServeMux()
@@ -58,6 +59,10 @@ func main() {
 
 	// WebSocket chat
 	mux.HandleFunc("GET /api/agents/{name}/chat", chatHandler.HandleChat)
+
+	// Claude subscription
+	mux.HandleFunc("GET /api/claude/status", claudeHandler.GetStatus)
+	mux.HandleFunc("POST /api/claude/credentials", claudeHandler.UpdateCredentials)
 
 	// Routers
 	mux.HandleFunc("GET /api/routers", agentHandlers.ListRouters)

@@ -44,6 +44,27 @@ export async function fetchRouters(): Promise<SmallModelRouter[]> {
   return handleResponse<SmallModelRouter[]>(response);
 }
 
+export interface ClaudeStatus {
+  connected: boolean;
+  accountId?: string;
+  hasRefreshToken: boolean;
+  secretExists: boolean;
+}
+
+export async function fetchClaudeStatus(): Promise<ClaudeStatus> {
+  const response = await fetch(`${API_BASE}/api/claude/status`);
+  return handleResponse<ClaudeStatus>(response);
+}
+
+export async function updateClaudeCredentials(credentials: object): Promise<{ ok: boolean; message: string }> {
+  const response = await fetch(`${API_BASE}/api/claude/credentials`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(credentials),
+  });
+  return handleResponse<{ ok: boolean; message: string }>(response);
+}
+
 export async function checkHealth(): Promise<boolean> {
   try {
     const response = await fetch(`${API_BASE}/healthz`);
