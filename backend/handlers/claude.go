@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -275,16 +276,18 @@ func (h *ClaudeHandler) ExchangeCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Exchange code for tokens
-	tokenReq := url.Values{
-		"grant_type":    {"authorization_code"},
-		"client_id":     {claudeClientID},
-		"code":          {req.Code},
-		"redirect_uri":  {claudeRedirectURI},
-		"code_verifier": {codeVerifier},
-	}
+	// Exchange code for tokens (Claude API expects JSON, not form-encoded)
+	tokenReqBody, _ := json.Marshal(map[string]string{
+		"grant_type":    "authorization_code",
+		"client_id":     claudeClientID,
+		"code":          req.Code,
+		"redirect_uri":  claudeRedirectURI,
+		"code_verifier": codeVerifier,
+	})
 
-	resp, err := http.PostForm(claudeTokenURL, tokenReq)
+	httpReq, _ := http.NewRequest("POST", claudeTokenURL, bytes.NewReader(tokenReqBody))
+	httpReq.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(httpReq)
 	if err != nil {
 		sendJSON(w, http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("token exchange failed: %v", err)})
 		return
