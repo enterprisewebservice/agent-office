@@ -208,59 +208,7 @@ func (h *ClaudeHandler) restartAgentPods() {
 	}
 }
 
-// authHelperScript is a Node.js script deployed to agent pods that manages
-// the claude auth login process with file-based IPC.
-const authHelperScript = `
-const { spawn } = require("child_process");
-const fs = require("fs");
-const mode = process.argv[2]; // "start" or "code"
-
-if (mode === "start") {
-  // Clean up old state
-  try { fs.unlinkSync("/tmp/claude-auth-url"); } catch {}
-  try { fs.unlinkSync("/tmp/claude-auth-code"); } catch {}
-  try { fs.unlinkSync("/tmp/claude-auth-result"); } catch {}
-
-  const proc = spawn("claude", ["auth", "login", "--claudeai"], {
-    env: { ...process.env, HOME: "/home/node", BROWSER: "echo", DISPLAY: "" },
-    stdio: ["pipe", "pipe", "pipe"]
-  });
-  let output = "";
-  proc.stdout.on("data", d => output += d.toString());
-  proc.stderr.on("data", d => output += d.toString());
-
-  // Wait for URL
-  const urlCheck = setInterval(() => {
-    const match = output.match(/https:\/\/[^\s]+oauth\/authorize[^\s]+/);
-    if (match) {
-      clearInterval(urlCheck);
-      fs.writeFileSync("/tmp/claude-auth-url", match[0]);
-      // Poll for code
-      const codeCheck = setInterval(() => {
-        try {
-          const code = fs.readFileSync("/tmp/claude-auth-code", "utf-8").trim();
-          if (code) { clearInterval(codeCheck); proc.stdin.write(code + "\\n"); proc.stdin.end(); }
-        } catch {}
-      }, 500);
-    }
-  }, 300);
-
-  proc.on("close", () => { fs.writeFileSync("/tmp/claude-auth-result", output); process.exit(0); });
-  setTimeout(() => { proc.kill(); process.exit(1); }, 120000);
-
-} else if (mode === "code") {
-  const code = process.argv[3];
-  fs.writeFileSync("/tmp/claude-auth-code", code);
-  // Wait for result
-  for (let i = 0; i < 30; i++) {
-    const { execSync } = require("child_process");
-    execSync("sleep 1");
-    try { const r = fs.readFileSync("/tmp/claude-auth-result", "utf-8"); if (r) { console.log(r); break; } } catch {}
-  }
-}
-`
-
-// StartAuth starts the auth helper in the pod and returns the auth URL.
+// StartAuth starts claude auth login in an agent pod and returns the auth URL.
 func (h *ClaudeHandler) StartAuth(w http.ResponseWriter, r *http.Request) {
 	pods, err := h.clients.Clientset.CoreV1().Pods(h.namespace).List(
 		context.Background(),
@@ -272,10 +220,20 @@ func (h *ClaudeHandler) StartAuth(w http.ResponseWriter, r *http.Request) {
 	}
 	podName := pods.Items[0].Name
 
-	// Deploy and start the helper script
-	scriptCmd := fmt.Sprintf("cat > /tmp/claude-auth-helper.js << 'NODESCRIPT'\n%s\nNODESCRIPT\nnode /tmp/claude-auth-helper.js start &\nsleep 5\ncat /tmp/claude-auth-url 2>/dev/null || echo ''", authHelperScript)
-
-	output, err := h.execInPod(podName, []string{"sh", "-c", scriptCmd})
+	// Start auth helper as detached background process, poll for URL file
+	output, err := h.execInPod(podName, []string{
+		"sh", "-c",
+		`rm -f /tmp/claude-auth-url /tmp/claude-auth-code /tmp/claude-auth-result; ` +
+			`node -e 'const{spawn:s}=require("child_process"),f=require("fs");` +
+			`const p=s("claude",["auth","login","--claudeai"],{env:{...process.env,HOME:"/home/node",BROWSER:"echo",DISPLAY:""},stdio:["pipe","pipe","pipe"]});` +
+			`let o="";p.stdout.on("data",d=>o+=d);p.stderr.on("data",d=>o+=d);` +
+			`const c=setInterval(()=>{const m=o.match(/https:\/\/[^\s]+oauth\/authorize[^\s]+/);if(m){clearInterval(c);f.writeFileSync("/tmp/claude-auth-url",m[0]);` +
+			`const cc=setInterval(()=>{try{const code=f.readFileSync("/tmp/claude-auth-code","utf-8").trim();if(code){clearInterval(cc);p.stdin.write(code+"\\n");p.stdin.end()}}catch{}},500)}},300);` +
+			`p.on("close",()=>{f.writeFileSync("/tmp/claude-auth-result",o)});` +
+			`setTimeout(()=>{p.kill();process.exit(1)},120000)' &` +
+			"\n" +
+			`for i in $(seq 1 15); do sleep 1; if [ -f /tmp/claude-auth-url ]; then cat /tmp/claude-auth-url; exit 0; fi; done; echo ""`,
+	})
 	if err != nil {
 		sendJSON(w, http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("failed to start auth: %v", err)})
 		return
@@ -319,10 +277,13 @@ func (h *ClaudeHandler) ExchangeCode(w http.ResponseWriter, r *http.Request) {
 
 	code := strings.TrimSpace(req.Code)
 
-	// Write code and wait for result
+	// Write code to file — the background Node process polls for it
 	output, _ := h.execInPod(podName, []string{
 		"sh", "-c",
-		fmt.Sprintf("node /tmp/claude-auth-helper.js code '%s'", strings.ReplaceAll(code, "'", "'\\''")),
+		fmt.Sprintf(
+			`echo '%s' > /tmp/claude-auth-code; for i in $(seq 1 20); do sleep 1; if [ -f /tmp/claude-auth-result ]; then cat /tmp/claude-auth-result; exit 0; fi; done; echo "timeout waiting for auth result"`,
+			strings.ReplaceAll(code, "'", "'\\''"),
+		),
 	})
 
 	log.Printf("claude auth exchange output: %s", output)
