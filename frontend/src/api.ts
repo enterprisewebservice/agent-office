@@ -49,6 +49,7 @@ export interface ClaudeStatus {
   accountId?: string;
   hasRefreshToken: boolean;
   secretExists: boolean;
+  expired?: boolean;
 }
 
 export async function fetchClaudeStatus(): Promise<ClaudeStatus> {

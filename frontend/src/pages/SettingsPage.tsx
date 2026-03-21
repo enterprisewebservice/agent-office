@@ -141,6 +141,10 @@ const SettingsPage: React.FC = () => {
                       <Label color="green" icon={<CheckCircleIcon />}>
                         Connected {claudeStatus.accountId ? `(${claudeStatus.accountId})` : ''}
                       </Label>
+                    ) : claudeStatus.expired ? (
+                      <Label color="orange" icon={<ExclamationCircleIcon />}>
+                        Expired — please reconnect
+                      </Label>
                     ) : (
                       <Label color="red" icon={<ExclamationCircleIcon />}>
                         Not Connected

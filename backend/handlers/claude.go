@@ -11,7 +11,9 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -60,6 +62,7 @@ type ClaudeStatus struct {
 	AccountID    string `json:"accountId,omitempty"`
 	HasRefresh   bool   `json:"hasRefreshToken"`
 	SecretExists bool   `json:"secretExists"`
+	Expired      bool   `json:"expired,omitempty"`
 }
 
 // GetStatus returns the current Claude subscription status.
@@ -93,10 +96,18 @@ func (h *ClaudeHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	hasTokens := creds.Tokens != nil && creds.Tokens.RefreshToken != ""
+	expired := false
+
+	if hasTokens && creds.Tokens.AccessToken != "" {
+		expired = isJWTExpired(creds.Tokens.AccessToken)
+	}
+
 	status := ClaudeStatus{
-		Connected:    creds.Tokens != nil && creds.Tokens.RefreshToken != "",
+		Connected:    hasTokens && !expired,
 		SecretExists: true,
-		HasRefresh:   creds.Tokens != nil && creds.Tokens.RefreshToken != "",
+		HasRefresh:   hasTokens,
+		Expired:      expired,
 	}
 	if creds.Tokens != nil && creds.Tokens.AccountID != "" {
 		status.AccountID = creds.Tokens.AccountID[:8] + "..."
@@ -365,6 +376,41 @@ func (h *ClaudeHandler) ExchangeCode(w http.ResponseWriter, r *http.Request) {
 		"accountId": tokenResp.AccountID[:8] + "...",
 		"message":   "Claude subscription connected! Agent pods are restarting with new credentials.",
 	})
+}
+
+// isJWTExpired decodes a JWT and checks if it's expired.
+func isJWTExpired(token string) bool {
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return true // Can't parse — treat as expired
+	}
+
+	// Decode payload (part 1), add padding if needed
+	payload := parts[1]
+	switch len(payload) % 4 {
+	case 2:
+		payload += "=="
+	case 3:
+		payload += "="
+	}
+
+	decoded, err := base64.URLEncoding.DecodeString(payload)
+	if err != nil {
+		return true
+	}
+
+	var claims struct {
+		Exp int64 `json:"exp"`
+	}
+	if err := json.Unmarshal(decoded, &claims); err != nil {
+		return true
+	}
+
+	if claims.Exp == 0 {
+		return true
+	}
+
+	return time.Now().Unix() > claims.Exp
 }
 
 func sendJSON(w http.ResponseWriter, status int, data interface{}) {
