@@ -294,6 +294,17 @@ func (h *ClaudeHandler) ExchangeCode(w http.ResponseWriter, r *http.Request) {
 	}
 
 	code := strings.TrimSpace(req.Code)
+	// Strip #state suffix if user copied the full callback URL or fragment
+	if idx := strings.Index(code, "#"); idx > 0 {
+		code = code[:idx]
+	}
+	// Strip URL prefix if user pasted the full callback URL
+	if strings.Contains(code, "?code=") {
+		parts := strings.SplitN(code, "?code=", 2)
+		if len(parts) == 2 {
+			code = strings.SplitN(parts[1], "&", 2)[0]
+		}
+	}
 
 	// Write code to file — the background Node process polls for it
 	output, _ := h.execInPod(podName, []string{
