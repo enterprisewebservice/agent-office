@@ -289,10 +289,7 @@ func (h *ClaudeHandler) ExchangeCode(w http.ResponseWriter, r *http.Request) {
 			`if(rs.statusCode!==200){console.log(JSON.stringify({error:'exchange_failed',status:rs.statusCode,body:d}));return}`+
 			`const t=JSON.parse(d);`+
 			`const cr={OPENAI_API_KEY:null,tokens:{id_token:t.id_token||'',access_token:t.access_token||'',refresh_token:t.refresh_token||'',account_id:t.account?.uuid||t.account_id||''}};`+
-			`try{f.mkdirSync('/home/node/.codex',{recursive:true})}catch{}`+
-			`f.writeFileSync('/home/node/.claude/.credentials.json',JSON.stringify(cr,null,2));`+
-			`f.writeFileSync('/home/node/.codex/auth.json',JSON.stringify(cr,null,2));`+
-			`console.log(JSON.stringify({ok:true,account_id:cr.tokens.account_id}))})});`+
+			`console.log(JSON.stringify({ok:true,account_id:cr.tokens.account_id,credentials:cr}))})});`+
 			`rq.on('error',e=>console.log(JSON.stringify({error:e.message})));`+
 			`rq.write(b);rq.end();`,
 		escapedCode)})
@@ -306,11 +303,12 @@ func (h *ClaudeHandler) ExchangeCode(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var result struct {
-		OK        bool   `json:"ok"`
-		AccountID string `json:"account_id"`
-		Error     string `json:"error"`
-		Status    int    `json:"status"`
-		Body      string `json:"body"`
+		OK          bool            `json:"ok"`
+		AccountID   string          `json:"account_id"`
+		Error       string          `json:"error"`
+		Status      int             `json:"status"`
+		Body        string          `json:"body"`
+		Credentials json.RawMessage `json:"credentials"`
 	}
 	if err := json.Unmarshal([]byte(output), &result); err != nil {
 		sendJSON(w, http.StatusBadGateway, map[string]string{"error": "unexpected response: " + output})
@@ -321,9 +319,7 @@ func (h *ClaudeHandler) ExchangeCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Read credentials written by the script
-	credOutput, _ := h.execInPod(podName, []string{"cat", "/home/node/.claude/.credentials.json"})
-	credJSON := []byte(strings.TrimSpace(credOutput))
+	credJSON := []byte(result.Credentials)
 
 	// Store in shared K8s secret
 	secret, sErr := h.clients.Clientset.CoreV1().Secrets(h.namespace).Get(context.Background(), claudeSecretName, metav1.GetOptions{})
