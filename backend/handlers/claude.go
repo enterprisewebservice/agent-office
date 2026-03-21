@@ -252,12 +252,8 @@ JS`, helperJS)})
 			break
 		}
 	}
-	var err error
 	if output == "" {
-		err = fmt.Errorf("timeout waiting for auth URL")
-	}
-	if err != nil {
-		sendJSON(w, http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("failed to start auth: %v", err)})
+		sendJSON(w, http.StatusInternalServerError, map[string]string{"error": "timeout waiting for auth URL"})
 		return
 	}
 
