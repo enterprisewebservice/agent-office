@@ -321,17 +321,26 @@ func (h *ClaudeHandler) ExchangeCode(w http.ResponseWriter, r *http.Request) {
 
 	credJSON := []byte(result.Credentials)
 
-	// Store in shared K8s secret
+	// Extract access_token for the oauth-token file mount
+	var parsedCreds ClaudeCredentials
+	json.Unmarshal(credJSON, &parsedCreds)
+	oauthToken := []byte("")
+	if parsedCreds.Tokens != nil && parsedCreds.Tokens.AccessToken != "" {
+		oauthToken = []byte(parsedCreds.Tokens.AccessToken)
+	}
+
+	// Store in shared K8s secret (both credentials.json and oauth-token)
 	secret, sErr := h.clients.Clientset.CoreV1().Secrets(h.namespace).Get(context.Background(), claudeSecretName, metav1.GetOptions{})
 	if sErr != nil {
 		secret = &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{Name: claudeSecretName, Namespace: h.namespace,
 				Labels: map[string]string{"app.kubernetes.io/managed-by": "agent-office", "agentoffice.ai/credential": "claude-subscription"}},
-			Data: map[string][]byte{"credentials.json": credJSON},
+			Data: map[string][]byte{"credentials.json": credJSON, "oauth-token": oauthToken},
 		}
 		_, sErr = h.clients.Clientset.CoreV1().Secrets(h.namespace).Create(context.Background(), secret, metav1.CreateOptions{})
 	} else {
 		secret.Data["credentials.json"] = credJSON
+		secret.Data["oauth-token"] = oauthToken
 		_, sErr = h.clients.Clientset.CoreV1().Secrets(h.namespace).Update(context.Background(), secret, metav1.UpdateOptions{})
 	}
 	if sErr != nil {
