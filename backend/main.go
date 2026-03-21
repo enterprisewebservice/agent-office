@@ -63,6 +63,8 @@ func main() {
 	// Claude subscription
 	mux.HandleFunc("GET /api/claude/status", claudeHandler.GetStatus)
 	mux.HandleFunc("POST /api/claude/credentials", claudeHandler.UpdateCredentials)
+	mux.HandleFunc("POST /api/claude/auth/start", claudeHandler.StartAuth)
+	mux.HandleFunc("POST /api/claude/auth/exchange", claudeHandler.ExchangeCode)
 
 	// Routers
 	mux.HandleFunc("GET /api/routers", agentHandlers.ListRouters)

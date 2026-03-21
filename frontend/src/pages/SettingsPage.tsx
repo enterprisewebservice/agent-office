@@ -18,7 +18,7 @@ import {
 import { CheckCircleIcon, ExclamationCircleIcon, KeyIcon } from '@patternfly/react-icons';
 
 import type { SmallModelRouter } from '../types';
-import { checkHealth, fetchRouters, fetchClaudeStatus, updateClaudeCredentials } from '../api';
+import { checkHealth, fetchRouters, fetchClaudeStatus, updateClaudeCredentials, startClaudeAuth, exchangeClaudeCode } from '../api';
 import type { ClaudeStatus } from '../api';
 
 const SettingsPage: React.FC = () => {
@@ -27,9 +27,10 @@ const SettingsPage: React.FC = () => {
   const [routersLoading, setRoutersLoading] = useState(true);
   const [routersError, setRoutersError] = useState<string | null>(null);
   const [claudeStatus, setClaudeStatus] = useState<ClaudeStatus | null>(null);
-  const [claudeCredInput, setClaudeCredInput] = useState('');
+  const [claudeAuthStep, setClaudeAuthStep] = useState<'idle' | 'waiting' | 'code'>('idle');
+  const [claudeCodeInput, setClaudeCodeInput] = useState('');
   const [claudeSaving, setClaudeSaving] = useState(false);
-  const [claudeMessage, setClaudeMessage] = useState<{ type: 'success' | 'danger'; text: string } | null>(null);
+  const [claudeMessage, setClaudeMessage] = useState<{ type: 'success' | 'danger' | 'info'; text: string } | null>(null);
 
   const loadClaudeStatus = () => {
     fetchClaudeStatus()
@@ -37,20 +38,34 @@ const SettingsPage: React.FC = () => {
       .catch(() => setClaudeStatus({ connected: false, hasRefreshToken: false, secretExists: false }));
   };
 
-  const handleSaveCredentials = async () => {
+  const handleStartAuth = async () => {
+    setClaudeMessage(null);
+    setClaudeAuthStep('waiting');
+    try {
+      const result = await startClaudeAuth();
+      window.open(result.authUrl, '_blank');
+      setClaudeAuthStep('code');
+      setClaudeMessage({
+        type: 'info',
+        text: 'A new tab opened for Claude authentication. After signing in, copy the authorization code and paste it below.',
+      });
+    } catch (err) {
+      setClaudeMessage({ type: 'danger', text: err instanceof Error ? err.message : 'Failed to start auth' });
+      setClaudeAuthStep('idle');
+    }
+  };
+
+  const handleExchangeCode = async () => {
     setClaudeSaving(true);
     setClaudeMessage(null);
     try {
-      const parsed = JSON.parse(claudeCredInput);
-      const result = await updateClaudeCredentials(parsed);
-      setClaudeMessage({ type: 'success', text: result.message || 'Credentials saved successfully.' });
-      setClaudeCredInput('');
+      const result = await exchangeClaudeCode(claudeCodeInput.trim());
+      setClaudeMessage({ type: 'success', text: result.message || 'Claude subscription connected!' });
+      setClaudeCodeInput('');
+      setClaudeAuthStep('idle');
       loadClaudeStatus();
     } catch (err) {
-      setClaudeMessage({
-        type: 'danger',
-        text: err instanceof Error ? err.message : 'Failed to save credentials',
-      });
+      setClaudeMessage({ type: 'danger', text: err instanceof Error ? err.message : 'Failed to exchange code' });
     } finally {
       setClaudeSaving(false);
     }
@@ -136,37 +151,50 @@ const SettingsPage: React.FC = () => {
               </DescriptionList>
 
               <div style={{ marginTop: '1rem' }}>
-                <p style={{ marginBottom: '0.5rem', fontSize: '0.875rem' }}>
-                  To connect your Claude Max subscription, run <code>claude auth login</code> on your
-                  local machine, then paste the contents of <code>~/.codex/auth.json</code> below.
-                  All agents will use this shared subscription.
+                <p style={{ marginBottom: '0.75rem', fontSize: '0.875rem' }}>
+                  Connect your Claude Max/Pro subscription. All agents will use this shared subscription
+                  for Claude Code access.
                 </p>
-                <TextArea
-                  aria-label="Claude credentials JSON"
-                  placeholder='Paste contents of ~/.codex/auth.json here...'
-                  value={claudeCredInput}
-                  onChange={(_e, val) => setClaudeCredInput(val)}
-                  rows={4}
-                  style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}
-                />
-                <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                  <Button
-                    variant="primary"
-                    icon={<KeyIcon />}
-                    onClick={handleSaveCredentials}
-                    isDisabled={!claudeCredInput.trim() || claudeSaving}
-                    isLoading={claudeSaving}
-                  >
-                    Save Credentials
+
+                {claudeAuthStep === 'idle' && (
+                  <Button variant="primary" icon={<KeyIcon />} onClick={handleStartAuth}>
+                    {claudeStatus?.connected ? 'Reconnect Subscription' : 'Connect Claude Subscription'}
                   </Button>
-                </div>
+                )}
+
+                {claudeAuthStep === 'code' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    <TextArea
+                      aria-label="Authorization code"
+                      placeholder="Paste the authorization code from Claude here..."
+                      value={claudeCodeInput}
+                      onChange={(_e, val) => setClaudeCodeInput(val)}
+                      rows={2}
+                      style={{ fontFamily: 'monospace' }}
+                    />
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      <Button
+                        variant="primary"
+                        onClick={handleExchangeCode}
+                        isDisabled={!claudeCodeInput.trim() || claudeSaving}
+                        isLoading={claudeSaving}
+                      >
+                        Submit Code
+                      </Button>
+                      <Button variant="link" onClick={() => { setClaudeAuthStep('idle'); setClaudeMessage(null); }}>
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
                 {claudeMessage && (
                   <Alert
                     variant={claudeMessage.type}
                     title={claudeMessage.text}
                     isInline
                     isPlain
-                    style={{ marginTop: '0.5rem' }}
+                    style={{ marginTop: '0.75rem' }}
                   />
                 )}
               </div>
