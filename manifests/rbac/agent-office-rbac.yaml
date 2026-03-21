@@ -27,6 +27,7 @@ rules:
   - apiGroups: [""]
     resources:
       - pods
+      - pods/exec
       - services
       - configmaps
       - secrets
