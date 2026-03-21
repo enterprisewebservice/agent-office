@@ -373,10 +373,11 @@ func (h *ClaudeHandler) execInPod(podName string, command []string) (string, err
 }
 
 // isJWTExpired decodes a JWT and checks if it's expired.
+// Returns false for non-JWT tokens (opaque tokens like sk-ant-*) — assumed valid.
 func isJWTExpired(token string) bool {
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {
-		return true // Can't parse — treat as expired
+		return false // Not a JWT (opaque token) — assume valid
 	}
 
 	// Decode payload (part 1), add padding if needed
