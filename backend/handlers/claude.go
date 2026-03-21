@@ -220,20 +220,42 @@ func (h *ClaudeHandler) StartAuth(w http.ResponseWriter, r *http.Request) {
 	}
 	podName := pods.Items[0].Name
 
-	// Start auth helper as detached background process, poll for URL file
-	output, err := h.execInPod(podName, []string{
-		"sh", "-c",
-		`rm -f /tmp/claude-auth-url /tmp/claude-auth-code /tmp/claude-auth-result; ` +
-			`node -e 'const{spawn:s}=require("child_process"),f=require("fs");` +
-			`const p=s("claude",["auth","login","--claudeai"],{env:{...process.env,HOME:"/home/node",BROWSER:"echo",DISPLAY:""},stdio:["pipe","pipe","pipe"]});` +
-			`let o="";p.stdout.on("data",d=>o+=d);p.stderr.on("data",d=>o+=d);` +
-			`const c=setInterval(()=>{const m=o.match(/https:\/\/[^\s]+oauth\/authorize[^\s]+/);if(m){clearInterval(c);f.writeFileSync("/tmp/claude-auth-url",m[0]);` +
-			`const cc=setInterval(()=>{try{const code=f.readFileSync("/tmp/claude-auth-code","utf-8").trim();if(code){clearInterval(cc);p.stdin.write(code+"\\n");p.stdin.end()}}catch{}},500)}},300);` +
-			`p.on("close",()=>{f.writeFileSync("/tmp/claude-auth-result",o)});` +
-			`setTimeout(()=>{p.kill();process.exit(1)},120000)' &` +
-			"\n" +
-			`for i in $(seq 1 15); do sleep 1; if [ -f /tmp/claude-auth-url ]; then cat /tmp/claude-auth-url; exit 0; fi; done; echo ""`,
-	})
+	// Two-step approach: first deploy the helper script, then start it detached
+	// Step 1: Write the helper script to the pod
+	helperJS := `const{spawn:s}=require("child_process"),f=require("fs");` +
+		`try{f.unlinkSync("/tmp/claude-auth-url")}catch{}` +
+		`try{f.unlinkSync("/tmp/claude-auth-code")}catch{}` +
+		`try{f.unlinkSync("/tmp/claude-auth-result")}catch{}` +
+		`const p=s("claude",["auth","login","--claudeai"],{env:{...process.env,HOME:"/home/node",BROWSER:"echo",DISPLAY:""},stdio:["pipe","pipe","pipe"]});` +
+		`let o="";p.stdout.on("data",d=>o+=d);p.stderr.on("data",d=>o+=d);` +
+		`const c=setInterval(()=>{const m=o.match(/https:\/\/[^\s]+oauth\/authorize[^\s]+/);if(m){clearInterval(c);f.writeFileSync("/tmp/claude-auth-url",m[0]);` +
+		`const cc=setInterval(()=>{try{const code=f.readFileSync("/tmp/claude-auth-code","utf-8").trim();if(code){clearInterval(cc);p.stdin.write(code+"\\n");p.stdin.end()}}catch{}},500)}},300);` +
+		`p.on("close",()=>{f.writeFileSync("/tmp/claude-auth-result",o)});` +
+		`setTimeout(()=>{p.kill();process.exit(1)},120000);`
+
+	h.execInPod(podName, []string{"sh", "-c", fmt.Sprintf(`cat > /tmp/claude-auth.js << 'JS'
+%s
+JS`, helperJS)})
+
+	// Step 2: Start it fully detached (nohup + close all fds + &)
+	h.execInPod(podName, []string{"sh", "-c",
+		"nohup node /tmp/claude-auth.js > /dev/null 2>&1 &"})
+
+	// Step 3: Poll for the URL file (fast, no background process in this exec)
+	output := ""
+	for i := 0; i < 15; i++ {
+		time.Sleep(time.Second)
+		out, _ := h.execInPod(podName, []string{"sh", "-c", "cat /tmp/claude-auth-url 2>/dev/null"})
+		out = strings.TrimSpace(out)
+		if strings.Contains(out, "oauth/authorize") {
+			output = out
+			break
+		}
+	}
+	var err error
+	if output == "" {
+		err = fmt.Errorf("timeout waiting for auth URL")
+	}
 	if err != nil {
 		sendJSON(w, http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("failed to start auth: %v", err)})
 		return
