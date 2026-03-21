@@ -1,17 +1,14 @@
 package handlers
 
 import (
-	"bytes"
 	"context"
-	"crypto/rand"
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
-	"net/url"
+	"os"
+	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -211,53 +208,69 @@ func (h *ClaudeHandler) restartAgentPods() {
 	}
 }
 
-// StartAuth initiates the OAuth flow and returns the authorization URL.
+// StartAuth runs `claude auth login` in an agent pod, captures the auth URL,
+// and stores the CLI process for later code submission.
 func (h *ClaudeHandler) StartAuth(w http.ResponseWriter, r *http.Request) {
-	// Generate PKCE code verifier (43-128 chars, URL-safe)
-	verifierBytes := make([]byte, 32)
-	if _, err := rand.Read(verifierBytes); err != nil {
-		sendJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to generate verifier"})
+	// Find an agent pod to run claude auth login in
+	pods, err := h.clients.Clientset.CoreV1().Pods(h.namespace).List(
+		context.Background(),
+		metav1.ListOptions{LabelSelector: "agentoffice.ai/agent"},
+	)
+	if err != nil || len(pods.Items) == 0 {
+		sendJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "no agent pods available to run auth"})
 		return
 	}
-	codeVerifier := base64.RawURLEncoding.EncodeToString(verifierBytes)
 
-	// Generate code challenge (S256)
-	hash := sha256.Sum256([]byte(codeVerifier))
-	codeChallenge := base64.RawURLEncoding.EncodeToString(hash[:])
+	podName := pods.Items[0].Name
 
-	// Generate state parameter
-	stateBytes := make([]byte, 32)
-	rand.Read(stateBytes)
-	state := base64.RawURLEncoding.EncodeToString(stateBytes)
-
-	// Store verifier for the callback
-	h.mu.Lock()
-	h.codeVerifier = codeVerifier
-	h.mu.Unlock()
-
-	// Build authorization URL
-	params := url.Values{
-		"code":                  {"true"},
-		"client_id":             {claudeClientID},
-		"response_type":         {"code"},
-		"redirect_uri":          {claudeRedirectURI},
-		"scope":                 {claudeScope},
-		"code_challenge":        {codeChallenge},
-		"code_challenge_method": {"S256"},
-		"state":                 {state},
+	// Execute claude auth login in the pod and capture the auth URL
+	// We use kubectl exec to start the process and capture the URL from stdout
+	output, err := h.execInPod(podName, []string{
+		"sh", "-c",
+		"HOME=/home/node BROWSER=echo DISPLAY= timeout 5 claude auth login --claudeai 2>&1 || true",
+	})
+	if err != nil {
+		sendJSON(w, http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("failed to start auth: %v", err)})
+		return
 	}
 
-	authURL := claudeAuthURL + "?" + params.Encode()
+	// Extract the auth URL from the output
+	authURL := ""
+	for _, line := range strings.Split(output, "\n") {
+		if strings.Contains(line, "claude.ai/oauth/authorize") || strings.Contains(line, "platform.claude.com/oauth") {
+			// Find the URL in the line
+			for _, word := range strings.Fields(line) {
+				if strings.HasPrefix(word, "https://") {
+					authURL = word
+					break
+				}
+			}
+		}
+	}
 
-	log.Printf("claude auth flow started")
+	if authURL == "" {
+		sendJSON(w, http.StatusInternalServerError, map[string]string{
+			"error": "could not extract auth URL from claude CLI output",
+			"output": output,
+		})
+		return
+	}
+
+	// Store the pod name for the code exchange step
+	h.mu.Lock()
+	h.codeVerifier = podName // Reuse field to store pod name
+	h.mu.Unlock()
+
+	log.Printf("claude auth flow started, URL generated")
 
 	sendJSON(w, http.StatusOK, map[string]string{
 		"authUrl": authURL,
-		"message": "Open this URL to authenticate with your Claude subscription. After authenticating, you'll receive a code — paste it back here.",
+		"message": "Open this URL to authenticate with your Claude subscription. After signing in, copy the authorization code and paste it below.",
 	})
 }
 
-// ExchangeCode exchanges an authorization code for tokens and stores them.
+// ExchangeCode feeds the authorization code to `claude auth login` running in the pod,
+// then reads the resulting credentials and stores them in the shared secret.
 func (h *ClaudeHandler) ExchangeCode(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Code string `json:"code"`
@@ -268,72 +281,60 @@ func (h *ClaudeHandler) ExchangeCode(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.mu.Lock()
-	codeVerifier := h.codeVerifier
+	podName := h.codeVerifier
 	h.mu.Unlock()
 
-	if codeVerifier == "" {
+	if podName == "" {
 		sendJSON(w, http.StatusBadRequest, map[string]string{"error": "no auth flow in progress — click 'Connect' first"})
 		return
 	}
 
-	// Exchange code for tokens (Claude API expects JSON, not form-encoded)
-	tokenReqBody, _ := json.Marshal(map[string]string{
-		"grant_type":    "authorization_code",
-		"client_id":     claudeClientID,
-		"code":          req.Code,
-		"redirect_uri":  claudeRedirectURI,
-		"code_verifier": codeVerifier,
+	// Run claude auth login with the code piped to stdin
+	// The CLI reads the code from stdin when browser isn't available
+	output, err := h.execInPod(podName, []string{
+		"sh", "-c",
+		fmt.Sprintf(`echo '%s' | HOME=/home/node BROWSER=echo DISPLAY= claude auth login --claudeai 2>&1; echo "EXIT:$?"`, strings.ReplaceAll(req.Code, "'", "\\'")),
 	})
 
-	httpReq, _ := http.NewRequest("POST", claudeTokenURL, bytes.NewReader(tokenReqBody))
-	httpReq.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(httpReq)
+	log.Printf("claude auth exchange output: %s", output)
+
 	if err != nil {
-		sendJSON(w, http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("token exchange failed: %v", err)})
+		sendJSON(w, http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("auth exchange failed: %v", err)})
 		return
 	}
-	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(resp.Body)
+	// Check if auth succeeded by reading the credentials file
+	credOutput, err := h.execInPod(podName, []string{
+		"sh", "-c",
+		"cat /home/node/.claude/.credentials.json 2>/dev/null || cat /home/node/.codex/auth.json 2>/dev/null || echo '{}'",
+	})
+	if err != nil {
+		sendJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to read credentials after auth"})
+		return
+	}
 
-	if resp.StatusCode != 200 {
+	// Validate the credentials have fresh tokens
+	var creds ClaudeCredentials
+	if err := json.Unmarshal([]byte(credOutput), &creds); err != nil || creds.Tokens == nil || creds.Tokens.RefreshToken == "" {
 		sendJSON(w, http.StatusBadGateway, map[string]string{
-			"error": fmt.Sprintf("token exchange returned %d: %s", resp.StatusCode, string(body)),
+			"error":  "authentication did not produce valid credentials",
+			"output": output,
 		})
 		return
 	}
 
-	// Parse token response
-	var tokenResp struct {
-		IDToken      string `json:"id_token"`
-		AccessToken  string `json:"access_token"`
-		RefreshToken string `json:"refresh_token"`
-		AccountID    string `json:"account_id"`
-	}
-	if err := json.Unmarshal(body, &tokenResp); err != nil {
-		sendJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to parse token response"})
+	// Check if the access token is fresh (not expired)
+	if creds.Tokens.AccessToken != "" && isJWTExpired(creds.Tokens.AccessToken) {
+		sendJSON(w, http.StatusBadGateway, map[string]string{
+			"error":  "authentication produced expired tokens — please try again",
+			"output": output,
+		})
 		return
 	}
 
-	if tokenResp.RefreshToken == "" {
-		sendJSON(w, http.StatusBadGateway, map[string]string{"error": "no refresh token received — authentication may have failed"})
-		return
-	}
-
-	// Build credentials in Claude Code format
-	creds := map[string]interface{}{
-		"OPENAI_API_KEY": nil,
-		"tokens": map[string]string{
-			"id_token":      tokenResp.IDToken,
-			"access_token":  tokenResp.AccessToken,
-			"refresh_token": tokenResp.RefreshToken,
-			"account_id":    tokenResp.AccountID,
-		},
-	}
-
+	// Store in K8s shared secret
 	credJSON, _ := json.Marshal(creds)
 
-	// Store in K8s secret
 	secret, err := h.clients.Clientset.CoreV1().Secrets(h.namespace).Get(
 		context.Background(), claudeSecretName, metav1.GetOptions{},
 	)
@@ -364,21 +365,39 @@ func (h *ClaudeHandler) ExchangeCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Clear the verifier
 	h.mu.Lock()
 	h.codeVerifier = ""
 	h.mu.Unlock()
 
-	log.Printf("claude subscription connected (account: %s)", tokenResp.AccountID[:8])
+	accountID := "unknown"
+	if creds.Tokens.AccountID != "" && len(creds.Tokens.AccountID) > 8 {
+		accountID = creds.Tokens.AccountID[:8] + "..."
+	}
 
-	// Restart agent pods
+	log.Printf("claude subscription connected (account: %s)", accountID)
 	go h.restartAgentPods()
 
 	sendJSON(w, http.StatusOK, map[string]interface{}{
 		"ok":        true,
-		"accountId": tokenResp.AccountID[:8] + "...",
+		"accountId": accountID,
 		"message":   "Claude subscription connected! Agent pods are restarting with new credentials.",
 	})
+}
+
+// execInPod runs a command in an agent pod using kubectl exec.
+func (h *ClaudeHandler) execInPod(podName string, command []string) (string, error) {
+	args := []string{
+		"exec", podName,
+		"-n", h.namespace,
+		"-c", "openclaw",
+		"--",
+	}
+	args = append(args, command...)
+
+	cmd := exec.CommandContext(context.Background(), "kubectl", args...)
+	cmd.Env = append(os.Environ(), "KUBECONFIG=") // Use in-cluster config
+	output, err := cmd.CombinedOutput()
+	return string(output), err
 }
 
 // isJWTExpired decodes a JWT and checks if it's expired.

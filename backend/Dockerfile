@@ -15,10 +15,15 @@ COPY backend/ backend/
 RUN go mod tidy && \
     CGO_ENABLED=0 GOOS=linux GOARCH=$TARGETARCH go build -o server ./backend/
 
+# Download kubectl for the target architecture
+RUN curl -Lo /tmp/kubectl "https://dl.k8s.io/release/$(curl -Ls https://dl.k8s.io/release/stable.txt)/bin/linux/${TARGETARCH}/kubectl" && \
+    chmod +x /tmp/kubectl
+
 # Final: amd64 image for OpenShift
 FROM --platform=linux/amd64 gcr.io/distroless/static:nonroot
 WORKDIR /app
 COPY --from=builder /build/server /app/server
+COPY --from=builder /tmp/kubectl /usr/local/bin/kubectl
 COPY --from=builder /build/backend/templates/*.tmpl /app/templates/
 COPY --from=frontend /frontend/dist /app/static/
 EXPOSE 8080
