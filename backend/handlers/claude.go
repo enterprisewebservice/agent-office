@@ -208,7 +208,8 @@ func (h *ClaudeHandler) restartAgentPods() {
 	}
 }
 
-// StartAuth starts claude auth login in an agent pod and returns the auth URL.
+// StartAuth generates a PKCE pair and auth URL using Node in an agent pod.
+// No CLI auth process needed — we handle PKCE and token exchange ourselves.
 func (h *ClaudeHandler) StartAuth(w http.ResponseWriter, r *http.Request) {
 	pods, err := h.clients.Clientset.CoreV1().Pods(h.namespace).List(
 		context.Background(),
@@ -220,46 +221,23 @@ func (h *ClaudeHandler) StartAuth(w http.ResponseWriter, r *http.Request) {
 	}
 	podName := pods.Items[0].Name
 
-	// Two-step approach: first deploy the helper script, then start it detached
-	// Step 1: Write the helper script to the pod
-	helperJS := `const{spawn:s}=require("child_process"),f=require("fs");` +
-		`try{f.unlinkSync("/tmp/claude-auth-url")}catch{}` +
-		`try{f.unlinkSync("/tmp/claude-auth-code")}catch{}` +
-		`try{f.unlinkSync("/tmp/claude-auth-result")}catch{}` +
-		`const p=s("claude",["auth","login","--claudeai"],{env:{...process.env,HOME:"/home/node",BROWSER:"echo",DISPLAY:""},stdio:["pipe","pipe","pipe"]});` +
-		`let o="";p.stdout.on("data",d=>o+=d);p.stderr.on("data",d=>o+=d);` +
-		`const c=setInterval(()=>{const m=o.match(/https:\/\/[^\s]+oauth\/authorize[^\s]+/);if(m){clearInterval(c);f.writeFileSync("/tmp/claude-auth-url",m[0]);` +
-		`const cc=setInterval(()=>{try{const code=f.readFileSync("/tmp/claude-auth-code","utf-8").trim();if(code){clearInterval(cc);p.stdin.write(code+"\\n");p.stdin.end()}}catch{}},500)}},300);` +
-		`p.on("close",()=>{f.writeFileSync("/tmp/claude-auth-result",o)});` +
-		`setTimeout(()=>{p.kill();process.exit(1)},120000);`
-
-	h.execInPod(podName, []string{"sh", "-c", fmt.Sprintf(`cat > /tmp/claude-auth.js << 'JS'
-%s
-JS`, helperJS)})
-
-	// Step 2: Start it fully detached (nohup + close all fds + &)
-	h.execInPod(podName, []string{"sh", "-c",
-		"nohup node /tmp/claude-auth.js > /dev/null 2>&1 &"})
-
-	// Step 3: Poll for the URL file (fast, no background process in this exec)
-	output := ""
-	for i := 0; i < 15; i++ {
-		time.Sleep(time.Second)
-		out, _ := h.execInPod(podName, []string{"sh", "-c", "cat /tmp/claude-auth-url 2>/dev/null"})
-		out = strings.TrimSpace(out)
-		if strings.Contains(out, "oauth/authorize") {
-			output = out
-			break
-		}
-	}
-	if output == "" {
-		sendJSON(w, http.StatusInternalServerError, map[string]string{"error": "timeout waiting for auth URL"})
+	output, err := h.execInPod(podName, []string{"node", "-e",
+		`const c=require('crypto'),f=require('fs');` +
+			`const v=c.randomBytes(32).toString('base64url');` +
+			`const ch=c.createHash('sha256').update(v).digest('base64url');` +
+			`const s=c.randomBytes(32).toString('base64url');` +
+			`const p=new URLSearchParams({code:'true',client_id:'9d1c250a-e61b-44d9-88ed-5944d1962f5e',response_type:'code',redirect_uri:'https://platform.claude.com/oauth/code/callback',scope:'org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload',code_challenge:ch,code_challenge_method:'S256',state:s});` +
+			`f.writeFileSync('/tmp/claude-pkce-verifier',v);f.writeFileSync('/tmp/claude-pkce-state',s);` +
+			`console.log('https://claude.ai/oauth/authorize?'+p.toString());`,
+	})
+	if err != nil {
+		sendJSON(w, http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("failed to generate auth URL: %v", err)})
 		return
 	}
 
 	authURL := strings.TrimSpace(output)
-	if authURL == "" || !strings.Contains(authURL, "oauth/authorize") {
-		sendJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not get auth URL", "output": output})
+	if !strings.Contains(authURL, "oauth/authorize") {
+		sendJSON(w, http.StatusInternalServerError, map[string]string{"error": "invalid auth URL", "output": output})
 		return
 	}
 
@@ -274,7 +252,8 @@ JS`, helperJS)})
 	})
 }
 
-// ExchangeCode writes the code to the helper and waits for credentials.
+// ExchangeCode exchanges the auth code for tokens using the stored PKCE verifier.
+// Calls the token endpoint directly via Node HTTPS — no CLI needed.
 func (h *ClaudeHandler) ExchangeCode(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Code string `json:"code"`
@@ -294,70 +273,73 @@ func (h *ClaudeHandler) ExchangeCode(w http.ResponseWriter, r *http.Request) {
 	}
 
 	code := strings.TrimSpace(req.Code)
-	// Strip #state suffix if user copied the full callback URL or fragment
 	if idx := strings.Index(code, "#"); idx > 0 {
 		code = code[:idx]
 	}
-	// Strip URL prefix if user pasted the full callback URL
-	if strings.Contains(code, "?code=") {
-		parts := strings.SplitN(code, "?code=", 2)
-		if len(parts) == 2 {
-			code = strings.SplitN(parts[1], "&", 2)[0]
-		}
-	}
 
-	// Write code to file — the background Node process polls for it
-	output, _ := h.execInPod(podName, []string{
-		"sh", "-c",
-		fmt.Sprintf(
-			`echo '%s' > /tmp/claude-auth-code; for i in $(seq 1 20); do sleep 1; if [ -f /tmp/claude-auth-result ]; then cat /tmp/claude-auth-result; exit 0; fi; done; echo "timeout waiting for auth result"`,
-			strings.ReplaceAll(code, "'", "'\\''"),
-		),
-	})
+	// Exchange code for tokens via direct HTTPS call in the pod
+	escapedCode := strings.ReplaceAll(code, "'", "\\'")
+	output, err := h.execInPod(podName, []string{"node", "-e", fmt.Sprintf(
+		`const f=require('fs'),https=require('https');`+
+			`const v=f.readFileSync('/tmp/claude-pkce-verifier','utf-8').trim();`+
+			`const s=f.readFileSync('/tmp/claude-pkce-state','utf-8').trim();`+
+			`const b=JSON.stringify({grant_type:'authorization_code',code:'%s',redirect_uri:'https://platform.claude.com/oauth/code/callback',client_id:'9d1c250a-e61b-44d9-88ed-5944d1962f5e',code_verifier:v,state:s});`+
+			`const rq=https.request('https://platform.claude.com/v1/oauth/token',{method:'POST',headers:{'Content-Type':'application/json','Content-Length':Buffer.byteLength(b)}},rs=>{`+
+			`let d='';rs.on('data',c=>d+=c);rs.on('end',()=>{`+
+			`if(rs.statusCode!==200){console.log(JSON.stringify({error:'exchange_failed',status:rs.statusCode,body:d}));return}`+
+			`const t=JSON.parse(d);`+
+			`const cr={OPENAI_API_KEY:null,tokens:{id_token:t.id_token||'',access_token:t.access_token||'',refresh_token:t.refresh_token||'',account_id:t.account?.uuid||t.account_id||''}};`+
+			`try{f.mkdirSync('/home/node/.codex',{recursive:true})}catch{}`+
+			`f.writeFileSync('/home/node/.claude/.credentials.json',JSON.stringify(cr,null,2));`+
+			`f.writeFileSync('/home/node/.codex/auth.json',JSON.stringify(cr,null,2));`+
+			`console.log(JSON.stringify({ok:true,account_id:cr.tokens.account_id}))})});`+
+			`rq.on('error',e=>console.log(JSON.stringify({error:e.message})));`+
+			`rq.write(b);rq.end();`,
+		escapedCode)})
 
-	log.Printf("claude auth exchange output: %s", output)
+	output = strings.TrimSpace(output)
+	log.Printf("claude auth exchange result: %s", output)
 
-	// Read credentials
-	credOutput, err := h.execInPod(podName, []string{
-		"sh", "-c",
-		"cat /home/node/.claude/.credentials.json 2>/dev/null || cat /home/node/.codex/auth.json 2>/dev/null || echo '{}'",
-	})
 	if err != nil {
-		sendJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to read credentials"})
+		sendJSON(w, http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("exchange failed: %v — %s", err, output)})
 		return
 	}
 
-	var creds ClaudeCredentials
-	if err := json.Unmarshal([]byte(credOutput), &creds); err != nil || creds.Tokens == nil || creds.Tokens.RefreshToken == "" {
-		sendJSON(w, http.StatusBadGateway, map[string]string{"error": "authentication did not produce valid credentials — try again", "output": output})
+	var result struct {
+		OK        bool   `json:"ok"`
+		AccountID string `json:"account_id"`
+		Error     string `json:"error"`
+		Status    int    `json:"status"`
+		Body      string `json:"body"`
+	}
+	if err := json.Unmarshal([]byte(output), &result); err != nil {
+		sendJSON(w, http.StatusBadGateway, map[string]string{"error": "unexpected response: " + output})
+		return
+	}
+	if result.Error != "" {
+		sendJSON(w, http.StatusBadGateway, map[string]string{"error": fmt.Sprintf("%s (status %d): %s", result.Error, result.Status, result.Body)})
 		return
 	}
 
-	if creds.Tokens.AccessToken != "" && isJWTExpired(creds.Tokens.AccessToken) {
-		sendJSON(w, http.StatusBadGateway, map[string]string{"error": "tokens still expired — authentication may have failed", "output": output})
-		return
-	}
+	// Read credentials written by the script
+	credOutput, _ := h.execInPod(podName, []string{"cat", "/home/node/.claude/.credentials.json"})
+	credJSON := []byte(strings.TrimSpace(credOutput))
 
-	// Store in shared secret
-	credJSON, _ := json.Marshal(creds)
-	secret, err := h.clients.Clientset.CoreV1().Secrets(h.namespace).Get(
-		context.Background(), claudeSecretName, metav1.GetOptions{},
-	)
-	if err != nil {
+	// Store in shared K8s secret
+	secret, sErr := h.clients.Clientset.CoreV1().Secrets(h.namespace).Get(context.Background(), claudeSecretName, metav1.GetOptions{})
+	if sErr != nil {
 		secret = &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: claudeSecretName, Namespace: h.namespace,
-				Labels: map[string]string{"app.kubernetes.io/managed-by": "agent-office", "agentoffice.ai/credential": "claude-subscription"},
-			},
+			ObjectMeta: metav1.ObjectMeta{Name: claudeSecretName, Namespace: h.namespace,
+				Labels: map[string]string{"app.kubernetes.io/managed-by": "agent-office", "agentoffice.ai/credential": "claude-subscription"}},
 			Data: map[string][]byte{"credentials.json": credJSON},
 		}
-		_, err = h.clients.Clientset.CoreV1().Secrets(h.namespace).Create(context.Background(), secret, metav1.CreateOptions{})
+		_, sErr = h.clients.Clientset.CoreV1().Secrets(h.namespace).Create(context.Background(), secret, metav1.CreateOptions{})
 	} else {
 		secret.Data["credentials.json"] = credJSON
-		_, err = h.clients.Clientset.CoreV1().Secrets(h.namespace).Update(context.Background(), secret, metav1.UpdateOptions{})
+		_, sErr = h.clients.Clientset.CoreV1().Secrets(h.namespace).Update(context.Background(), secret, metav1.UpdateOptions{})
 	}
-	if err != nil {
-		sendJSON(w, http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("failed to store credentials: %v", err)})
+	if sErr != nil {
+		sendJSON(w, http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("failed to store credentials: %v", sErr)})
 		return
 	}
 
@@ -365,9 +347,9 @@ func (h *ClaudeHandler) ExchangeCode(w http.ResponseWriter, r *http.Request) {
 	h.codeVerifier = ""
 	h.mu.Unlock()
 
-	accountID := "unknown"
-	if creds.Tokens != nil && creds.Tokens.AccountID != "" && len(creds.Tokens.AccountID) > 8 {
-		accountID = creds.Tokens.AccountID[:8] + "..."
+	accountID := result.AccountID
+	if len(accountID) > 8 {
+		accountID = accountID[:8] + "..."
 	}
 	log.Printf("claude subscription connected (account: %s)", accountID)
 	go h.restartAgentPods()
