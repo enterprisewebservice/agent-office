@@ -167,9 +167,9 @@ func (gc *GatewayConnection) authenticate(ctx context.Context) error {
 			"minProtocol": 3,
 			"maxProtocol": 3,
 			"client": map[string]string{
-				"id":       "gateway-client",
+				"id":       "cli",
 				"platform": "node",
-				"mode":     "backend",
+				"mode":     "cli",
 				"version":  "0.1.0",
 			},
 			"auth": map[string]string{
