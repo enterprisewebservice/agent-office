@@ -1,12 +1,18 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"os/exec"
+	"sort"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -38,6 +44,24 @@ type ChatHandler struct {
 	// Cache gateway connections per agent to maintain session state
 	mu          sync.Mutex
 	connections map[string]*proxy.GatewayConnection
+}
+
+type sessionLogEntry struct {
+	Type      string `json:"type"`
+	ID        string `json:"id"`
+	ParentID  string `json:"parentId"`
+	Timestamp string `json:"timestamp"`
+	Message   *struct {
+		Role       string `json:"role"`
+		ToolName   string `json:"toolName"`
+		ToolCallID string `json:"toolCallId"`
+		Content    []struct {
+			Type      string          `json:"type"`
+			Text      string          `json:"text"`
+			Name      string          `json:"name"`
+			Arguments json.RawMessage `json:"arguments"`
+		} `json:"content"`
+	} `json:"message"`
 }
 
 // NewChatHandler creates a new ChatHandler instance.
@@ -99,6 +123,159 @@ func (h *ChatHandler) removeConnection(name string) {
 	}
 }
 
+func (h *ChatHandler) findAgentPod(ctx context.Context, name string) (string, error) {
+	pods, err := h.Clients.Clientset.CoreV1().Pods(h.Namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: fmt.Sprintf("agentoffice.ai/agent=%s", name),
+	})
+	if err != nil {
+		return "", fmt.Errorf("listing pods for %s: %w", name, err)
+	}
+
+	for _, pod := range pods.Items {
+		if pod.Status.Phase == "Running" {
+			return pod.Name, nil
+		}
+	}
+	if len(pods.Items) == 0 {
+		return "", fmt.Errorf("no pods found for agent %s", name)
+	}
+	return "", fmt.Errorf("no running pod found for agent %s", name)
+}
+
+func (h *ChatHandler) execInAgentPod(ctx context.Context, podName string, command []string) (string, error) {
+	args := []string{
+		"exec", podName,
+		"-n", h.Namespace,
+		"-c", "openclaw",
+		"--",
+	}
+	args = append(args, command...)
+
+	cmd := exec.CommandContext(ctx, "kubectl", args...)
+	cmd.Env = append(os.Environ(), "KUBECONFIG=")
+	output, err := cmd.CombinedOutput()
+	return string(output), err
+}
+
+func extractEntryText(entry sessionLogEntry) string {
+	if entry.Message == nil {
+		return ""
+	}
+
+	var parts []string
+	for _, content := range entry.Message.Content {
+		if content.Type == "text" && content.Text != "" {
+			parts = append(parts, content.Text)
+		}
+	}
+	return strings.Join(parts, "")
+}
+
+func parseEntryTime(raw string) time.Time {
+	if raw == "" {
+		return time.Time{}
+	}
+	t, err := time.Parse(time.RFC3339Nano, raw)
+	if err != nil {
+		return time.Time{}
+	}
+	return t
+}
+
+func normalizePrompt(prompt string) string {
+	return strings.Join(strings.Fields(strings.TrimSpace(prompt)), " ")
+}
+
+func collectToolNames(entries []sessionLogEntry, userEntry sessionLogEntry) []string {
+	seen := map[string]struct{}{}
+	var tools []string
+	startCollecting := false
+
+	for _, entry := range entries {
+		if entry.ID == userEntry.ID {
+			startCollecting = true
+			continue
+		}
+		if !startCollecting || entry.Message == nil {
+			continue
+		}
+
+		if entry.Message.Role == "assistant" {
+			for _, content := range entry.Message.Content {
+				if content.Type != "toolCall" || content.Name == "" {
+					continue
+				}
+				if _, ok := seen[content.Name]; ok {
+					continue
+				}
+				seen[content.Name] = struct{}{}
+				tools = append(tools, content.Name)
+			}
+		}
+
+		if entry.Message.Role == "toolResult" && entry.Message.ToolName != "" {
+			if _, ok := seen[entry.Message.ToolName]; ok {
+				continue
+			}
+			seen[entry.Message.ToolName] = struct{}{}
+			tools = append(tools, entry.Message.ToolName)
+		}
+	}
+
+	return tools
+}
+
+func (h *ChatHandler) getVerifiedTools(ctx context.Context, agentName, prompt string, startedAt time.Time) ([]string, error) {
+	podName, err := h.findAgentPod(ctx, agentName)
+	if err != nil {
+		return nil, err
+	}
+
+	output, err := h.execInAgentPod(ctx, podName, []string{
+		"sh", "-lc",
+		"ls -1t /home/node/.openclaw/agents/main/sessions/*.jsonl 2>/dev/null | head -n 3 | xargs -r cat",
+	})
+	if err != nil {
+		return nil, fmt.Errorf("reading session logs in pod %s: %w", podName, err)
+	}
+
+	normalizedPrompt := normalizePrompt(prompt)
+	if normalizedPrompt == "" {
+		return nil, nil
+	}
+
+	var entries []sessionLogEntry
+	decoder := json.NewDecoder(bytes.NewBufferString(output))
+	for decoder.More() {
+		var entry sessionLogEntry
+		if err := decoder.Decode(&entry); err != nil {
+			continue
+		}
+		entries = append(entries, entry)
+	}
+
+	sort.Slice(entries, func(i, j int) bool {
+		return parseEntryTime(entries[i].Timestamp).Before(parseEntryTime(entries[j].Timestamp))
+	})
+
+	threshold := startedAt.Add(-10 * time.Second)
+	for i := len(entries) - 1; i >= 0; i-- {
+		entry := entries[i]
+		if entry.Type != "message" || entry.Message == nil || entry.Message.Role != "user" {
+			continue
+		}
+		if t := parseEntryTime(entry.Timestamp); !t.IsZero() && t.Before(threshold) {
+			break
+		}
+		if normalizePrompt(extractEntryText(entry)) != normalizedPrompt {
+			continue
+		}
+		return collectToolNames(entries[i:], entry), nil
+	}
+
+	return nil, nil
+}
+
 // HandleChat upgrades the connection to WebSocket and proxies messages
 // to the agent's OpenClaw gateway via its WebSocket protocol.
 func (h *ChatHandler) HandleChat(w http.ResponseWriter, r *http.Request) {
@@ -139,6 +316,8 @@ func (h *ChatHandler) HandleChat(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
+		startedAt := time.Now().UTC()
+
 		// Get or create gateway connection
 		gc, err := h.getOrCreateConnection(r.Context(), name)
 		if err != nil {
@@ -162,6 +341,19 @@ func (h *ChatHandler) HandleChat(w http.ResponseWriter, r *http.Request) {
 			}
 			conn.WriteJSON(errMsg)
 			continue
+		}
+
+		if metadata == nil {
+			metadata = make(map[string]string)
+		}
+		if strings.TrimSpace(metadata["tools"]) == "" {
+			verifiedTools, verifyErr := h.getVerifiedTools(r.Context(), name, inMsg.Content, startedAt)
+			if verifyErr != nil {
+				log.Printf("verified tool lookup failed for agent %s: %v", name, verifyErr)
+			} else if len(verifiedTools) > 0 {
+				metadata["tools"] = strings.Join(verifiedTools, ", ")
+				metadata["tools_source"] = "session_log"
+			}
 		}
 
 		// Build response message
