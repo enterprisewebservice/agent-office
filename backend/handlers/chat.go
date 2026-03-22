@@ -186,6 +186,15 @@ func normalizePrompt(prompt string) string {
 	return strings.Join(strings.Fields(strings.TrimSpace(prompt)), " ")
 }
 
+func promptsMatch(a, b string) bool {
+	na := normalizePrompt(a)
+	nb := normalizePrompt(b)
+	if na == "" || nb == "" {
+		return false
+	}
+	return na == nb || strings.Contains(na, nb) || strings.Contains(nb, na)
+}
+
 func collectToolNames(entries []sessionLogEntry, userEntry sessionLogEntry) []string {
 	seen := map[string]struct{}{}
 	var tools []string
@@ -267,7 +276,7 @@ func (h *ChatHandler) getVerifiedTools(ctx context.Context, agentName, prompt st
 		if t := parseEntryTime(entry.Timestamp); !t.IsZero() && t.Before(threshold) {
 			break
 		}
-		if normalizePrompt(extractEntryText(entry)) != normalizedPrompt {
+		if !promptsMatch(extractEntryText(entry), normalizedPrompt) {
 			continue
 		}
 		return collectToolNames(entries[i:], entry), nil
@@ -353,6 +362,7 @@ func (h *ChatHandler) HandleChat(w http.ResponseWriter, r *http.Request) {
 			} else if len(verifiedTools) > 0 {
 				metadata["tools"] = strings.Join(verifiedTools, ", ")
 				metadata["tools_source"] = "session_log"
+				log.Printf("verified tools from session log for agent %s: %s", name, metadata["tools"])
 			}
 		}
 
