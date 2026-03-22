@@ -155,7 +155,6 @@ func (h *ChatHandler) HandleChat(w http.ResponseWriter, r *http.Request) {
 		response, metadata, err := gc.SendMessage(inMsg.Content)
 		if err != nil {
 			log.Printf("chat error for agent %s: %v", name, err)
-			// Connection may be stale — remove it so next message reconnects
 			h.removeConnection(name)
 			errMsg := WSMessage{
 				Role:    "assistant",

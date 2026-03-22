@@ -23,6 +23,31 @@ interface ChatPanelProps {
   onClose: () => void;
 }
 
+function parseToolCalls(message: ChatMessage): string[] {
+  if (!message.metadata?.tools) return [];
+  return message.metadata.tools
+    .split(',')
+    .map((tool) => tool.trim())
+    .filter(Boolean);
+}
+
+function isSkillCall(toolName: string): boolean {
+  return toolName.startsWith('claude_code_');
+}
+
+function formatActivityLabel(toolName: string): string {
+  if (isSkillCall(toolName)) {
+    if (toolName === 'claude_code_resume') {
+      return 'Skill: Claude Code subscription (resume)';
+    }
+    if (toolName === 'claude_code_sessions') {
+      return 'Skill: Claude Code subscription (sessions)';
+    }
+    return `Skill: Claude Code subscription (${toolName})`;
+  }
+  return `Tool: ${toolName}`;
+}
+
 const ChatPanel: React.FC<ChatPanelProps> = ({ agent, onClose }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
@@ -240,53 +265,103 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ agent, onClose }) => {
           }}
         >
           {messages.map((msg, idx) => (
-            <div
-              key={idx}
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: msg.role === 'user' ? 'flex-end' : 'flex-start',
-                maxWidth: '85%',
-                alignSelf: msg.role === 'user' ? 'flex-end' : 'flex-start',
-              }}
-            >
-              <div
-                style={{
-                  padding: '0.75rem 1rem',
-                  borderRadius: '12px',
-                  backgroundColor:
-                    msg.role === 'user'
-                      ? 'var(--pf-t--global--color--brand--default)'
-                      : 'var(--pf-t--global--background--color--secondary--default)',
-                  color: msg.role === 'user' ? 'white' : 'inherit',
-                  wordBreak: 'break-word',
-                  whiteSpace: 'pre-wrap',
-                }}
-              >
-                {msg.content}
-              </div>
-              {msg.metadata && (
-                <div style={{ marginTop: '0.25rem', display: 'flex', gap: '0.25rem', flexWrap: 'wrap' }}>
-                  {msg.metadata.tools && (
-                    msg.metadata.tools.split(', ').map((tool, i) => (
-                      <Label key={i} color="purple" isCompact>
-                        {tool}
-                      </Label>
-                    ))
-                  )}
-                  {msg.metadata.model && (
-                    <Label color="blue" isCompact>
-                      {msg.metadata.routedTo ?? msg.metadata.model}
-                    </Label>
-                  )}
-                  {msg.metadata.cost && (
-                    <Label color="gold" isCompact>
-                      {msg.metadata.cost}
-                    </Label>
+            (() => {
+              const toolCalls = parseToolCalls(msg);
+              const assistantActivity = msg.role === 'assistant';
+
+              return (
+                <div
+                  key={idx}
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: msg.role === 'user' ? 'flex-end' : 'flex-start',
+                    maxWidth: '85%',
+                    alignSelf: msg.role === 'user' ? 'flex-end' : 'flex-start',
+                  }}
+                >
+                  <div
+                    style={{
+                      padding: '0.75rem 1rem',
+                      borderRadius: '12px',
+                      backgroundColor:
+                        msg.role === 'user'
+                          ? 'var(--pf-t--global--color--brand--default)'
+                          : 'var(--pf-t--global--background--color--secondary--default)',
+                      color: msg.role === 'user' ? 'white' : 'inherit',
+                      wordBreak: 'break-word',
+                      whiteSpace: 'pre-wrap',
+                    }}
+                  >
+                    {msg.content}
+                  </div>
+
+                  {(assistantActivity || msg.metadata) && (
+                    <div
+                      style={{
+                        marginTop: '0.35rem',
+                        padding: '0.5rem 0.75rem',
+                        borderRadius: '10px',
+                        border: '1px solid var(--pf-t--global--border--color--default)',
+                        background: 'var(--pf-t--global--background--color--primary--default)',
+                        minWidth: '240px',
+                      }}
+                    >
+                      {assistantActivity && (
+                        <div
+                          style={{
+                            fontSize: '0.75rem',
+                            fontWeight: 600,
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.04em',
+                            color: 'var(--pf-t--global--text--color--subtle)',
+                            marginBottom: '0.35rem',
+                          }}
+                        >
+                          Activity
+                        </div>
+                      )}
+
+                      {assistantActivity && toolCalls.length === 0 && (
+                        <div
+                          style={{
+                            fontSize: '0.85rem',
+                            color: 'var(--pf-t--global--text--color--subtle)',
+                          }}
+                        >
+                          No tool or skill calls reported for this turn.
+                        </div>
+                      )}
+
+                      {toolCalls.length > 0 && (
+                        <div style={{ display: 'flex', gap: '0.25rem', flexWrap: 'wrap' }}>
+                          {toolCalls.map((tool, i) => (
+                            <Label key={i} color={isSkillCall(tool) ? 'purple' : 'blue'} isCompact>
+                              {formatActivityLabel(tool)}
+                            </Label>
+                          ))}
+                        </div>
+                      )}
+
+                      {(msg.metadata?.model || msg.metadata?.cost) && (
+                        <div style={{ marginTop: toolCalls.length > 0 || assistantActivity ? '0.5rem' : 0, display: 'flex', gap: '0.25rem', flexWrap: 'wrap' }}>
+                          {msg.metadata?.model && (
+                            <Label color="blue" isCompact>
+                              {msg.metadata.routedTo ?? msg.metadata.model}
+                            </Label>
+                          )}
+                          {msg.metadata?.cost && (
+                            <Label color="gold" isCompact>
+                              {msg.metadata.cost}
+                            </Label>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   )}
                 </div>
-              )}
-            </div>
+              );
+            })()
           ))}
           <div ref={messagesEndRef} />
         </div>

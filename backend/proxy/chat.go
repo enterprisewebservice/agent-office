@@ -206,7 +206,7 @@ func (gc *GatewayConnection) authenticate(ctx context.Context) error {
 }
 
 // SendMessage sends a chat message and collects the streaming response.
-// It returns the full response content and any metadata.
+// It returns the full response content, metadata (including tools used), and any error.
 func (gc *GatewayConnection) SendMessage(message string) (string, map[string]string, error) {
 	reqID := uuid.New().String()
 
