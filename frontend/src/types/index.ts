@@ -30,6 +30,7 @@ export interface ChatMessage {
     model?: string;
     routedTo?: string;
     cost?: string;
+    tools?: string;
   };
   timestamp: string;
 }
