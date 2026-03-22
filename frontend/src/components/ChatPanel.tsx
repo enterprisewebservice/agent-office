@@ -266,7 +266,14 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ agent, onClose }) => {
                 {msg.content}
               </div>
               {msg.metadata && (
-                <div style={{ marginTop: '0.25rem', display: 'flex', gap: '0.25rem' }}>
+                <div style={{ marginTop: '0.25rem', display: 'flex', gap: '0.25rem', flexWrap: 'wrap' }}>
+                  {msg.metadata.tools && (
+                    msg.metadata.tools.split(', ').map((tool, i) => (
+                      <Label key={i} color="purple" isCompact>
+                        {tool}
+                      </Label>
+                    ))
+                  )}
                   {msg.metadata.model && (
                     <Label color="blue" isCompact>
                       {msg.metadata.routedTo ?? msg.metadata.model}

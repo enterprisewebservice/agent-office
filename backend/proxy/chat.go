@@ -231,6 +231,7 @@ func (gc *GatewayConnection) SendMessage(message string) (string, map[string]str
 	// Collect streaming response
 	var fullContent strings.Builder
 	metadata := make(map[string]string)
+	var toolsUsed []string
 
 	// Set a read deadline
 	gc.conn.SetReadDeadline(time.Now().Add(120 * time.Second))
@@ -307,6 +308,9 @@ func (gc *GatewayConnection) SendMessage(message string) (string, map[string]str
 						fullContent.WriteString(text)
 					}
 				case "final":
+					if len(toolsUsed) > 0 {
+						metadata["tools"] = strings.Join(toolsUsed, ", ")
+					}
 					text := chatEvent.GetText()
 					if text != "" {
 						return text, metadata, nil
@@ -332,6 +336,9 @@ func (gc *GatewayConnection) SendMessage(message string) (string, map[string]str
 							phase, _ := data["phase"].(string)
 							if toolName != "" {
 								log.Printf("agent tool %s: %s", phase, toolName)
+								if phase == "start" {
+									toolsUsed = append(toolsUsed, toolName)
+								}
 							}
 						}
 					}
