@@ -242,21 +242,25 @@ const VisualOfficePage: React.FC = () => {
                         <div className="visualOffice__monitor" />
                         <div
                           className="visualOffice__person"
-                          style={{ animationDelay: metrics.animationDelay }}
                         >
                           <div
-                            className="visualOffice__personHair"
-                            style={{ ['--hair-color' as string]: palette.hair }}
-                          />
-                          <div className="visualOffice__personHead" />
-                          <div
-                            className="visualOffice__personBody"
-                            style={{ ['--shirt-color' as string]: palette.shirt }}
-                          />
-                          <div
-                            className="visualOffice__personChair"
-                            style={{ ['--chair-color' as string]: palette.chair }}
-                          />
+                            className="visualOffice__personBob"
+                            style={{ animationDelay: metrics.animationDelay }}
+                          >
+                            <div
+                              className="visualOffice__personHair"
+                              style={{ ['--hair-color' as string]: palette.hair }}
+                            />
+                            <div className="visualOffice__personHead" />
+                            <div
+                              className="visualOffice__personBody"
+                              style={{ ['--shirt-color' as string]: palette.shirt }}
+                            />
+                            <div
+                              className="visualOffice__personChair"
+                              style={{ ['--chair-color' as string]: palette.chair }}
+                            />
+                          </div>
                         </div>
                       </div>
                       <div className="visualOffice__deskInfo">
