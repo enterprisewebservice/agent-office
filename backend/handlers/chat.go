@@ -44,6 +44,7 @@ type ChatHandler struct {
 	// Cache gateway connections per agent to maintain session state
 	mu          sync.Mutex
 	connections map[string]*proxy.GatewayConnection
+	devices     map[string]*proxy.DeviceIdentity
 }
 
 type sessionLogEntry struct {
@@ -70,6 +71,7 @@ func NewChatHandler(namespace string, clients *k8s.Clients) *ChatHandler {
 		Namespace:   namespace,
 		Clients:     clients,
 		connections: make(map[string]*proxy.GatewayConnection),
+		devices:     make(map[string]*proxy.DeviceIdentity),
 	}
 }
 
@@ -90,11 +92,22 @@ func (h *ChatHandler) getGatewayToken(ctx context.Context, name string) (string,
 // getOrCreateConnection returns a cached gateway connection or creates a new one.
 func (h *ChatHandler) getOrCreateConnection(ctx context.Context, name string) (*proxy.GatewayConnection, error) {
 	h.mu.Lock()
-	defer h.mu.Unlock()
-
 	if gc, ok := h.connections[name]; ok {
+		h.mu.Unlock()
 		return gc, nil
 	}
+
+	device := h.devices[name]
+	if device == nil {
+		var err error
+		device, err = proxy.NewDeviceIdentity()
+		if err != nil {
+			h.mu.Unlock()
+			return nil, fmt.Errorf("creating device identity: %w", err)
+		}
+		h.devices[name] = device
+	}
+	h.mu.Unlock()
 
 	gatewayURL := fmt.Sprintf("http://agent-%s.%s.svc:18789", name, h.Namespace)
 	gatewayToken, err := h.getGatewayToken(ctx, name)
@@ -104,11 +117,17 @@ func (h *ChatHandler) getOrCreateConnection(ctx context.Context, name string) (*
 		gatewayToken = ""
 	}
 
-	gc, err := proxy.ConnectToGateway(ctx, gatewayURL, gatewayToken, name)
+	if err := h.ensureBackendDevicePaired(ctx, name, device); err != nil {
+		return nil, fmt.Errorf("ensuring backend device pairing: %w", err)
+	}
+
+	gc, err := proxy.ConnectToGateway(ctx, gatewayURL, gatewayToken, name, device)
 	if err != nil {
 		return nil, err
 	}
 
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	h.connections[name] = gc
 	return gc, nil
 }
@@ -121,6 +140,57 @@ func (h *ChatHandler) removeConnection(name string) {
 		gc.Close()
 		delete(h.connections, name)
 	}
+}
+
+func (h *ChatHandler) ensureBackendDevicePaired(ctx context.Context, name string, device *proxy.DeviceIdentity) error {
+	podName, err := h.findAgentPod(ctx, name)
+	if err != nil {
+		return err
+	}
+
+	script := `
+const fs = require("fs");
+const path = "/home/node/.openclaw/devices/paired.json";
+const deviceId = process.argv[1];
+const publicKey = process.argv[2];
+const now = Date.now();
+let state = {};
+try {
+  state = JSON.parse(fs.readFileSync(path, "utf8"));
+} catch {}
+if (!state || typeof state !== "object" || Array.isArray(state)) {
+  state = {};
+}
+const existing = state[deviceId] || {};
+state[deviceId] = {
+  deviceId,
+  publicKey,
+  displayName: "Agent Office Backend",
+  clientId: "gateway-client",
+  clientMode: "backend",
+  role: "operator",
+  roles: ["operator"],
+  scopes: ["operator.write"],
+  approvedScopes: ["operator.write"],
+  tokens: existing.tokens || {},
+  createdAtMs: existing.createdAtMs || now,
+  approvedAtMs: now
+};
+fs.mkdirSync(require("path").dirname(path), { recursive: true });
+fs.writeFileSync(path, JSON.stringify(state, null, 2) + "\n");
+`
+
+	_, err = h.execInAgentPod(ctx, podName, []string{
+		"node",
+		"-e",
+		script,
+		device.DeviceID,
+		device.PublicKey,
+	})
+	if err != nil {
+		return fmt.Errorf("upserting paired device in %s: %w", podName, err)
+	}
+	return nil
 }
 
 func (h *ChatHandler) findAgentPod(ctx context.Context, name string) (string, error) {

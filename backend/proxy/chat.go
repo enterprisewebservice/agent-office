@@ -2,6 +2,10 @@ package proxy
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -105,11 +109,32 @@ type GatewayConnection struct {
 	gatewayURL   string
 	gatewayToken string
 	sessionKey   string
+	device       *DeviceIdentity
+}
+
+type DeviceIdentity struct {
+	DeviceID      string
+	PublicKey     string
+	privateKeyPem ed25519.PrivateKey
+}
+
+func NewDeviceIdentity() (*DeviceIdentity, error) {
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return nil, fmt.Errorf("generating ed25519 key: %w", err)
+	}
+
+	sum := sha256.Sum256(publicKey)
+	return &DeviceIdentity{
+		DeviceID:      fmt.Sprintf("%x", sum[:]),
+		PublicKey:     base64.RawURLEncoding.EncodeToString(publicKey),
+		privateKeyPem: privateKey,
+	}, nil
 }
 
 // ConnectToGateway establishes a WebSocket connection to an OpenClaw gateway
 // and completes the authentication handshake.
-func ConnectToGateway(ctx context.Context, gatewayURL, gatewayToken, agentName string) (*GatewayConnection, error) {
+func ConnectToGateway(ctx context.Context, gatewayURL, gatewayToken, agentName string, device *DeviceIdentity) (*GatewayConnection, error) {
 	// Convert http:// to ws://
 	wsURL := strings.Replace(gatewayURL, "http://", "ws://", 1)
 	wsURL = strings.Replace(wsURL, "https://", "wss://", 1)
@@ -129,6 +154,7 @@ func ConnectToGateway(ctx context.Context, gatewayURL, gatewayToken, agentName s
 		gatewayURL:   wsURL,
 		gatewayToken: gatewayToken,
 		sessionKey:   fmt.Sprintf("agent-office:%s", agentName),
+		device:       device,
 	}
 
 	// Complete the auth handshake: read challenge, send auth response
@@ -158,26 +184,69 @@ func (gc *GatewayConnection) authenticate(ctx context.Context) error {
 		return nil
 	}
 
+	var nonce string
+	if payload, ok := frame["payload"].(map[string]interface{}); ok {
+		nonce, _ = payload["nonce"].(string)
+	}
+	if nonce == "" {
+		return fmt.Errorf("gateway auth failed: missing connect challenge nonce")
+	}
+
+	role := "operator"
+	scopes := []string{"operator.write"}
+	clientID := "gateway-client"
+	clientMode := "backend"
+	signedAtMs := time.Now().UnixMilli()
+
+	connectAuth := map[string]string{
+		"token":    gc.gatewayToken,
+		"password": gc.gatewayToken,
+	}
+
+	connectParams := map[string]interface{}{
+		"minProtocol": 3,
+		"maxProtocol": 3,
+		"client": map[string]string{
+			"id":       clientID,
+			"platform": "linux",
+			"mode":     clientMode,
+			"version":  "0.1.0",
+		},
+		"auth":   connectAuth,
+		"role":   role,
+		"scopes": scopes,
+	}
+
+	if gc.device != nil {
+		payload := strings.Join([]string{
+			"v3",
+			gc.device.DeviceID,
+			clientID,
+			clientMode,
+			role,
+			strings.Join(scopes, ","),
+			fmt.Sprintf("%d", signedAtMs),
+			gc.gatewayToken,
+			nonce,
+			"linux",
+			"",
+		}, "|")
+		signature := ed25519.Sign(gc.device.privateKeyPem, []byte(payload))
+		connectParams["device"] = map[string]interface{}{
+			"id":        gc.device.DeviceID,
+			"publicKey": gc.device.PublicKey,
+			"signature": base64.RawURLEncoding.EncodeToString(signature),
+			"signedAt":  signedAtMs,
+			"nonce":     nonce,
+		}
+	}
+
 	// Send protocol v3 connect request
 	connectReq := RequestFrame{
 		Type:   "req",
 		ID:     uuid.New().String(),
 		Method: "connect",
-		Params: map[string]interface{}{
-			"minProtocol": 3,
-			"maxProtocol": 3,
-			"client": map[string]string{
-				"id":       "cli",
-				"platform": "node",
-				"mode":     "cli",
-				"version":  "0.1.0",
-			},
-			"auth": map[string]string{
-				"token":    gc.gatewayToken,
-				"password": gc.gatewayToken,
-			},
-			"scopes": []string{"operator.write"},
-		},
+		Params: connectParams,
 	}
 
 	gc.mu.Lock()
