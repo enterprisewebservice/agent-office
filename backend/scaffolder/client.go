@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -51,6 +52,22 @@ type TaskResponse struct {
 type TaskStatus struct {
 	ID     string `json:"id"`
 	Status string `json:"status"` // "processing", "completed", "failed"
+}
+
+type CatalogEntity struct {
+	Metadata struct {
+		Annotations map[string]string `json:"annotations"`
+	} `json:"metadata"`
+}
+
+type CatalogLocationEnvelope struct {
+	Data CatalogLocation `json:"data"`
+}
+
+type CatalogLocation struct {
+	ID     string `json:"id"`
+	Target string `json:"target"`
+	Type   string `json:"type"`
 }
 
 // CreateAgent calls the RHDH Scaffolder to provision an OpenClaw agent
@@ -119,4 +136,89 @@ func (c *Client) GetTaskStatus(taskID string) (*TaskStatus, error) {
 	}
 
 	return &status, nil
+}
+
+func (c *Client) get(path string, out interface{}) (int, error) {
+	httpReq, err := http.NewRequest(http.MethodGet, c.BaseURL+path, nil)
+	if err != nil {
+		return 0, fmt.Errorf("creating GET request: %w", err)
+	}
+	if c.Token != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+c.Token)
+	}
+
+	resp, err := c.HTTP.Do(httpReq)
+	if err != nil {
+		return 0, fmt.Errorf("calling %s: %w", path, err)
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 400 {
+		return resp.StatusCode, fmt.Errorf("%s returned status %d: %s", path, resp.StatusCode, strings.TrimSpace(string(respBody)))
+	}
+	if out != nil {
+		if err := json.Unmarshal(respBody, out); err != nil {
+			return resp.StatusCode, fmt.Errorf("parsing %s response: %w", path, err)
+		}
+	}
+	return resp.StatusCode, nil
+}
+
+func (c *Client) delete(path string) (int, error) {
+	httpReq, err := http.NewRequest(http.MethodDelete, c.BaseURL+path, nil)
+	if err != nil {
+		return 0, fmt.Errorf("creating DELETE request: %w", err)
+	}
+	if c.Token != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+c.Token)
+	}
+
+	resp, err := c.HTTP.Do(httpReq)
+	if err != nil {
+		return 0, fmt.Errorf("calling %s: %w", path, err)
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 400 {
+		return resp.StatusCode, fmt.Errorf("%s returned status %d: %s", path, resp.StatusCode, strings.TrimSpace(string(respBody)))
+	}
+	return resp.StatusCode, nil
+}
+
+// DeleteAgentCatalogRegistration removes the catalog location for a scaffolded agent repo.
+func (c *Client) DeleteAgentCatalogRegistration(name string) error {
+	entityPath := fmt.Sprintf("/api/catalog/entities/by-name/component/default/%s", name)
+	var entity CatalogEntity
+	statusCode, err := c.get(entityPath, &entity)
+	locationTarget := ""
+	if err != nil && statusCode != http.StatusNotFound {
+		return fmt.Errorf("looking up catalog entity for %s: %w", name, err)
+	}
+	if err == nil {
+		locationTarget = strings.TrimPrefix(entity.Metadata.Annotations["backstage.io/managed-by-location"], "url:")
+	}
+
+	var locationEnvelopes []CatalogLocationEnvelope
+	_, err = c.get("/api/catalog/locations", &locationEnvelopes)
+	if err != nil {
+		return fmt.Errorf("listing catalog locations for %s: %w", name, err)
+	}
+
+	for _, envelope := range locationEnvelopes {
+		if locationTarget != "" && envelope.Data.Target != locationTarget {
+			continue
+		}
+		if locationTarget == "" && !strings.Contains(envelope.Data.Target, fmt.Sprintf("/%s-agent-gitops/", name)) {
+			continue
+		}
+		_, err = c.delete(fmt.Sprintf("/api/catalog/locations/%s", envelope.Data.ID))
+		if err != nil {
+			return fmt.Errorf("deleting catalog location %s for %s: %w", envelope.Data.ID, name, err)
+		}
+		return nil
+	}
+
+	return nil
 }

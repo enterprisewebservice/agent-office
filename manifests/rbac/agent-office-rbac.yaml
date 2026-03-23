@@ -56,6 +56,12 @@ rules:
     resources:
       - routes
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Argo CD applications/projects — manage per-agent GitOps lifecycle
+  - apiGroups: ["argoproj.io"]
+    resources:
+      - applications
+      - appprojects
+    verbs: ["get", "list", "watch", "delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -97,7 +103,7 @@ spec:
       serviceAccountName: agent-office
       containers:
         - name: server
-          image: quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/agent-office-server:0.1.14
+          image: quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/agent-office-server:0.1.15
           imagePullPolicy: Always
           ports:
             - name: http

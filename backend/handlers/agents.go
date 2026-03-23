@@ -14,6 +14,8 @@ import (
 	"github.com/enterprisewebservice/agent-office/backend/scaffolder"
 )
 
+const protectedAgentName = "onboarding-agent"
+
 // CreateAgentRequest defines the JSON body for creating an agent.
 type CreateAgentRequest struct {
 	Name         string   `json:"name"`
@@ -269,8 +271,18 @@ func (h *AgentHandlers) DeleteAgent(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "agent name is required", http.StatusBadRequest)
 		return
 	}
+	if name == protectedAgentName {
+		http.Error(w, "the Agent Concierge cannot be fired", http.StatusForbidden)
+		return
+	}
 
 	ctx := r.Context()
+
+	if err := k8s.DeleteAgentGitOpsResources(ctx, h.Clients, name); err != nil {
+		log.Printf("error deleting gitops resources for agent %s: %v", name, err)
+		http.Error(w, fmt.Sprintf("failed to delete agent gitops resources: %v", err), http.StatusInternalServerError)
+		return
+	}
 
 	if err := k8s.DeleteAgentResources(ctx, h.Clients, h.Namespace, name); err != nil {
 		log.Printf("error deleting agent %s: %v", name, err)
@@ -278,10 +290,16 @@ func (h *AgentHandlers) DeleteAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := h.Scaffolder.DeleteAgentCatalogRegistration(name); err != nil {
+		log.Printf("warning: failed to delete catalog registration for agent %s: %v", name, err)
+		http.Error(w, fmt.Sprintf("agent workload deleted, but catalog cleanup failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{
 		"name":   name,
-		"status": "deleted",
+		"status": "fired",
 	})
 }
 

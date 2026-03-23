@@ -57,6 +57,7 @@ const AgentCard: React.FC<AgentCardProps> = ({ agent, onChat, onDeleted }) => {
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
+  const isProtectedAgent = agent.name === 'onboarding-agent';
 
   const handleDelete = async () => {
     setIsDeleting(true);
@@ -169,8 +170,9 @@ const AgentCard: React.FC<AgentCardProps> = ({ agent, onChat, onDeleted }) => {
                 size="sm"
                 icon={<TrashIcon />}
                 onClick={() => setIsDeleteModalOpen(true)}
+                isDisabled={isProtectedAgent}
               >
-                Delete
+                Fire
               </Button>
             </div>
           </div>
@@ -179,7 +181,7 @@ const AgentCard: React.FC<AgentCardProps> = ({ agent, onChat, onDeleted }) => {
 
       <Modal
         variant={ModalVariant.small}
-        title="Delete Agent"
+        title="Fire Agent"
         isOpen={isDeleteModalOpen}
         onClose={() => setIsDeleteModalOpen(false)}
         actions={[
@@ -190,14 +192,14 @@ const AgentCard: React.FC<AgentCardProps> = ({ agent, onChat, onDeleted }) => {
             isLoading={isDeleting}
             isDisabled={isDeleting}
           >
-            Delete
+            Fire Agent
           </Button>,
           <Button key="cancel" variant="link" onClick={() => setIsDeleteModalOpen(false)}>
             Cancel
           </Button>,
         ]}
       >
-        Are you sure you want to delete <strong>{agent.displayName || agent.name}</strong>? This action cannot be undone.
+        Firing <strong>{agent.displayName || agent.name}</strong> removes the agent from Agent Office, deletes its GitOps deployment in OpenShift GitOps, and unregisters its Developer Hub catalog entry.
       </Modal>
     </>
   );

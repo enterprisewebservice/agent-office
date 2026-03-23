@@ -5,10 +5,12 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -26,6 +28,24 @@ var agentWorkstationGVR = schema.GroupVersionResource{
 	Group:    "agentoffice.ai",
 	Version:  "v1alpha1",
 	Resource: "agentworkstations",
+}
+
+var argoApplicationGVR = schema.GroupVersionResource{
+	Group:    "argoproj.io",
+	Version:  "v1alpha1",
+	Resource: "applications",
+}
+
+var argoAppProjectGVR = schema.GroupVersionResource{
+	Group:    "argoproj.io",
+	Version:  "v1alpha1",
+	Resource: "appprojects",
+}
+
+var routeGVR = schema.GroupVersionResource{
+	Group:    "route.openshift.io",
+	Version:  "v1",
+	Resource: "routes",
 }
 
 // agentLabels returns the standard labels for an agent's resources.
@@ -400,6 +420,46 @@ func DeleteAgentResources(ctx context.Context, clients *Clients, namespace, name
 		for _, cm := range cms.Items {
 			_ = clients.Clientset.CoreV1().ConfigMaps(namespace).Delete(ctx, cm.Name, deleteOpts)
 		}
+	}
+
+	// Delete Route
+	routes, err := clients.DynamicClient.Resource(routeGVR).Namespace(namespace).List(ctx, listOpts)
+	if err == nil {
+		for _, route := range routes.Items {
+			_ = clients.DynamicClient.Resource(routeGVR).Namespace(namespace).Delete(ctx, route.GetName(), deleteOpts)
+		}
+	}
+
+	return nil
+}
+
+// DeleteAgentGitOpsResources deletes the per-agent Argo Application and AppProject.
+// The Application finalizer prunes GitOps-managed resources in the target namespace.
+func DeleteAgentGitOpsResources(ctx context.Context, clients *Clients, name string) error {
+	appName := fmt.Sprintf("%s-agent", name)
+	deleteOpts := metav1.DeleteOptions{}
+	argoNamespace := "openshift-gitops"
+
+	err := clients.DynamicClient.Resource(argoApplicationGVR).Namespace(argoNamespace).Delete(ctx, appName, deleteOpts)
+	if err != nil && !apierrors.IsNotFound(err) {
+		return fmt.Errorf("deleting argo application %s: %w", appName, err)
+	}
+
+	deadline := time.Now().Add(45 * time.Second)
+	for time.Now().Before(deadline) {
+		_, getErr := clients.DynamicClient.Resource(argoApplicationGVR).Namespace(argoNamespace).Get(ctx, appName, metav1.GetOptions{})
+		if apierrors.IsNotFound(getErr) {
+			break
+		}
+		if getErr != nil {
+			return fmt.Errorf("waiting for argo application %s deletion: %w", appName, getErr)
+		}
+		time.Sleep(1 * time.Second)
+	}
+
+	err = clients.DynamicClient.Resource(argoAppProjectGVR).Namespace(argoNamespace).Delete(ctx, appName, deleteOpts)
+	if err != nil && !apierrors.IsNotFound(err) {
+		return fmt.Errorf("deleting argo appproject %s: %w", appName, err)
 	}
 
 	return nil
