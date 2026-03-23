@@ -315,7 +315,10 @@ func (gc *GatewayConnection) SendMessage(message string) (string, map[string]str
 					if text != "" {
 						return text, metadata, nil
 					}
-					return fullContent.String(), metadata, nil
+					if fullContent.Len() > 0 {
+						return fullContent.String(), metadata, nil
+					}
+					return "", metadata, fmt.Errorf("agent returned an empty response")
 				case "error":
 					if fullContent.Len() > 0 {
 						return fullContent.String(), metadata, nil

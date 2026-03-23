@@ -48,11 +48,23 @@ function formatActivityLabel(toolName: string): string {
   return `Tool: ${toolName}`;
 }
 
+function formatTime(timestamp: string): string {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+  return date.toLocaleTimeString([], {
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
 const ChatPanel: React.FC<ChatPanelProps> = ({ agent, onClose }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [wsState, setWsState] = useState<'connecting' | 'open' | 'closed'>('connecting');
   const [isListening, setIsListening] = useState(false);
+  const [isAgentThinking, setIsAgentThinking] = useState(false);
   const [ttsEnabled, setTtsEnabled] = useState(true);
   const [voiceNotice, setVoiceNotice] = useState<string | null>(null);
   const [hasQueuedOpenAIAudio, setHasQueuedOpenAIAudio] = useState(false);
@@ -120,6 +132,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ agent, onClose }) => {
             };
             wsRef.current.send(JSON.stringify(userMessage));
             setMessages((prev) => [...prev, userMessage]);
+            setIsAgentThinking(true);
           }
         } else {
           // Interim result — show in input box
@@ -204,13 +217,33 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ agent, onClose }) => {
     ws.onmessage = (event) => {
       try {
         const msg: ChatMessage = JSON.parse(event.data);
+        if (msg.role === 'assistant') {
+          setIsAgentThinking(false);
+        }
+
+        const trimmedContent = msg.content?.trim() ?? '';
+        const hasVisibleContent = trimmedContent.length > 0;
+        const hasMetadata = !!msg.metadata && Object.keys(msg.metadata).length > 0;
+
+        if (msg.role === 'assistant' && !hasVisibleContent && !hasMetadata) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              role: 'system',
+              content: `${agent.displayName || agent.name} returned no text for that turn. Please retry.`,
+              timestamp: new Date().toISOString(),
+            },
+          ]);
+          return;
+        }
+
         setMessages((prev) => [...prev, msg]);
-        // Speak assistant responses
-        if (msg.role === 'assistant' && msg.content) {
+        if (msg.role === 'assistant' && hasVisibleContent) {
           void speak(msg.content);
         }
       } catch {
         const content = event.data;
+        setIsAgentThinking(false);
         setMessages((prev) => [
           ...prev,
           {
@@ -225,10 +258,12 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ agent, onClose }) => {
 
     ws.onclose = () => {
       setWsState('closed');
+      setIsAgentThinking(false);
     };
 
     ws.onerror = () => {
       setWsState('closed');
+      setIsAgentThinking(false);
     };
 
     return () => {
@@ -250,6 +285,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ agent, onClose }) => {
     wsRef.current.send(JSON.stringify(userMessage));
     setMessages((prev) => [...prev, userMessage]);
     setInput('');
+    setIsAgentThinking(true);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -340,6 +376,21 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ agent, onClose }) => {
             )}
           </div>
         )}
+        {isAgentThinking && (
+          <div
+            style={{
+              margin: '0 1rem',
+              padding: '0.75rem 1rem',
+              borderRadius: '12px',
+              background: 'var(--pf-t--global--background--color--primary--default)',
+              border: '1px dashed var(--pf-t--global--border--color--default)',
+              color: 'var(--pf-t--global--text--color--subtle)',
+              fontSize: '0.9rem',
+            }}
+          >
+            {agent.displayName || agent.name} is thinking...
+          </div>
+        )}
 
         {/* Messages */}
         <div
@@ -370,15 +421,35 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ agent, onClose }) => {
                 >
                   <div
                     style={{
+                      fontSize: '0.72rem',
+                      fontWeight: 700,
+                      letterSpacing: '0.03em',
+                      textTransform: 'uppercase',
+                      marginBottom: '0.25rem',
+                      color: 'var(--pf-t--global--text--color--subtle)',
+                    }}
+                  >
+                    {msg.role === 'user' ? 'You' : msg.role === 'assistant' ? (agent.displayName || agent.name) : 'Status'}
+                    {msg.timestamp && (
+                      <span style={{ marginLeft: '0.5rem', fontWeight: 400, textTransform: 'none' }}>
+                        {formatTime(msg.timestamp)}
+                      </span>
+                    )}
+                  </div>
+                  <div
+                    style={{
                       padding: '0.75rem 1rem',
                       borderRadius: '12px',
                       backgroundColor:
                         msg.role === 'user'
                           ? 'var(--pf-t--global--color--brand--default)'
+                          : msg.role === 'system'
+                            ? 'var(--pf-t--global--background--color--secondary--default)'
                           : 'var(--pf-t--global--background--color--secondary--default)',
                       color: msg.role === 'user' ? 'white' : 'inherit',
                       wordBreak: 'break-word',
                       whiteSpace: 'pre-wrap',
+                      fontStyle: msg.role === 'system' ? 'italic' : 'normal',
                     }}
                   >
                     {msg.content}
