@@ -167,6 +167,16 @@ func (h *AgentHandlers) CreateAgent(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "provider is required", http.StatusBadRequest)
 		return
 	}
+	if (req.Provider == "openai" || req.Provider == "anthropic" || req.Provider == "smr") && req.APIKey == "" {
+		http.Error(w, "apiKey is required for the selected provider", http.StatusBadRequest)
+		return
+	}
+
+	if err := k8s.UpsertAgentRuntimeSecret(r.Context(), h.Clients, h.Namespace, req.Name, req.Provider, req.APIKey); err != nil {
+		log.Printf("error preparing runtime secret for agent %s: %v", req.Name, err)
+		http.Error(w, fmt.Sprintf("failed to prepare agent secret: %v", err), http.StatusInternalServerError)
+		return
+	}
 
 	// Convert tools to interface slice for JSON
 	tools := make([]interface{}, len(req.Tools))
@@ -184,7 +194,6 @@ func (h *AgentHandlers) CreateAgent(w http.ResponseWriter, r *http.Request) {
 		"provider":     req.Provider,
 		"modelName":    req.ModelName,
 		"routerRef":    req.RouterRef,
-		"apiKey":       req.APIKey,
 		"tools":        tools,
 		"namespace":    h.Namespace,
 		"owner":        "user:default/deanpeterson",
