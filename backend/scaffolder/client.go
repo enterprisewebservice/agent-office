@@ -23,7 +23,7 @@ type Client struct {
 func NewClient() *Client {
 	baseURL := os.Getenv("RHDH_URL")
 	if baseURL == "" {
-		baseURL = "https://v1-developer-hub-rhdh-test.apps.salamander.aimlworkbench.com"
+		baseURL = "http://v1-developer-hub.rhdh-test.svc.cluster.local:7007"
 	}
 	token := os.Getenv("RHDH_TOKEN")
 
