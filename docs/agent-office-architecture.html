@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Agent Office Architecture</title>
+  <style>
+    :root {
+      --ink: #162033;
+      --muted: #506074;
+      --line: #cfd8e3;
+      --panel: #ffffff;
+      --panel-alt: #f5f7fb;
+      --brand: #1f5fbf;
+      --brand-soft: #dce9ff;
+      --accent: #0f7b6c;
+      --accent-soft: #dff6f1;
+      --warn: #7b4a13;
+      --warn-soft: #fdeedb;
+      --shadow: 0 10px 28px rgba(22, 32, 51, 0.08);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      padding: 32px;
+      font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+      color: var(--ink);
+      background: #eef3f8;
+      line-height: 1.45;
+    }
+
+    .page {
+      max-width: 1120px;
+      margin: 0 auto;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .hero {
+      padding: 40px 44px 24px;
+      background:
+        radial-gradient(circle at top right, rgba(31, 95, 191, 0.12), transparent 32%),
+        linear-gradient(180deg, #ffffff 0%, #f7f9fd 100%);
+      border-bottom: 1px solid var(--line);
+    }
+
+    h1, h2, h3 {
+      margin: 0 0 12px;
+      line-height: 1.15;
+    }
+
+    h1 {
+      font-size: 34px;
+      letter-spacing: -0.02em;
+    }
+
+    h2 {
+      font-size: 24px;
+      margin-top: 8px;
+    }
+
+    h3 {
+      font-size: 18px;
+      margin-top: 6px;
+    }
+
+    p {
+      margin: 0 0 12px;
+      color: var(--ink);
+    }
+
+    .subhead {
+      max-width: 880px;
+      font-size: 17px;
+      color: var(--muted);
+    }
+
+    .content {
+      padding: 28px 44px 44px;
+    }
+
+    .meta {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+      margin-top: 20px;
+    }
+
+    .meta-card {
+      background: var(--panel-alt);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 14px 16px;
+    }
+
+    .meta-card .label {
+      display: block;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+
+    .meta-card .value {
+      font-size: 16px;
+      font-weight: 700;
+    }
+
+    .section {
+      margin-top: 28px;
+      padding-top: 28px;
+      border-top: 1px solid var(--line);
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1.05fr 0.95fr;
+      gap: 22px;
+      align-items: start;
+    }
+
+    .card {
+      background: var(--panel-alt);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 18px 20px;
+    }
+
+    ul {
+      margin: 10px 0 0 20px;
+      padding: 0;
+    }
+
+    li {
+      margin-bottom: 8px;
+      color: var(--ink);
+    }
+
+    .pill-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .pill {
+      display: inline-block;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: var(--brand-soft);
+      border: 1px solid #bad1ff;
+      color: #163d7c;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+
+    .pill.alt {
+      background: var(--accent-soft);
+      border-color: #b3eadf;
+      color: #125a50;
+    }
+
+    .pill.warn {
+      background: var(--warn-soft);
+      border-color: #f2d2ab;
+      color: var(--warn);
+    }
+
+    .diagram {
+      margin-top: 14px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: #ffffff;
+      overflow: hidden;
+    }
+
+    .caption {
+      margin-top: 10px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .callout {
+      margin-top: 14px;
+      padding: 14px 16px;
+      border-radius: 14px;
+      background: #fef9ef;
+      border: 1px solid #f1ddac;
+    }
+
+    .small {
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .foot {
+      margin-top: 28px;
+      padding-top: 20px;
+      border-top: 1px solid var(--line);
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    @media print {
+      body {
+        background: white;
+        padding: 0;
+      }
+
+      .page {
+        border: none;
+        box-shadow: none;
+        border-radius: 0;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="hero">
+      <h1>Agent Office Architecture</h1>
+      <p class="subhead">
+        A shared multi-agent control plane and visual workspace built on OpenClaw, OpenShift, GitOps, and Developer Hub.
+        The key design point is that Agent Concierge can use OpenAI for top-level interaction while delegating operational
+        work through the Claude Code subscription skill, which keeps coding and operator-style actions off the expensive API path.
+      </p>
+      <div class="meta">
+        <div class="meta-card">
+          <span class="label">Primary Namespace</span>
+          <span class="value">agent-office</span>
+        </div>
+        <div class="meta-card">
+          <span class="label">Developer Hub Namespace</span>
+          <span class="value">rhdh-test</span>
+        </div>
+        <div class="meta-card">
+          <span class="label">GitOps Namespace</span>
+          <span class="value">openshift-gitops</span>
+        </div>
+        <div class="meta-card">
+          <span class="label">Custom Runtime Repo</span>
+          <span class="value">deanpeterson/openclaw-infra</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="content">
+      <div class="section" style="margin-top: 0; padding-top: 0; border-top: none;">
+        <div class="grid-2">
+          <div class="card">
+            <h2>Simple Meeting Summary</h2>
+            <p>
+              Agent Office is one shared application. Each new employee agent is created as its own GitOps-backed component,
+              deployed into OpenShift, registered in Developer Hub, and then discovered by Agent Office so it appears both in
+              the catalog and in the office UI.
+            </p>
+            <ul>
+              <li>Agent Concierge is the front desk agent that helps create and manage other agents.</li>
+              <li>Agent creation goes through the Agent Office backend, not by spinning up another copy of Agent Office.</li>
+              <li>Developer Hub tracks the agents as components.</li>
+              <li>Argo CD applies each agent’s repo into the cluster.</li>
+              <li>The visual office is a second UI layer on top of the same backend so agents feel like employees with desks and workstations.</li>
+            </ul>
+          </div>
+
+          <div class="card">
+            <h2>What Is Special Here</h2>
+            <div class="pill-row">
+              <span class="pill">OpenAI for top-level chat</span>
+              <span class="pill alt">Claude Code subscription for work</span>
+              <span class="pill">GitOps-backed agents</span>
+              <span class="pill alt">Developer Hub catalog integration</span>
+              <span class="pill warn">Visual office UI</span>
+            </div>
+            <div class="callout">
+              <strong>Why the Claude skill matters:</strong>
+              expensive Claude API usage is avoided for coding and operator-style tasks by using the Claude Code subscription skill.
+              That keeps recurring costs much lower while still giving agents access to strong coding and CLI-driven execution.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>1. System Context</h2>
+        <div class="diagram">
+          <svg viewBox="0 0 1040 470" width="100%" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+                <path d="M0,0 L0,6 L9,3 z" fill="#53657a"/>
+              </marker>
+            </defs>
+
+            <rect x="0" y="0" width="1040" height="470" fill="#ffffff"/>
+
+            <rect x="24" y="28" width="180" height="90" rx="16" fill="#dce9ff" stroke="#86aceb"/>
+            <text x="114" y="60" text-anchor="middle" font-size="22" font-weight="700" fill="#163d7c">User</text>
+            <text x="114" y="88" text-anchor="middle" font-size="14" fill="#2e4d75">Browser</text>
+            <text x="114" y="108" text-anchor="middle" font-size="14" fill="#2e4d75">Classic UI + Visual Office</text>
+
+            <rect x="250" y="20" width="260" height="125" rx="18" fill="#f5f7fb" stroke="#cfd8e3"/>
+            <text x="380" y="52" text-anchor="middle" font-size="24" font-weight="700" fill="#162033">Agent Office</text>
+            <text x="380" y="78" text-anchor="middle" font-size="14" fill="#506074">Shared app in namespace: agent-office</text>
+            <text x="380" y="100" text-anchor="middle" font-size="14" fill="#506074">Chat, session state, TTS, agent create/fire</text>
+            <text x="380" y="120" text-anchor="middle" font-size="14" fill="#506074">Visual representation of employee agents</text>
+
+            <rect x="250" y="185" width="260" height="125" rx="18" fill="#dff6f1" stroke="#86d7c6"/>
+            <text x="380" y="217" text-anchor="middle" font-size="24" font-weight="700" fill="#125a50">Agent Concierge</text>
+            <text x="380" y="243" text-anchor="middle" font-size="14" fill="#2d685f">onboarding-agent</text>
+            <text x="380" y="265" text-anchor="middle" font-size="14" fill="#2d685f">OpenAI for top-level responses</text>
+            <text x="380" y="285" text-anchor="middle" font-size="14" fill="#2d685f">Claude Code subscription skill for work</text>
+
+            <rect x="560" y="28" width="220" height="110" rx="16" fill="#fff8eb" stroke="#efcf97"/>
+            <text x="670" y="60" text-anchor="middle" font-size="22" font-weight="700" fill="#7b4a13">Developer Hub</text>
+            <text x="670" y="86" text-anchor="middle" font-size="14" fill="#8a6538">Namespace: rhdh-test</text>
+            <text x="670" y="106" text-anchor="middle" font-size="14" fill="#8a6538">Scaffolder templates</text>
+            <text x="670" y="124" text-anchor="middle" font-size="14" fill="#8a6538">Catalog components</text>
+
+            <rect x="560" y="180" width="220" height="130" rx="16" fill="#f5f7fb" stroke="#cfd8e3"/>
+            <text x="670" y="212" text-anchor="middle" font-size="22" font-weight="700" fill="#162033">GitOps + Argo CD</text>
+            <text x="670" y="238" text-anchor="middle" font-size="14" fill="#506074">Namespace: openshift-gitops</text>
+            <text x="670" y="258" text-anchor="middle" font-size="14" fill="#506074">Per-agent repo and application</text>
+            <text x="670" y="278" text-anchor="middle" font-size="14" fill="#506074">Syncs manifests into agent-office</text>
+
+            <rect x="825" y="28" width="190" height="125" rx="16" fill="#dce9ff" stroke="#86aceb"/>
+            <text x="920" y="60" text-anchor="middle" font-size="22" font-weight="700" fill="#163d7c">openclaw-infra</text>
+            <text x="920" y="86" text-anchor="middle" font-size="14" fill="#2e4d75">Custom runtime image</text>
+            <text x="920" y="106" text-anchor="middle" font-size="14" fill="#2e4d75">Claude bridge extension</text>
+            <text x="920" y="126" text-anchor="middle" font-size="14" fill="#2e4d75">Skill integration and runtime tuning</text>
+
+            <rect x="815" y="220" width="210" height="170" rx="16" fill="#f5f7fb" stroke="#cfd8e3"/>
+            <text x="920" y="252" text-anchor="middle" font-size="22" font-weight="700" fill="#162033">Employee Agents</text>
+            <text x="920" y="278" text-anchor="middle" font-size="14" fill="#506074">Taskmaster and other specialists</text>
+            <text x="920" y="298" text-anchor="middle" font-size="14" fill="#506074">Each deployed as its own component</text>
+            <text x="920" y="318" text-anchor="middle" font-size="14" fill="#506074">Registered in Developer Hub</text>
+            <text x="920" y="338" text-anchor="middle" font-size="14" fill="#506074">Discovered by Agent Office</text>
+            <text x="920" y="358" text-anchor="middle" font-size="14" fill="#506074">Shown visually at their desks</text>
+
+            <line x1="204" y1="74" x2="250" y2="74" stroke="#53657a" stroke-width="2.5" marker-end="url(#arrow)"/>
+            <line x1="380" y1="145" x2="380" y2="185" stroke="#53657a" stroke-width="2.5" marker-end="url(#arrow)"/>
+            <line x1="510" y1="84" x2="560" y2="84" stroke="#53657a" stroke-width="2.5" marker-end="url(#arrow)"/>
+            <line x1="510" y1="250" x2="560" y2="250" stroke="#53657a" stroke-width="2.5" marker-end="url(#arrow)"/>
+            <line x1="780" y1="84" x2="825" y2="84" stroke="#53657a" stroke-width="2.5" marker-end="url(#arrow)"/>
+            <line x1="780" y1="250" x2="815" y2="250" stroke="#53657a" stroke-width="2.5" marker-end="url(#arrow)"/>
+            <line x1="705" y1="138" x2="705" y2="180" stroke="#53657a" stroke-width="2.5" marker-end="url(#arrow)"/>
+            <line x1="840" y1="185" x2="770" y2="185" stroke="#53657a" stroke-width="2" stroke-dasharray="8 6" marker-end="url(#arrow)"/>
+            <text x="796" y="172" text-anchor="middle" font-size="13" fill="#506074">catalog + deployment feedback</text>
+          </svg>
+        </div>
+        <p class="caption">
+          The key separation is between the shared office application and the individual employee agents. Agent Office is one app. Agents are separate GitOps-backed components that Agent Office discovers and presents.
+        </p>
+      </div>
+
+      <div class="section">
+        <h2>2. Agent Creation Flow</h2>
+        <div class="diagram">
+          <svg viewBox="0 0 1040 520" width="100%" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <marker id="arrow2" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+                <path d="M0,0 L0,6 L9,3 z" fill="#53657a"/>
+              </marker>
+            </defs>
+
+            <rect x="0" y="0" width="1040" height="520" fill="#ffffff"/>
+
+            <text x="120" y="40" text-anchor="middle" font-size="18" font-weight="700" fill="#162033">User</text>
+            <text x="300" y="40" text-anchor="middle" font-size="18" font-weight="700" fill="#162033">Agent Office</text>
+            <text x="490" y="40" text-anchor="middle" font-size="18" font-weight="700" fill="#162033">Agent Concierge</text>
+            <text x="690" y="40" text-anchor="middle" font-size="18" font-weight="700" fill="#162033">Claude Code Skill</text>
+            <text x="890" y="40" text-anchor="middle" font-size="18" font-weight="700" fill="#162033">GitOps + RHDH + Argo</text>
+
+            <line x1="120" y1="60" x2="120" y2="480" stroke="#a8b3c2" stroke-width="2"/>
+            <line x1="300" y1="60" x2="300" y2="480" stroke="#a8b3c2" stroke-width="2"/>
+            <line x1="490" y1="60" x2="490" y2="480" stroke="#a8b3c2" stroke-width="2"/>
+            <line x1="690" y1="60" x2="690" y2="480" stroke="#a8b3c2" stroke-width="2"/>
+            <line x1="890" y1="60" x2="890" y2="480" stroke="#a8b3c2" stroke-width="2"/>
+
+            <rect x="42" y="82" width="156" height="44" rx="10" fill="#dce9ff" stroke="#86aceb"/>
+            <text x="120" y="110" text-anchor="middle" font-size="14" fill="#163d7c">"Create Taskmaster"</text>
+
+            <line x1="198" y1="104" x2="300" y2="104" stroke="#53657a" stroke-width="2.5" marker-end="url(#arrow2)"/>
+            <text x="250" y="94" text-anchor="middle" font-size="12" fill="#506074">websocket chat</text>
+
+            <rect x="230" y="146" width="140" height="50" rx="10" fill="#f5f7fb" stroke="#cfd8e3"/>
+            <text x="300" y="168" text-anchor="middle" font-size="13" fill="#162033">Route request to</text>
+            <text x="300" y="186" text-anchor="middle" font-size="13" fill="#162033">onboarding-agent</text>
+
+            <line x1="370" y1="171" x2="490" y2="171" stroke="#53657a" stroke-width="2.5" marker-end="url(#arrow2)"/>
+
+            <rect x="414" y="218" width="152" height="54" rx="10" fill="#dff6f1" stroke="#86d7c6"/>
+            <text x="490" y="240" text-anchor="middle" font-size="13" fill="#125a50">Use OpenAI for</text>
+            <text x="490" y="258" text-anchor="middle" font-size="13" fill="#125a50">conversation framing</text>
+
+            <rect x="608" y="218" width="164" height="54" rx="10" fill="#dff6f1" stroke="#86d7c6"/>
+            <text x="690" y="240" text-anchor="middle" font-size="13" fill="#125a50">Call claude_code_resume</text>
+            <text x="690" y="258" text-anchor="middle" font-size="13" fill="#125a50">for real execution work</text>
+
+            <line x1="566" y1="245" x2="608" y2="245" stroke="#53657a" stroke-width="2.5" marker-end="url(#arrow2)"/>
+
+            <rect x="608" y="306" width="164" height="72" rx="10" fill="#fff8eb" stroke="#efcf97"/>
+            <text x="690" y="330" text-anchor="middle" font-size="13" fill="#7b4a13">Skill executes a single</text>
+            <text x="690" y="348" text-anchor="middle" font-size="13" fill="#7b4a13">Agent Office create call</text>
+            <text x="690" y="366" text-anchor="middle" font-size="13" fill="#7b4a13">using env-backed API key</text>
+
+            <line x1="772" y1="342" x2="890" y2="342" stroke="#53657a" stroke-width="2.5" marker-end="url(#arrow2)"/>
+
+            <rect x="816" y="126" width="148" height="60" rx="10" fill="#f5f7fb" stroke="#cfd8e3"/>
+            <text x="890" y="148" text-anchor="middle" font-size="13" fill="#162033">Scaffolder creates</text>
+            <text x="890" y="166" text-anchor="middle" font-size="13" fill="#162033">per-agent repo/component</text>
+
+            <rect x="816" y="214" width="148" height="60" rx="10" fill="#f5f7fb" stroke="#cfd8e3"/>
+            <text x="890" y="236" text-anchor="middle" font-size="13" fill="#162033">Argo CD syncs manifests</text>
+            <text x="890" y="254" text-anchor="middle" font-size="13" fill="#162033">into agent-office</text>
+
+            <rect x="816" y="302" width="148" height="60" rx="10" fill="#f5f7fb" stroke="#cfd8e3"/>
+            <text x="890" y="324" text-anchor="middle" font-size="13" fill="#162033">Developer Hub registers</text>
+            <text x="890" y="342" text-anchor="middle" font-size="13" fill="#162033">Component in catalog</text>
+
+            <rect x="816" y="390" width="148" height="60" rx="10" fill="#dce9ff" stroke="#86aceb"/>
+            <text x="890" y="412" text-anchor="middle" font-size="13" fill="#163d7c">Agent appears in</text>
+            <text x="890" y="430" text-anchor="middle" font-size="13" fill="#163d7c">Agent Office UI</text>
+
+            <line x1="890" y1="186" x2="890" y2="214" stroke="#53657a" stroke-width="2.5" marker-end="url(#arrow2)"/>
+            <line x1="890" y1="274" x2="890" y2="302" stroke="#53657a" stroke-width="2.5" marker-end="url(#arrow2)"/>
+            <line x1="890" y1="362" x2="890" y2="390" stroke="#53657a" stroke-width="2.5" marker-end="url(#arrow2)"/>
+
+            <line x1="816" y1="420" x2="300" y2="420" stroke="#53657a" stroke-width="2" stroke-dasharray="8 6" marker-end="url(#arrow2)"/>
+            <text x="556" y="407" text-anchor="middle" font-size="12" fill="#506074">backend discovers new AgentWorkstation and updates office roster</text>
+          </svg>
+        </div>
+        <p class="caption">
+          The important operational point is that Claude Code subscription is used for the actual create action, but the system of record is still the shared Agent Office backend plus GitOps, Developer Hub, and Argo CD.
+        </p>
+      </div>
+
+      <div class="section">
+        <h2>3. Runtime Request Flow</h2>
+        <div class="grid-2">
+          <div class="card">
+            <h3>Conversation Path</h3>
+            <ul>
+              <li>The browser talks to Agent Office over websocket.</li>
+              <li>Agent Office proxies the conversation to the selected OpenClaw agent gateway.</li>
+              <li>The selected agent decides whether to answer directly or call a skill/tool.</li>
+              <li>For concierge operations, the preferred path is OpenAI for top-level dialog plus Claude Code subscription for execution-heavy work.</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>What the UI Adds</h3>
+            <ul>
+              <li>Activity panel shows tool and skill usage per turn.</li>
+              <li>Session panel shows cached gateway state, OpenClaw chat count, and active versus historical Claude sessions.</li>
+              <li>Visual Office presents agents as employees in a navigable office instead of a plain list.</li>
+              <li>OpenAI TTS upgrades the spoken voice layer without changing tool or skill behavior.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="diagram">
+          <svg viewBox="0 0 1040 360" width="100%" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <marker id="arrow3" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+                <path d="M0,0 L0,6 L9,3 z" fill="#53657a"/>
+              </marker>
+            </defs>
+
+            <rect x="0" y="0" width="1040" height="360" fill="#ffffff"/>
+
+            <rect x="30" y="95" width="170" height="76" rx="16" fill="#dce9ff" stroke="#86aceb"/>
+            <text x="115" y="126" text-anchor="middle" font-size="20" font-weight="700" fill="#163d7c">Browser UI</text>
+            <text x="115" y="148" text-anchor="middle" font-size="13" fill="#2e4d75">classic chat + visual office</text>
+
+            <rect x="240" y="80" width="200" height="106" rx="16" fill="#f5f7fb" stroke="#cfd8e3"/>
+            <text x="340" y="112" text-anchor="middle" font-size="20" font-weight="700" fill="#162033">Agent Office Server</text>
+            <text x="340" y="136" text-anchor="middle" font-size="13" fill="#506074">websocket proxy</text>
+            <text x="340" y="154" text-anchor="middle" font-size="13" fill="#506074">session state + activity</text>
+            <text x="340" y="172" text-anchor="middle" font-size="13" fill="#506074">OpenAI TTS endpoint</text>
+
+            <rect x="480" y="80" width="200" height="106" rx="16" fill="#dff6f1" stroke="#86d7c6"/>
+            <text x="580" y="112" text-anchor="middle" font-size="20" font-weight="700" fill="#125a50">OpenClaw Agent</text>
+            <text x="580" y="136" text-anchor="middle" font-size="13" fill="#2d685f">gateway + runtime</text>
+            <text x="580" y="154" text-anchor="middle" font-size="13" fill="#2d685f">tool and skill policy</text>
+            <text x="580" y="172" text-anchor="middle" font-size="13" fill="#2d685f">session history</text>
+
+            <rect x="720" y="40" width="280" height="90" rx="16" fill="#fff8eb" stroke="#efcf97"/>
+            <text x="860" y="72" text-anchor="middle" font-size="20" font-weight="700" fill="#7b4a13">OpenAI Path</text>
+            <text x="860" y="96" text-anchor="middle" font-size="13" fill="#8a6538">top-level interaction and voice</text>
+            <text x="860" y="114" text-anchor="middle" font-size="13" fill="#8a6538">chat responses + TTS</text>
+
+            <rect x="720" y="165" width="280" height="110" rx="16" fill="#dce9ff" stroke="#86aceb"/>
+            <text x="860" y="198" text-anchor="middle" font-size="20" font-weight="700" fill="#163d7c">Claude Code Subscription Path</text>
+            <text x="860" y="222" text-anchor="middle" font-size="13" fill="#2e4d75">claude_code_resume</text>
+            <text x="860" y="240" text-anchor="middle" font-size="13" fill="#2e4d75">CLI execution, repo work, operator tasks</text>
+            <text x="860" y="258" text-anchor="middle" font-size="13" fill="#2e4d75">lower recurring cost than Claude API usage</text>
+
+            <line x1="200" y1="133" x2="240" y2="133" stroke="#53657a" stroke-width="2.5" marker-end="url(#arrow3)"/>
+            <line x1="440" y1="133" x2="480" y2="133" stroke="#53657a" stroke-width="2.5" marker-end="url(#arrow3)"/>
+            <line x1="680" y1="100" x2="720" y2="90" stroke="#53657a" stroke-width="2.5" marker-end="url(#arrow3)"/>
+            <line x1="680" y1="165" x2="720" y2="210" stroke="#53657a" stroke-width="2.5" marker-end="url(#arrow3)"/>
+
+            <rect x="240" y="235" width="440" height="78" rx="16" fill="#f5f7fb" stroke="#cfd8e3"/>
+            <text x="460" y="264" text-anchor="middle" font-size="18" font-weight="700" fill="#162033">User-facing result</text>
+            <text x="460" y="288" text-anchor="middle" font-size="13" fill="#506074">one chat experience, but different work paths under the hood</text>
+            <text x="460" y="306" text-anchor="middle" font-size="13" fill="#506074">Activity + session state make those hidden paths visible</text>
+          </svg>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>4. Repos and Ownership</h2>
+        <div class="grid-2">
+          <div class="card">
+            <h3>Core Repos</h3>
+            <ul>
+              <li><strong>agent-office</strong>: shared web app, backend, visual office UI, chat/session/TTS behavior.</li>
+              <li><strong>openclaw-infra</strong>: custom runtime and Claude bridge behavior.</li>
+              <li><strong>onboarding-agent-agent-gitops</strong>: source of truth for Agent Concierge deployment and prompt/config.</li>
+              <li><strong>tssc-dev-multi-ci</strong>: scaffolder template that produces new agent repos and manifests.</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>What Lives Where</h3>
+            <ul>
+              <li><strong>agent-office namespace</strong>: shared app plus deployed agents.</li>
+              <li><strong>rhdh-test namespace</strong>: Developer Hub and scaffolder UI.</li>
+              <li><strong>openshift-gitops namespace</strong>: Argo CD applications syncing agent repos.</li>
+              <li><strong>Quay image registry</strong>: custom Agent Office and OpenClaw images.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>5. Design Rationale</h2>
+        <div class="grid-2">
+          <div class="card">
+            <h3>Why This Model Works</h3>
+            <ul>
+              <li>One shared office app avoids duplicating the control plane for every employee agent.</li>
+              <li>Per-agent GitOps repos make lifecycle, deletion, and catalog registration predictable.</li>
+              <li>Developer Hub provides the familiar software catalog abstraction for agents.</li>
+              <li>The visual office makes the system easier to operate because people naturally think about long-running agents as employees with workstations.</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Operational Risks to Watch</h3>
+            <ul>
+              <li>Do not let OpenClaw runtime images drift silently from the known-good custom build path.</li>
+              <li>Keep image tags versioned; avoid relying on mutable rollback points.</li>
+              <li>Keep session state visible and resettable because bad historical context can contaminate operational turns.</li>
+              <li>GitOps controller health matters directly; if Argo is unhealthy, agents can appear “created” in chat but not actually land in-cluster.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>6. Suggested Meeting Script</h2>
+        <div class="card">
+          <p>
+            “We built Agent Office as a shared front-end for a fleet of GitOps-managed OpenClaw agents. Agent Concierge acts like the front desk: it helps create and manage specialist agents, but each specialist is still its own component in Developer Hub and its own deployment in OpenShift. For interaction, we use OpenAI at the top level, but for real coding and operator work we route through a Claude Code subscription skill so we keep costs down. The visual office is not just cosmetic; it gives operators a more intuitive way to see and talk to long-running agents as if they were employees sitting at desks with their own workstations.” 
+          </p>
+        </div>
+      </div>
+
+      <div class="foot">
+        Prepared from the live Agent Office, OpenClaw, GitOps, and Developer Hub implementation as of March 23, 2026.
+        This document is designed to be opened directly in a browser or imported into Google Docs.
+      </div>
+    </div>
+  </div>
+</body>
+</html>
