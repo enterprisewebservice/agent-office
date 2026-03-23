@@ -9,6 +9,7 @@ import {
   InputGroup,
   InputGroupItem,
   Label,
+  Spinner,
   TextInput,
   Title,
   Tooltip,
@@ -65,6 +66,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ agent, onClose }) => {
   const [wsState, setWsState] = useState<'connecting' | 'open' | 'closed'>('connecting');
   const [isListening, setIsListening] = useState(false);
   const [isAgentThinking, setIsAgentThinking] = useState(false);
+  const [pendingUserMessage, setPendingUserMessage] = useState<string | null>(null);
   const [ttsEnabled, setTtsEnabled] = useState(true);
   const [voiceNotice, setVoiceNotice] = useState<string | null>(null);
   const [hasQueuedOpenAIAudio, setHasQueuedOpenAIAudio] = useState(false);
@@ -133,6 +135,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ agent, onClose }) => {
             wsRef.current.send(JSON.stringify(userMessage));
             setMessages((prev) => [...prev, userMessage]);
             setIsAgentThinking(true);
+            setPendingUserMessage(userMessage.content);
           }
         } else {
           // Interim result — show in input box
@@ -219,6 +222,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ agent, onClose }) => {
         const msg: ChatMessage = JSON.parse(event.data);
         if (msg.role === 'assistant') {
           setIsAgentThinking(false);
+          setPendingUserMessage(null);
         }
 
         const trimmedContent = msg.content?.trim() ?? '';
@@ -244,6 +248,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ agent, onClose }) => {
       } catch {
         const content = event.data;
         setIsAgentThinking(false);
+        setPendingUserMessage(null);
         setMessages((prev) => [
           ...prev,
           {
@@ -259,11 +264,13 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ agent, onClose }) => {
     ws.onclose = () => {
       setWsState('closed');
       setIsAgentThinking(false);
+      setPendingUserMessage(null);
     };
 
     ws.onerror = () => {
       setWsState('closed');
       setIsAgentThinking(false);
+      setPendingUserMessage(null);
     };
 
     return () => {
@@ -286,6 +293,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ agent, onClose }) => {
     setMessages((prev) => [...prev, userMessage]);
     setInput('');
     setIsAgentThinking(true);
+    setPendingUserMessage(userMessage.content);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -407,7 +415,23 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ agent, onClose }) => {
               fontSize: '0.9rem',
             }}
           >
-            {agent.displayName || agent.name} is thinking...
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: pendingUserMessage ? '0.45rem' : 0 }}>
+              <Spinner size="md" />
+              <span>{agent.displayName || agent.name} is thinking...</span>
+            </div>
+            {pendingUserMessage && (
+              <div
+                style={{
+                  padding: '0.6rem 0.75rem',
+                  borderRadius: '10px',
+                  background: 'rgba(20, 33, 61, 0.04)',
+                  color: 'var(--pf-t--global--text--color--regular)',
+                  fontStyle: 'italic',
+                }}
+              >
+                Waiting on a reply to: {pendingUserMessage}
+              </div>
+            )}
           </div>
         )}
 
