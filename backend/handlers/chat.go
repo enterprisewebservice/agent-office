@@ -88,6 +88,8 @@ type AgentSessionState struct {
 	LastUserMessage        string   `json:"lastUserMessage,omitempty"`
 	LastAssistantMessage   string   `json:"lastAssistantMessage,omitempty"`
 	ClaudeBridgeSessionCount int    `json:"claudeBridgeSessionCount"`
+	ClaudeActiveSessionCount int    `json:"claudeActiveSessionCount"`
+	ClaudeHistoricalSessionCount int `json:"claudeHistoricalSessionCount"`
 	ClaudeActiveTaskLabels []string `json:"claudeActiveTaskLabels,omitempty"`
 	ClaudeRecentTaskLabels []string `json:"claudeRecentTaskLabels,omitempty"`
 }
@@ -463,6 +465,11 @@ func (h *ChatHandler) getSessionState(ctx context.Context, agentName string) (Ag
 				continue
 			}
 			state.ClaudeBridgeSessionCount++
+			if session.Status == "active" {
+				state.ClaudeActiveSessionCount++
+			} else {
+				state.ClaudeHistoricalSessionCount++
+			}
 			if session.Status == "active" {
 				activeLabels = append(activeLabels, session.TaskLabel)
 			}

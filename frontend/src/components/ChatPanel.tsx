@@ -462,7 +462,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ agent, onClose }) => {
                     OpenClaw chats: {sessionState.openclawSessionCount}
                   </Label>
                   <Label color="purple" isCompact>
-                    Claude sessions: {sessionState.claudeBridgeSessionCount}
+                    Claude sessions: {sessionState.claudeActiveSessionCount} active / {sessionState.claudeHistoricalSessionCount} historical
                   </Label>
                 </div>
                 {(sessionState.claudeActiveTaskLabels?.length || sessionState.claudeRecentTaskLabels?.length) && (
@@ -599,14 +599,16 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ agent, onClose }) => {
                       borderRadius: '12px',
                       backgroundColor:
                         msg.role === 'user'
-                          ? 'var(--pf-t--global--color--brand--default)'
+                          ? '#1f5fbf'
                           : msg.role === 'system'
                             ? 'var(--pf-t--global--background--color--secondary--default)'
                           : 'var(--pf-t--global--background--color--secondary--default)',
-                      color: msg.role === 'user' ? 'white' : 'inherit',
+                      color: msg.role === 'user' ? '#ffffff' : 'inherit',
                       wordBreak: 'break-word',
                       whiteSpace: 'pre-wrap',
                       fontStyle: msg.role === 'system' ? 'italic' : 'normal',
+                      border: msg.role === 'user' ? '1px solid rgba(8, 28, 74, 0.18)' : undefined,
+                      boxShadow: msg.role === 'user' ? '0 8px 18px rgba(31, 95, 191, 0.18)' : undefined,
                     }}
                   >
                     {msg.content}

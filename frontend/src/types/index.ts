@@ -43,6 +43,8 @@ export interface AgentSessionState {
   lastUserMessage?: string;
   lastAssistantMessage?: string;
   claudeBridgeSessionCount: number;
+  claudeActiveSessionCount: number;
+  claudeHistoricalSessionCount: number;
   claudeActiveTaskLabels?: string[];
   claudeRecentTaskLabels?: string[];
 }
