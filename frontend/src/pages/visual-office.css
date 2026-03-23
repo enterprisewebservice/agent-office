@@ -393,11 +393,11 @@
 
 .visualOffice__person {
   position: absolute;
-  left: 50%;
-  bottom: 18px;
+  left: 56%;
+  bottom: -10px;
   width: 100px;
   height: 132px;
-  transform: translateX(-50%) translateZ(88px) rotateX(-57deg);
+  transform: translateX(-50%) translateY(18px) translateZ(42px) rotateX(-57deg);
   transform-style: preserve-3d;
 }
 
@@ -471,7 +471,7 @@
 .visualOffice__personChair {
   position: absolute;
   left: 50%;
-  bottom: 6px;
+  bottom: 2px;
   width: 70px;
   height: 48px;
   transform: translateX(-50%);
