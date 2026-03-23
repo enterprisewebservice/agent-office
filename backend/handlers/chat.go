@@ -724,6 +724,14 @@ func (h *ChatHandler) HandleChat(w http.ResponseWriter, r *http.Request) {
 		// Send message to the agent, retrying once if the cached gateway
 		// connection died during a pod restart or gateway reconnect.
 		response, metadata, err := h.sendMessageWithReconnect(r.Context(), name, inMsg.Content)
+		if err != nil && strings.Contains(err.Error(), "agent returned an empty response") {
+			log.Printf("empty final response for agent %s; starting a fresh OpenClaw session and retrying once", name)
+			if resetErr := h.resetAgentSessions(r.Context(), name, false); resetErr != nil {
+				log.Printf("failed to reset OpenClaw session after empty response for agent %s: %v", name, resetErr)
+			} else {
+				response, metadata, err = h.sendMessageWithReconnect(r.Context(), name, inMsg.Content)
+			}
+		}
 		if err != nil {
 			log.Printf("gateway connection error for agent %s: %v", name, err)
 			errMsg := WSMessage{
