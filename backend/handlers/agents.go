@@ -1,10 +1,14 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+
+	appsv1 "k8s.io/api/apps/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/enterprisewebservice/agent-office/backend/k8s"
 	"github.com/enterprisewebservice/agent-office/backend/scaffolder"
@@ -108,6 +112,37 @@ func agentFromCR(obj map[string]interface{}) map[string]interface{} {
 	return result
 }
 
+func inferAgentPhase(clients *k8s.Clients, namespace, name string, current interface{}) interface{} {
+	if phase, ok := current.(string); ok && phase != "" {
+		return phase
+	}
+
+	deploymentName := fmt.Sprintf("agent-%s", name)
+	deployment, err := clients.Clientset.AppsV1().Deployments(namespace).Get(
+		context.Background(),
+		deploymentName,
+		metav1.GetOptions{},
+	)
+	if err != nil {
+		return current
+	}
+
+	return deploymentPhase(deployment)
+}
+
+func deploymentPhase(deployment *appsv1.Deployment) string {
+	if deployment == nil {
+		return ""
+	}
+	if deployment.Status.AvailableReplicas > 0 {
+		return "Running"
+	}
+	if deployment.Status.UnavailableReplicas > 0 || deployment.Status.Replicas > 0 {
+		return "Provisioning"
+	}
+	return "Waiting"
+}
+
 // ListAgents handles GET /api/agents — lists all AgentWorkstation CRs.
 func (h *AgentHandlers) ListAgents(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -121,7 +156,12 @@ func (h *AgentHandlers) ListAgents(w http.ResponseWriter, r *http.Request) {
 
 	agents := make([]map[string]interface{}, 0, len(list.Items))
 	for _, item := range list.Items {
-		agents = append(agents, agentFromCR(item.Object))
+		agent := agentFromCR(item.Object)
+		if status, ok := agent["status"].(map[string]interface{}); ok {
+			name, _ := agent["name"].(string)
+			status["phase"] = inferAgentPhase(h.Clients, h.Namespace, name, status["phase"])
+		}
+		agents = append(agents, agent)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -146,7 +186,11 @@ func (h *AgentHandlers) GetAgent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(agentFromCR(agent.Object))
+	result := agentFromCR(agent.Object)
+	if status, ok := result["status"].(map[string]interface{}); ok {
+		status["phase"] = inferAgentPhase(h.Clients, h.Namespace, name, status["phase"])
+	}
+	json.NewEncoder(w).Encode(result)
 }
 
 // CreateAgent handles POST /api/agents — calls the RHDH Scaffolder to provision
