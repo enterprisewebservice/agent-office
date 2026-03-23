@@ -399,6 +399,11 @@
   height: 132px;
   transform: translateX(-50%) translateY(18px) translateZ(42px) rotateX(-57deg);
   transform-style: preserve-3d;
+  transition: transform 280ms ease;
+}
+
+.visualOffice__person.is-engaged {
+  transform: translateX(-50%) translateY(10px) translateZ(56px) rotateX(-57deg) rotateY(180deg);
 }
 
 .visualOffice__personBob {
@@ -406,6 +411,10 @@
   width: 100%;
   height: 100%;
   animation: employeeBob 2.8s ease-in-out infinite;
+}
+
+.visualOffice__person.is-engaged .visualOffice__personBob {
+  animation-duration: 1.9s;
 }
 
 .visualOffice__personHead {
@@ -478,6 +487,10 @@
   border-radius: 20px 20px 12px 12px;
   background: var(--chair-color, #fb923c);
   box-shadow: 0 10px 18px rgba(20, 33, 61, 0.16);
+}
+
+.visualOffice__person.is-engaged .visualOffice__personChair {
+  transform: translateX(-50%) rotate(180deg);
 }
 
 .visualOffice__personChair::before {
@@ -623,5 +636,9 @@
 
   .visualOffice__officeViewport {
     border-radius: 24px;
+  }
+
+  .visualOffice__person.is-engaged {
+    transform: translateX(-50%) translateY(12px) translateZ(48px) rotateX(-57deg) rotateY(180deg);
   }
 }

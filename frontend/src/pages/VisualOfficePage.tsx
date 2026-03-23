@@ -241,7 +241,7 @@ const VisualOfficePage: React.FC = () => {
                         <div className="visualOffice__computer" />
                         <div className="visualOffice__monitor" />
                         <div
-                          className="visualOffice__person"
+                          className={`visualOffice__person ${chatAgent?.name === agent.name ? 'is-engaged' : ''}`}
                         >
                           <div
                             className="visualOffice__personBob"
