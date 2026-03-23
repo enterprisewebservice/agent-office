@@ -312,8 +312,6 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ agent, onClose }) => {
     typeof window !== 'undefined' &&
     ((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition);
 
-  const panelHeight = 'min(820px, calc(100vh - 7rem))';
-
   return (
     <DrawerPanelContent
       widths={{ default: 'width_33' }}
@@ -321,12 +319,14 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ agent, onClose }) => {
         width: 'min(26rem, calc(100vw - 1rem))',
         minWidth: 'min(22rem, calc(100vw - 1rem))',
         maxWidth: 'calc(100vw - 1rem)',
-        height: panelHeight,
-        maxHeight: panelHeight,
-        margin: '0.5rem 0.5rem 0.5rem 0',
-        position: 'sticky',
-        top: '0.5rem',
-        alignSelf: 'flex-start',
+        height: 'min(820px, calc(100vh - 1rem))',
+        maxHeight: 'calc(100vh - 1rem)',
+        margin: 0,
+        position: 'fixed',
+        right: '0.5rem',
+        top: '50%',
+        transform: 'translateY(-50%)',
+        zIndex: 30,
         borderRadius: '22px',
         overflow: 'hidden',
         boxShadow: '0 24px 48px rgba(20, 33, 61, 0.18)',
@@ -361,7 +361,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ agent, onClose }) => {
           <DrawerCloseButton onClick={onClose} />
         </DrawerActions>
       </DrawerHead>
-      <DrawerPanelBody style={{ display: 'flex', flexDirection: 'column', height: `calc(${panelHeight} - 84px)` }}>
+      <DrawerPanelBody style={{ display: 'flex', flexDirection: 'column', height: 'calc(100% - 84px)', overflow: 'hidden' }}>
         {/* Connection status */}
         {wsState === 'connecting' && (
           <div style={{ textAlign: 'center', padding: '1rem', color: 'var(--pf-t--global--text--color--subtle)' }}>
