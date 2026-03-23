@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Agent Office Architecture with Security and AgentOps</title>
+  <style>
+    :root {
+      --ink: #172235;
+      --muted: #53657a;
+      --line: #d2dae5;
+      --panel: #ffffff;
+      --panel-alt: #f5f7fb;
+      --brand: #1f5fbf;
+      --brand-soft: #dce9ff;
+      --secure: #0f7b6c;
+      --secure-soft: #dff6f1;
+      --ops: #7a4b12;
+      --ops-soft: #fdf0dc;
+      --future: #ece7ff;
+      --future-line: #c4b5fd;
+      --shadow: 0 10px 28px rgba(23, 34, 53, 0.08);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      padding: 32px;
+      font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+      color: var(--ink);
+      background: #eef3f8;
+      line-height: 1.45;
+    }
+
+    .page {
+      max-width: 1140px;
+      margin: 0 auto;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      overflow: hidden;
+      box-shadow: var(--shadow);
+    }
+
+    .hero {
+      padding: 40px 44px 24px;
+      background:
+        radial-gradient(circle at top right, rgba(31, 95, 191, 0.12), transparent 28%),
+        linear-gradient(180deg, #ffffff 0%, #f7f9fd 100%);
+      border-bottom: 1px solid var(--line);
+    }
+
+    h1, h2, h3 { margin: 0 0 12px; line-height: 1.15; }
+    h1 { font-size: 34px; letter-spacing: -0.02em; }
+    h2 { font-size: 24px; }
+    h3 { font-size: 18px; }
+    p { margin: 0 0 12px; }
+
+    .subhead {
+      max-width: 920px;
+      color: var(--muted);
+      font-size: 17px;
+    }
+
+    .content {
+      padding: 28px 44px 44px;
+    }
+
+    .meta {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+      margin-top: 20px;
+    }
+
+    .meta-card, .card {
+      background: var(--panel-alt);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 18px 20px;
+    }
+
+    .meta-card .label {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+    }
+
+    .meta-card .value {
+      font-size: 16px;
+      font-weight: 700;
+    }
+
+    .section {
+      margin-top: 28px;
+      padding-top: 28px;
+      border-top: 1px solid var(--line);
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 22px;
+      align-items: start;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 18px;
+      align-items: start;
+    }
+
+    ul {
+      margin: 10px 0 0 20px;
+      padding: 0;
+    }
+
+    li { margin-bottom: 8px; }
+
+    .pill-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .pill {
+      display: inline-block;
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      border: 1px solid transparent;
+    }
+
+    .pill.brand { background: var(--brand-soft); border-color: #bad1ff; color: #163d7c; }
+    .pill.secure { background: var(--secure-soft); border-color: #afe6da; color: #11594f; }
+    .pill.ops { background: var(--ops-soft); border-color: #efd19f; color: var(--ops); }
+    .pill.future { background: var(--future); border-color: var(--future-line); color: #4a3a8c; }
+
+    .diagram {
+      margin-top: 14px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: #ffffff;
+      overflow: hidden;
+    }
+
+    .caption {
+      margin-top: 10px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .note {
+      margin-top: 14px;
+      padding: 14px 16px;
+      border-radius: 14px;
+      border: 1px solid #e7d6ab;
+      background: #fff9ed;
+    }
+
+    .small { font-size: 13px; color: var(--muted); }
+
+    .foot {
+      margin-top: 28px;
+      padding-top: 20px;
+      border-top: 1px solid var(--line);
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    @media print {
+      body { background: white; padding: 0; }
+      .page { border: none; box-shadow: none; border-radius: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="hero">
+      <h1>Agent Office Architecture with Security and AgentOps Context</h1>
+      <p class="subhead">
+        This version explains not just the current Agent Office implementation, but also where Red Hat security,
+        operational controls, and the emerging AgentOps direction fit. It separates what is live today from what is
+        future-facing or optional so the model is accurate in a meeting.
+      </p>
+      <div class="meta">
+        <div class="meta-card">
+          <span class="label">Current Runtime Base</span>
+          <span class="value">Custom OpenClaw image path</span>
+        </div>
+        <div class="meta-card">
+          <span class="label">Security Focus</span>
+          <span class="value">permission boundaries + governance</span>
+        </div>
+        <div class="meta-card">
+          <span class="label">Current Control Plane</span>
+          <span class="value">Agent Office + GitOps + RHDH</span>
+        </div>
+        <div class="meta-card">
+          <span class="label">Future Direction</span>
+          <span class="value">AgentOps / Kagenti-style layer</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="content">
+      <div class="section" style="margin-top: 0; padding-top: 0; border-top: none;">
+        <div class="grid-2">
+          <div class="card">
+            <h2>Short Version</h2>
+            <p>
+              Today, Agent Office is a practical operations layer on top of OpenClaw. Security is already in the mix
+              through namespace isolation, GitOps-controlled deployment, secret management, runtime permission boundaries,
+              and a custom OpenClaw bridge in <strong>openclaw-infra</strong>.
+            </p>
+            <p>
+              The Red Hat AgentOps direction, including Kagenti-style governance and operational control, is the logical
+              next layer above this: policy, tracing, guardrails, lifecycle controls, and better standardized agent operations.
+            </p>
+          </div>
+          <div class="card">
+            <h2>How to Say It in a Meeting</h2>
+            <p>
+              “We already have a working multi-agent platform on OpenClaw, OpenShift, GitOps, and Developer Hub. The custom
+              `openclaw-infra` layer is where we shape runtime behavior and the Claude Code skill integration. The Red Hat security
+              and AgentOps story sits around that as the governance and operational layer: policy, observability, permissioning,
+              and controlled agent lifecycle.” 
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>1. Security and Operations Stack</h2>
+        <div class="diagram">
+          <svg viewBox="0 0 1060 560" width="100%" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <marker id="arr" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+                <path d="M0,0 L0,6 L9,3 z" fill="#53657a"/>
+              </marker>
+            </defs>
+            <rect x="0" y="0" width="1060" height="560" fill="#ffffff"/>
+
+            <rect x="110" y="28" width="840" height="78" rx="18" fill="#ece7ff" stroke="#c4b5fd" stroke-width="2"/>
+            <text x="530" y="58" text-anchor="middle" font-size="24" font-weight="700" fill="#4a3a8c">Future / Optional AgentOps Layer</text>
+            <text x="530" y="82" text-anchor="middle" font-size="14" fill="#5a4a9a">Kagenti-style governance, traceability, policy, lifecycle, audit, and standardized operational controls</text>
+
+            <rect x="160" y="142" width="740" height="104" rx="18" fill="#f5f7fb" stroke="#cfd8e3" stroke-width="2"/>
+            <text x="530" y="174" text-anchor="middle" font-size="24" font-weight="700" fill="#162033">Current Shared Control Plane</text>
+            <text x="530" y="198" text-anchor="middle" font-size="14" fill="#506074">Agent Office app, websocket chat, session controls, activity, visual office, voice layer</text>
+            <text x="530" y="220" text-anchor="middle" font-size="14" fill="#506074">Developer Hub scaffolder + catalog + GitOps-backed create/fire lifecycle</text>
+
+            <rect x="160" y="282" width="740" height="116" rx="18" fill="#dff6f1" stroke="#86d7c6" stroke-width="2"/>
+            <text x="530" y="314" text-anchor="middle" font-size="24" font-weight="700" fill="#125a50">Current Security and Runtime Layer</text>
+            <text x="530" y="338" text-anchor="middle" font-size="14" fill="#2d685f">OpenShift namespaces, secrets, routes, service accounts, RBAC, Argo-managed deployment state</text>
+            <text x="530" y="360" text-anchor="middle" font-size="14" fill="#2d685f">OpenClaw runtime + custom bridge in openclaw-infra + skill permission boundaries</text>
+            <text x="530" y="382" text-anchor="middle" font-size="14" fill="#2d685f">This is where the Claude Code subscription skill and runtime permission behavior are actually controlled</text>
+
+            <rect x="220" y="434" width="260" height="82" rx="18" fill="#dce9ff" stroke="#86aceb" stroke-width="2"/>
+            <text x="350" y="466" text-anchor="middle" font-size="22" font-weight="700" fill="#163d7c">OpenClaw Agents</text>
+            <text x="350" y="490" text-anchor="middle" font-size="14" fill="#2e4d75">Concierge + employee agents</text>
+
+            <rect x="580" y="434" width="260" height="82" rx="18" fill="#fff0dc" stroke="#e8c98b" stroke-width="2"/>
+            <text x="710" y="466" text-anchor="middle" font-size="22" font-weight="700" fill="#7a4b12">Cluster Services</text>
+            <text x="710" y="490" text-anchor="middle" font-size="14" fill="#8a6538">GitOps, Developer Hub, registry, secrets</text>
+
+            <line x1="530" y1="106" x2="530" y2="142" stroke="#53657a" stroke-width="2.5" marker-end="url(#arr)"/>
+            <line x1="530" y1="246" x2="530" y2="282" stroke="#53657a" stroke-width="2.5" marker-end="url(#arr)"/>
+            <line x1="350" y1="398" x2="350" y2="434" stroke="#53657a" stroke-width="2.5" marker-end="url(#arr)"/>
+            <line x1="710" y1="398" x2="710" y2="434" stroke="#53657a" stroke-width="2.5" marker-end="url(#arr)"/>
+          </svg>
+        </div>
+        <p class="caption">
+          The most important distinction: <strong>openclaw-infra</strong> is part of the current runtime and security layer.
+          Kagenti or broader AgentOps capabilities are a higher-level governance and operations layer around that runtime.
+        </p>
+      </div>
+
+      <div class="section">
+        <h2>2. Where openclaw-infra Fits</h2>
+        <div class="grid-3">
+          <div class="card">
+            <h3>What It Is</h3>
+            <ul>
+              <li>The custom OpenClaw infrastructure and image lineage used to shape runtime behavior.</li>
+              <li>The place where the Claude bridge extension lives.</li>
+              <li>The place where permission defaults, CLI invocation behavior, and tool/skill integration can be tuned.</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Why It Matters</h3>
+            <ul>
+              <li>It is not just “build plumbing.”</li>
+              <li>It directly affects security boundaries, runtime compatibility, and how the Claude Code subscription skill behaves.</li>
+              <li>It is the layer that must stay stable if you want to avoid regressions in agent behavior.</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>How to Explain It</h3>
+            <ul>
+              <li>“openclaw-infra is our runtime control point.”</li>
+              <li>“It is where we encode the behavior that upstream OpenClaw does not give us out of the box.”</li>
+              <li>“That includes the Claude Code skill path and some of the practical security behavior.”</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>3. Security Boundaries in the Current System</h2>
+        <div class="grid-2">
+          <div class="card">
+            <h3>Already Present Today</h3>
+            <div class="pill-row">
+              <span class="pill secure">Namespaces</span>
+              <span class="pill secure">Service Accounts</span>
+              <span class="pill secure">RBAC</span>
+              <span class="pill secure">Secrets</span>
+              <span class="pill secure">GitOps drift control</span>
+              <span class="pill secure">Session reset controls</span>
+              <span class="pill secure">Skill/tool activity visibility</span>
+            </div>
+            <ul>
+              <li>Agents run inside OpenShift and inherit cluster-level identity and policy controls.</li>
+              <li>Per-agent deployment goes through GitOps rather than uncontrolled manual mutation.</li>
+              <li>Secrets stay in-cluster and should not be committed into GitOps repos.</li>
+              <li>The Agent Office UI now exposes enough session state to detect stale or contaminated runtime state.</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Why This Is Security-Relevant</h3>
+            <ul>
+              <li>Long-running agents are not just LLM prompts; they are software operators with memory, tools, and persistence.</li>
+              <li>That means permission scope, auditability, reproducibility, and rollback discipline matter as much as prompt quality.</li>
+              <li>OpenClaw plus GitOps makes the agent lifecycle tractable, but governance still benefits from a stronger AgentOps layer.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>4. Where Kagenti Fits</h2>
+        <div class="diagram">
+          <svg viewBox="0 0 1060 420" width="100%" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <marker id="arr2" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+                <path d="M0,0 L0,6 L9,3 z" fill="#53657a"/>
+              </marker>
+            </defs>
+            <rect x="0" y="0" width="1060" height="420" fill="#ffffff"/>
+
+            <rect x="72" y="120" width="240" height="120" rx="18" fill="#f5f7fb" stroke="#cfd8e3"/>
+            <text x="192" y="156" text-anchor="middle" font-size="22" font-weight="700" fill="#162033">Current System</text>
+            <text x="192" y="184" text-anchor="middle" font-size="14" fill="#506074">Agent Office</text>
+            <text x="192" y="204" text-anchor="middle" font-size="14" fill="#506074">OpenClaw runtime</text>
+            <text x="192" y="224" text-anchor="middle" font-size="14" fill="#506074">GitOps + Developer Hub</text>
+
+            <rect x="410" y="86" width="240" height="188" rx="18" fill="#ece7ff" stroke="#c4b5fd" stroke-width="2"/>
+            <text x="530" y="122" text-anchor="middle" font-size="22" font-weight="700" fill="#4a3a8c">Kagenti / AgentOps Layer</text>
+            <text x="530" y="152" text-anchor="middle" font-size="14" fill="#5a4a9a">policy</text>
+            <text x="530" y="174" text-anchor="middle" font-size="14" fill="#5a4a9a">traceability</text>
+            <text x="530" y="196" text-anchor="middle" font-size="14" fill="#5a4a9a">governance</text>
+            <text x="530" y="218" text-anchor="middle" font-size="14" fill="#5a4a9a">lifecycle controls</text>
+            <text x="530" y="240" text-anchor="middle" font-size="14" fill="#5a4a9a">tool guardrails and audit</text>
+
+            <rect x="748" y="120" width="240" height="120" rx="18" fill="#dff6f1" stroke="#86d7c6"/>
+            <text x="868" y="156" text-anchor="middle" font-size="22" font-weight="700" fill="#125a50">Result</text>
+            <text x="868" y="184" text-anchor="middle" font-size="14" fill="#2d685f">same agents</text>
+            <text x="868" y="204" text-anchor="middle" font-size="14" fill="#2d685f">better governance</text>
+            <text x="868" y="224" text-anchor="middle" font-size="14" fill="#2d685f">stronger operational confidence</text>
+
+            <line x1="312" y1="180" x2="410" y2="180" stroke="#53657a" stroke-width="2.5" marker-end="url(#arr2)"/>
+            <line x1="650" y1="180" x2="748" y2="180" stroke="#53657a" stroke-width="2.5" marker-end="url(#arr2)"/>
+          </svg>
+        </div>
+        <p class="caption">
+          The cleanest way to describe Kagenti is as an overlay or control layer around the agents you already have, not as a replacement for Agent Office or for the custom OpenClaw runtime work you already did.
+        </p>
+        <div class="note">
+          <strong>Important accuracy note:</strong> in your current environment, Kagenti is best described as adjacent or forthcoming
+          architecture rather than a core live dependency unless you have explicitly deployed it. The current live system is already
+          doing useful security-sensitive work through OpenShift, GitOps, and the customized OpenClaw runtime.
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>5. Current vs. Future Talking Points</h2>
+        <div class="grid-2">
+          <div class="card">
+            <h3>What Is Live Now</h3>
+            <ul>
+              <li>Shared Agent Office app and visual office UI.</li>
+              <li>GitOps-backed per-agent deployment and deletion.</li>
+              <li>Developer Hub component registration.</li>
+              <li>Custom `openclaw-infra` runtime behavior.</li>
+              <li>OpenAI for top-level interaction plus Claude Code subscription skill for real work.</li>
+              <li>Visible tool/skill/session state in the chat experience.</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>What Fits the Red Hat AgentOps Story</h3>
+            <ul>
+              <li>More formal policy and guardrails around agent tools and actions.</li>
+              <li>Stronger traceability and audit for agent decisions and executions.</li>
+              <li>Standardized lifecycle and governance for agent deployment, modification, and retirement.</li>
+              <li>A clearer security plane for enterprise operations teams.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>6. Simple Meeting Script</h2>
+        <div class="card">
+          <p>
+            “The live system today is already a real multi-agent operations platform on OpenShift. Agent Office is the shared control
+            plane and visual workspace. Each agent is a GitOps-backed component that also shows up in Developer Hub. The custom
+            `openclaw-infra` layer is important because that is where we control runtime behavior and the Claude Code subscription skill,
+            which keeps our heavy execution work off the expensive API path. From a Red Hat security and AgentOps perspective, the clean
+            story is that what we have today is the operational substrate, and Kagenti-style capabilities are the governance and policy
+            layer that can sit around it.” 
+          </p>
+        </div>
+      </div>
+
+      <div class="foot">
+        This document is intentionally split between live architecture and future-facing AgentOps framing so it can be used safely in a meeting without overstating what is already deployed.
+      </div>
+    </div>
+  </div>
+</body>
+</html>
