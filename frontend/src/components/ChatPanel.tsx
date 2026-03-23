@@ -16,8 +16,8 @@ import {
 } from '@patternfly/react-core';
 import { MicrophoneIcon, PaperPlaneIcon, VolumeUpIcon } from '@patternfly/react-icons';
 
-import type { Agent, ChatMessage } from '../types';
-import { createChatWebSocket, synthesizeSpeech } from '../api';
+import type { Agent, AgentSessionState, ChatMessage } from '../types';
+import { createChatWebSocket, fetchAgentSessionState, resetAgentSessions, startFreshAgentSession, synthesizeSpeech } from '../api';
 
 interface ChatPanelProps {
   agent: Agent;
@@ -70,6 +70,10 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ agent, onClose }) => {
   const [ttsEnabled, setTtsEnabled] = useState(true);
   const [voiceNotice, setVoiceNotice] = useState<string | null>(null);
   const [hasQueuedOpenAIAudio, setHasQueuedOpenAIAudio] = useState(false);
+  const [sessionState, setSessionState] = useState<AgentSessionState | null>(null);
+  const [sessionNotice, setSessionNotice] = useState<string | null>(null);
+  const [isSessionActionRunning, setIsSessionActionRunning] = useState(false);
+  const [connectionEpoch, setConnectionEpoch] = useState(0);
   const wsRef = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
@@ -208,7 +212,18 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ agent, onClose }) => {
     }
   }, [clearAudioState, ttsEnabled]);
 
+  const refreshSessionState = useCallback(async () => {
+    try {
+      const state = await fetchAgentSessionState(agent.name);
+      setSessionState(state);
+    } catch (err) {
+      console.warn('Failed to fetch agent session state.', err);
+    }
+  }, [agent.name]);
+
   useEffect(() => {
+    void refreshSessionState();
+
     const ws = createChatWebSocket(agent.name);
     wsRef.current = ws;
     setWsState('connecting');
@@ -245,6 +260,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ agent, onClose }) => {
         if (msg.role === 'assistant' && hasVisibleContent) {
           void speak(msg.content);
         }
+        void refreshSessionState();
       } catch {
         const content = event.data;
         setIsAgentThinking(false);
@@ -258,6 +274,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ agent, onClose }) => {
           },
         ]);
         void speak(content);
+        void refreshSessionState();
       }
     };
 
@@ -278,7 +295,37 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ agent, onClose }) => {
       clearAudioState();
       window.speechSynthesis?.cancel();
     };
-  }, [agent.name, clearAudioState, speak]);
+  }, [agent.name, clearAudioState, connectionEpoch, refreshSessionState, speak]);
+
+  const runSessionAction = useCallback(async (mode: 'fresh' | 'reset') => {
+    setIsSessionActionRunning(true);
+    setSessionNotice(null);
+
+    try {
+      const result = mode === 'fresh'
+        ? await startFreshAgentSession(agent.name)
+        : await resetAgentSessions(agent.name);
+
+      setSessionState(result.state);
+      setSessionNotice(result.message);
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: 'system',
+          content: result.message,
+          timestamp: new Date().toISOString(),
+        },
+      ]);
+
+      wsRef.current?.close();
+      setConnectionEpoch((value) => value + 1);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : `Failed to ${mode === 'fresh' ? 'start a fresh session' : 'reset sessions'}.`;
+      setSessionNotice(message);
+    } finally {
+      setIsSessionActionRunning(false);
+    }
+  }, [agent.name]);
 
   const handleSend = () => {
     if (!input.trim() || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
@@ -377,6 +424,73 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ agent, onClose }) => {
         {wsState === 'closed' && (
           <div style={{ textAlign: 'center', padding: '1rem', color: 'var(--pf-t--global--text--color--subtle)' }}>
             Connection closed. Refresh to reconnect.
+          </div>
+        )}
+        {(sessionState || sessionNotice) && (
+          <div
+            style={{
+              margin: '0 1rem',
+              padding: '0.9rem 1rem',
+              borderRadius: '12px',
+              border: '1px solid var(--pf-t--global--border--color--default)',
+              background: 'rgba(20, 33, 61, 0.04)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.6rem',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <div style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--pf-t--global--text--color--subtle)' }}>
+                Session State
+              </div>
+              <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                <Button variant="secondary" size="sm" onClick={() => void runSessionAction('fresh')} isDisabled={isSessionActionRunning}>
+                  Fresh Session
+                </Button>
+                <Button variant="warning" size="sm" onClick={() => void runSessionAction('reset')} isDisabled={isSessionActionRunning}>
+                  Reset Agent Memory
+                </Button>
+              </div>
+            </div>
+            {sessionState && (
+              <>
+                <div style={{ display: 'flex', gap: '0.25rem', flexWrap: 'wrap' }}>
+                  <Label color={sessionState.cachedConnection ? 'green' : 'grey'} isCompact>
+                    Gateway {sessionState.cachedConnection ? 'connected' : 'not cached'}
+                  </Label>
+                  <Label color="blue" isCompact>
+                    OpenClaw chats: {sessionState.openclawSessionCount}
+                  </Label>
+                  <Label color="purple" isCompact>
+                    Claude sessions: {sessionState.claudeBridgeSessionCount}
+                  </Label>
+                </div>
+                {(sessionState.claudeActiveTaskLabels?.length || sessionState.claudeRecentTaskLabels?.length) && (
+                  <div style={{ fontSize: '0.82rem', color: 'var(--pf-t--global--text--color--regular)' }}>
+                    {sessionState.claudeActiveTaskLabels?.length ? (
+                      <>Active Claude tasks: {sessionState.claudeActiveTaskLabels.join(', ')}</>
+                    ) : (
+                      <>Recent Claude tasks: {sessionState.claudeRecentTaskLabels?.join(', ')}</>
+                    )}
+                  </div>
+                )}
+                {sessionState.lastUserMessage && (
+                  <div style={{ fontSize: '0.82rem', color: 'var(--pf-t--global--text--color--regular)' }}>
+                    Last user turn: {sessionState.lastUserMessage}
+                  </div>
+                )}
+                {sessionState.lastAssistantMessage && (
+                  <div style={{ fontSize: '0.82rem', color: 'var(--pf-t--global--text--color--regular)' }}>
+                    Last agent turn: {sessionState.lastAssistantMessage}
+                  </div>
+                )}
+              </>
+            )}
+            {sessionNotice && (
+              <div style={{ fontSize: '0.82rem', color: 'var(--pf-t--global--text--color--subtle)' }}>
+                {sessionNotice}
+              </div>
+            )}
           </div>
         )}
         {(voiceNotice || hasQueuedOpenAIAudio) && (

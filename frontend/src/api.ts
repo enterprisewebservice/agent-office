@@ -1,4 +1,4 @@
-import type { Agent, CreateAgentRequest, SmallModelRouter } from './types';
+import type { Agent, AgentSessionState, CreateAgentRequest, SessionActionResponse, SmallModelRouter } from './types';
 
 const API_BASE = '';
 
@@ -93,6 +93,25 @@ export function createChatWebSocket(agentName: string): WebSocket {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const host = window.location.host;
   return new WebSocket(`${protocol}//${host}/api/agents/${encodeURIComponent(agentName)}/chat`);
+}
+
+export async function fetchAgentSessionState(agentName: string): Promise<AgentSessionState> {
+  const response = await fetch(`${API_BASE}/api/agents/${encodeURIComponent(agentName)}/session`);
+  return handleResponse<AgentSessionState>(response);
+}
+
+export async function startFreshAgentSession(agentName: string): Promise<SessionActionResponse> {
+  const response = await fetch(`${API_BASE}/api/agents/${encodeURIComponent(agentName)}/session/fresh`, {
+    method: 'POST',
+  });
+  return handleResponse<SessionActionResponse>(response);
+}
+
+export async function resetAgentSessions(agentName: string): Promise<SessionActionResponse> {
+  const response = await fetch(`${API_BASE}/api/agents/${encodeURIComponent(agentName)}/session/reset`, {
+    method: 'POST',
+  });
+  return handleResponse<SessionActionResponse>(response);
 }
 
 export async function synthesizeSpeech(

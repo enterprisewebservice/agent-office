@@ -35,6 +35,24 @@ export interface ChatMessage {
   timestamp: string;
 }
 
+export interface AgentSessionState {
+  agentName: string;
+  cachedConnection: boolean;
+  openclawSessionCount: number;
+  openclawLatestFile?: string;
+  lastUserMessage?: string;
+  lastAssistantMessage?: string;
+  claudeBridgeSessionCount: number;
+  claudeActiveTaskLabels?: string[];
+  claudeRecentTaskLabels?: string[];
+}
+
+export interface SessionActionResponse {
+  ok: boolean;
+  message: string;
+  state: AgentSessionState;
+}
+
 export interface CreateAgentRequest {
   name: string;
   displayName: string;

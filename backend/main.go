@@ -60,6 +60,9 @@ func main() {
 
 	// WebSocket chat
 	mux.HandleFunc("GET /api/agents/{name}/chat", chatHandler.HandleChat)
+	mux.HandleFunc("GET /api/agents/{name}/session", chatHandler.HandleSessionState)
+	mux.HandleFunc("POST /api/agents/{name}/session/fresh", chatHandler.HandleFreshSession)
+	mux.HandleFunc("POST /api/agents/{name}/session/reset", chatHandler.HandleResetSessions)
 
 	// Claude subscription
 	mux.HandleFunc("GET /api/claude/status", claudeHandler.GetStatus)

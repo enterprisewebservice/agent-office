@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -63,6 +64,38 @@ type sessionLogEntry struct {
 			Arguments json.RawMessage `json:"arguments"`
 		} `json:"content"`
 	} `json:"message"`
+}
+
+type bridgeSessionEntry struct {
+	SessionID   string `json:"sessionId"`
+	AgentID     string `json:"agentId"`
+	TaskLabel   string `json:"taskLabel"`
+	Status      string `json:"status"`
+	LastUsedAt  string `json:"lastUsedAt"`
+	MessageCount int   `json:"messageCount"`
+}
+
+type bridgeSessionIndex struct {
+	Version  int                  `json:"version"`
+	Sessions []bridgeSessionEntry `json:"sessions"`
+}
+
+type AgentSessionState struct {
+	AgentName              string   `json:"agentName"`
+	CachedConnection       bool     `json:"cachedConnection"`
+	OpenClawSessionCount   int      `json:"openclawSessionCount"`
+	OpenClawLatestFile     string   `json:"openclawLatestFile,omitempty"`
+	LastUserMessage        string   `json:"lastUserMessage,omitempty"`
+	LastAssistantMessage   string   `json:"lastAssistantMessage,omitempty"`
+	ClaudeBridgeSessionCount int    `json:"claudeBridgeSessionCount"`
+	ClaudeActiveTaskLabels []string `json:"claudeActiveTaskLabels,omitempty"`
+	ClaudeRecentTaskLabels []string `json:"claudeRecentTaskLabels,omitempty"`
+}
+
+type sessionActionResponse struct {
+	OK      bool              `json:"ok"`
+	Message string            `json:"message"`
+	State   AgentSessionState `json:"state"`
 }
 
 // NewChatHandler creates a new ChatHandler instance.
@@ -293,6 +326,206 @@ func promptsMatch(a, b string) bool {
 	return na == nb || strings.Contains(na, nb) || strings.Contains(nb, na)
 }
 
+func truncateForDisplay(text string) string {
+	trimmed := strings.Join(strings.Fields(strings.TrimSpace(text)), " ")
+	if len(trimmed) <= 140 {
+		return trimmed
+	}
+	return trimmed[:137] + "..."
+}
+
+func uniqueStrings(values []string) []string {
+	seen := map[string]struct{}{}
+	var out []string
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
+}
+
+func (h *ChatHandler) readLatestSessionEntries(ctx context.Context, agentName string) ([]sessionLogEntry, string, error) {
+	podName, err := h.findAgentPod(ctx, agentName)
+	if err != nil {
+		return nil, "", err
+	}
+
+	latestFile, err := h.execInAgentPod(ctx, podName, []string{
+		"sh", "-lc",
+		"ls -1t /home/node/.openclaw/agents/main/sessions/*.jsonl 2>/dev/null | head -n 1",
+	})
+	if err != nil {
+		return nil, "", err
+	}
+	latestFile = strings.TrimSpace(latestFile)
+	if latestFile == "" {
+		return nil, "", nil
+	}
+
+	output, err := h.execInAgentPod(ctx, podName, []string{"cat", latestFile})
+	if err != nil {
+		return nil, latestFile, err
+	}
+
+	var entries []sessionLogEntry
+	decoder := json.NewDecoder(bytes.NewBufferString(output))
+	for decoder.More() {
+		var entry sessionLogEntry
+		if err := decoder.Decode(&entry); err != nil {
+			continue
+		}
+		entries = append(entries, entry)
+	}
+
+	return entries, latestFile, nil
+}
+
+func (h *ChatHandler) readBridgeSessionIndex(ctx context.Context, agentName string) (bridgeSessionIndex, error) {
+	podName, err := h.findAgentPod(ctx, agentName)
+	if err != nil {
+		return bridgeSessionIndex{}, err
+	}
+
+	output, err := h.execInAgentPod(ctx, podName, []string{
+		"sh", "-lc",
+		"cat /home/node/.claude/bridge-sessions.json 2>/dev/null || echo '{\"version\":1,\"sessions\":[]}'",
+	})
+	if err != nil {
+		return bridgeSessionIndex{}, err
+	}
+
+	var index bridgeSessionIndex
+	if err := json.Unmarshal([]byte(output), &index); err != nil {
+		return bridgeSessionIndex{}, err
+	}
+	return index, nil
+}
+
+func (h *ChatHandler) getSessionState(ctx context.Context, agentName string) (AgentSessionState, error) {
+	state := AgentSessionState{AgentName: agentName}
+
+	h.mu.Lock()
+	_, state.CachedConnection = h.connections[agentName]
+	h.mu.Unlock()
+
+	podName, err := h.findAgentPod(ctx, agentName)
+	if err != nil {
+		return state, err
+	}
+
+	countOutput, err := h.execInAgentPod(ctx, podName, []string{
+		"sh", "-lc",
+		"find /home/node/.openclaw/agents/main/sessions -maxdepth 1 -name '*.jsonl' 2>/dev/null | wc -l | tr -d ' '",
+	})
+	if err == nil {
+		if count, parseErr := strconv.Atoi(strings.TrimSpace(countOutput)); parseErr == nil {
+			state.OpenClawSessionCount = count
+		}
+	}
+
+	entries, latestFile, err := h.readLatestSessionEntries(ctx, agentName)
+	if err == nil {
+		state.OpenClawLatestFile = strings.TrimSpace(latestFile)
+		for i := len(entries) - 1; i >= 0; i-- {
+			entry := entries[i]
+			if entry.Message == nil {
+				continue
+			}
+			switch entry.Message.Role {
+			case "user":
+				if state.LastUserMessage == "" {
+					state.LastUserMessage = truncateForDisplay(extractEntryText(entry))
+				}
+			case "assistant":
+				if state.LastAssistantMessage == "" {
+					state.LastAssistantMessage = truncateForDisplay(extractEntryText(entry))
+				}
+			}
+			if state.LastUserMessage != "" && state.LastAssistantMessage != "" {
+				break
+			}
+		}
+	}
+
+	index, err := h.readBridgeSessionIndex(ctx, agentName)
+	if err == nil {
+		var activeLabels []string
+		var recentLabels []string
+		for _, session := range index.Sessions {
+			if !strings.Contains(session.AgentID, agentName) {
+				continue
+			}
+			state.ClaudeBridgeSessionCount++
+			if session.Status == "active" {
+				activeLabels = append(activeLabels, session.TaskLabel)
+			}
+			recentLabels = append(recentLabels, session.TaskLabel)
+		}
+		state.ClaudeActiveTaskLabels = uniqueStrings(activeLabels)
+		state.ClaudeRecentTaskLabels = uniqueStrings(recentLabels)
+	}
+
+	return state, nil
+}
+
+func (h *ChatHandler) resetAgentSessions(ctx context.Context, agentName string, clearBridge bool) error {
+	podName, err := h.findAgentPod(ctx, agentName)
+	if err != nil {
+		return err
+	}
+
+	h.removeConnection(agentName)
+
+	script := `
+const fs = require("fs");
+const path = require("path");
+const agentName = process.argv[1];
+const clearBridge = process.argv[2] === "true";
+
+const sessionDir = "/home/node/.openclaw/agents/main/sessions";
+const backupDir = "/home/node/.openclaw/agents/main/sessions.backup";
+fs.mkdirSync(backupDir, { recursive: true });
+for (const entry of fs.readdirSync(sessionDir, { withFileTypes: true })) {
+  if (!entry.isFile() || !entry.name.endsWith(".jsonl")) continue;
+  fs.renameSync(path.join(sessionDir, entry.name), path.join(backupDir, entry.name));
+}
+
+if (clearBridge) {
+  const bridgePath = "/home/node/.claude/bridge-sessions.json";
+  let data = { version: 1, sessions: [] };
+  try { data = JSON.parse(fs.readFileSync(bridgePath, "utf8")); } catch {}
+  const removed = [];
+  data.sessions = (data.sessions || []).filter((session) => {
+    const id = session?.agentId || "";
+    if (!id.includes(agentName)) return true;
+    removed.push(session.sessionId);
+    return false;
+  });
+  fs.writeFileSync(bridgePath, JSON.stringify(data, null, 2) + "\n");
+  for (const sessionId of removed) {
+    const transcriptPath = "/home/node/.claude/projects/-home-node--openclaw-workspace/" + sessionId + ".jsonl";
+    try { fs.unlinkSync(transcriptPath); } catch {}
+  }
+}
+`
+
+	_, err = h.execInAgentPod(ctx, podName, []string{
+		"node",
+		"-e",
+		script,
+		agentName,
+		strconv.FormatBool(clearBridge),
+	})
+	return err
+}
+
 func collectToolNames(entries []sessionLogEntry, userEntry sessionLogEntry) []string {
 	seen := map[string]struct{}{}
 	var tools []string
@@ -381,6 +614,62 @@ func (h *ChatHandler) getVerifiedTools(ctx context.Context, agentName, prompt st
 	}
 
 	return nil, nil
+}
+
+func (h *ChatHandler) HandleSessionState(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if name == "" {
+		http.Error(w, "agent name is required", http.StatusBadRequest)
+		return
+	}
+
+	state, err := h.getSessionState(r.Context(), name)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to read session state: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(state)
+}
+
+func (h *ChatHandler) HandleFreshSession(w http.ResponseWriter, r *http.Request) {
+	h.handleSessionReset(w, r, false)
+}
+
+func (h *ChatHandler) HandleResetSessions(w http.ResponseWriter, r *http.Request) {
+	h.handleSessionReset(w, r, true)
+}
+
+func (h *ChatHandler) handleSessionReset(w http.ResponseWriter, r *http.Request, clearBridge bool) {
+	name := r.PathValue("name")
+	if name == "" {
+		http.Error(w, "agent name is required", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.resetAgentSessions(r.Context(), name, clearBridge); err != nil {
+		http.Error(w, fmt.Sprintf("failed to reset sessions: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	state, err := h.getSessionState(r.Context(), name)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("reset succeeded but state lookup failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	message := "Started a fresh OpenClaw chat session."
+	if clearBridge {
+		message = "Reset OpenClaw chat and Claude bridge sessions."
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(sessionActionResponse{
+		OK:      true,
+		Message: message,
+		State:   state,
+	})
 }
 
 // HandleChat upgrades the connection to WebSocket and proxies messages
