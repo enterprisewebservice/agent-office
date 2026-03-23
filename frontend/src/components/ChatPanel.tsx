@@ -318,15 +318,21 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ agent, onClose }) => {
     <DrawerPanelContent
       widths={{ default: 'width_33' }}
       style={{
-        width: 'min(28rem, calc(100vw - 1.5rem))',
-        minWidth: 'min(24rem, calc(100vw - 1.5rem))',
-        maxWidth: 'calc(100vw - 1.5rem)',
+        width: 'min(26rem, calc(100vw - 1rem))',
+        minWidth: 'min(22rem, calc(100vw - 1rem))',
+        maxWidth: 'calc(100vw - 1rem)',
+        height: panelHeight,
         maxHeight: panelHeight,
-        margin: '0.75rem 0.75rem 0.75rem 0',
+        margin: '0.5rem 0.5rem 0.5rem 0',
+        position: 'sticky',
+        top: '0.5rem',
+        alignSelf: 'flex-start',
         borderRadius: '22px',
         overflow: 'hidden',
         boxShadow: '0 24px 48px rgba(20, 33, 61, 0.18)',
-        background: 'var(--pf-t--global--background--color--primary--default)',
+        border: '1px solid rgba(20, 33, 61, 0.12)',
+        background: '#fff8ea',
+        opacity: 1,
       }}
     >
       <DrawerHead>
