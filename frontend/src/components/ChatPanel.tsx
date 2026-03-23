@@ -24,6 +24,30 @@ interface ChatPanelProps {
   onClose: () => void;
 }
 
+function getChatStorageKey(agentName: string): string {
+  return `agent-office-chat:${agentName}`;
+}
+
+function loadStoredMessages(agentName: string): ChatMessage[] {
+  if (typeof window === 'undefined') return [];
+
+  try {
+    const raw = window.sessionStorage.getItem(getChatStorageKey(agentName));
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((entry): entry is ChatMessage => (
+      entry &&
+      typeof entry === 'object' &&
+      typeof entry.role === 'string' &&
+      typeof entry.content === 'string' &&
+      typeof entry.timestamp === 'string'
+    ));
+  } catch {
+    return [];
+  }
+}
+
 function parseToolCalls(message: ChatMessage): string[] {
   if (!message.metadata?.tools) return [];
   return message.metadata.tools
@@ -61,7 +85,7 @@ function formatTime(timestamp: string): string {
 }
 
 const ChatPanel: React.FC<ChatPanelProps> = ({ agent, onClose }) => {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>(() => loadStoredMessages(agent.name));
   const [input, setInput] = useState('');
   const [wsState, setWsState] = useState<'connecting' | 'open' | 'closed'>('connecting');
   const [isListening, setIsListening] = useState(false);
@@ -87,6 +111,16 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ agent, onClose }) => {
   useEffect(() => {
     scrollToBottom();
   }, [messages, scrollToBottom]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    try {
+      window.sessionStorage.setItem(getChatStorageKey(agent.name), JSON.stringify(messages));
+    } catch (err) {
+      console.warn('Failed to persist chat messages for agent.', err);
+    }
+  }, [agent.name, messages]);
 
   const clearAudioState = useCallback(() => {
     if (audioRef.current) {
@@ -220,6 +254,18 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ agent, onClose }) => {
       console.warn('Failed to fetch agent session state.', err);
     }
   }, [agent.name]);
+
+  useEffect(() => {
+    setMessages(loadStoredMessages(agent.name));
+    setInput('');
+    setIsListening(false);
+    setIsAgentThinking(false);
+    setPendingUserMessage(null);
+    setVoiceNotice(null);
+    setSessionNotice(null);
+    clearAudioState();
+    window.speechSynthesis?.cancel();
+  }, [agent.name, clearAudioState]);
 
   useEffect(() => {
     void refreshSessionState();

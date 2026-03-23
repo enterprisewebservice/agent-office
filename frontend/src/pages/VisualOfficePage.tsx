@@ -295,7 +295,7 @@ const VisualOfficePage: React.FC = () => {
     <Drawer isExpanded={chatAgent !== null} onExpand={() => {}}>
       <DrawerContent
         panelContent={
-          chatAgent ? <ChatPanel agent={chatAgent} onClose={() => setChatAgent(null)} /> : undefined
+          chatAgent ? <ChatPanel key={chatAgent.name} agent={chatAgent} onClose={() => setChatAgent(null)} /> : undefined
         }
       >
         <DrawerContentBody>{drawerBody}</DrawerContentBody>

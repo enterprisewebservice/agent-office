@@ -160,7 +160,7 @@ const OfficePage: React.FC = () => {
       <DrawerContent
         panelContent={
           chatAgent ? (
-            <ChatPanel agent={chatAgent} onClose={() => setChatAgent(null)} />
+            <ChatPanel key={chatAgent.name} agent={chatAgent} onClose={() => setChatAgent(null)} />
           ) : undefined
         }
       >
