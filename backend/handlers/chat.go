@@ -132,6 +132,34 @@ func (h *ChatHandler) getOrCreateConnection(ctx context.Context, name string) (*
 	return gc, nil
 }
 
+func (h *ChatHandler) sendMessageWithReconnect(ctx context.Context, name, content string) (string, map[string]string, error) {
+	gc, err := h.getOrCreateConnection(ctx, name)
+	if err != nil {
+		return "", nil, err
+	}
+
+	response, metadata, err := gc.SendMessage(content)
+	if err == nil {
+		return response, metadata, nil
+	}
+
+	log.Printf("gateway send failed for agent %s, reconnecting once: %v", name, err)
+	h.removeConnection(name)
+
+	gc, reconnectErr := h.getOrCreateConnection(ctx, name)
+	if reconnectErr != nil {
+		return "", nil, fmt.Errorf("%v (reconnect failed: %w)", err, reconnectErr)
+	}
+
+	response, metadata, retryErr := gc.SendMessage(content)
+	if retryErr != nil {
+		h.removeConnection(name)
+		return "", nil, retryErr
+	}
+
+	return response, metadata, nil
+}
+
 // removeConnection removes a cached gateway connection.
 func (h *ChatHandler) removeConnection(name string) {
 	h.mu.Lock()
@@ -397,26 +425,14 @@ func (h *ChatHandler) HandleChat(w http.ResponseWriter, r *http.Request) {
 
 		startedAt := time.Now().UTC()
 
-		// Get or create gateway connection
-		gc, err := h.getOrCreateConnection(r.Context(), name)
+		// Send message to the agent, retrying once if the cached gateway
+		// connection died during a pod restart or gateway reconnect.
+		response, metadata, err := h.sendMessageWithReconnect(r.Context(), name, inMsg.Content)
 		if err != nil {
 			log.Printf("gateway connection error for agent %s: %v", name, err)
 			errMsg := WSMessage{
 				Role:    "assistant",
 				Content: fmt.Sprintf("Error connecting to agent: %v", err),
-			}
-			conn.WriteJSON(errMsg)
-			continue
-		}
-
-		// Send message to OpenClaw gateway
-		response, metadata, err := gc.SendMessage(inMsg.Content)
-		if err != nil {
-			log.Printf("chat error for agent %s: %v", name, err)
-			h.removeConnection(name)
-			errMsg := WSMessage{
-				Role:    "assistant",
-				Content: fmt.Sprintf("Error communicating with agent: %v", err),
 			}
 			conn.WriteJSON(errMsg)
 			continue
