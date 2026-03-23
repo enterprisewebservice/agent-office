@@ -16,7 +16,7 @@ import {
 import { MicrophoneIcon, PaperPlaneIcon, VolumeUpIcon } from '@patternfly/react-icons';
 
 import type { Agent, ChatMessage } from '../types';
-import { createChatWebSocket } from '../api';
+import { createChatWebSocket, synthesizeSpeech } from '../api';
 
 interface ChatPanelProps {
   agent: Agent;
@@ -57,6 +57,8 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ agent, onClose }) => {
   const wsRef = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioUrlRef = useRef<string | null>(null);
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -111,24 +113,53 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ agent, onClose }) => {
     }
   }, []);
 
-  // Speak assistant messages aloud
-  const speak = useCallback((text: string) => {
-    if (!ttsEnabled || !window.speechSynthesis) return;
+  // Speak assistant messages aloud using OpenAI TTS first, browser voices only as fallback.
+  const speak = useCallback(async (text: string) => {
+    if (!ttsEnabled) return;
 
-    // Cancel any ongoing speech
-    window.speechSynthesis.cancel();
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
+    if (audioUrlRef.current) {
+      URL.revokeObjectURL(audioUrlRef.current);
+      audioUrlRef.current = null;
+    }
+    window.speechSynthesis?.cancel();
+
+    try {
+      const blob = await synthesizeSpeech(text);
+      const objectUrl = URL.createObjectURL(blob);
+      audioUrlRef.current = objectUrl;
+      const audio = new Audio(objectUrl);
+      audioRef.current = audio;
+      audio.onended = () => {
+        if (audioUrlRef.current) {
+          URL.revokeObjectURL(audioUrlRef.current);
+          audioUrlRef.current = null;
+        }
+        audioRef.current = null;
+      };
+      await audio.play();
+      return;
+    } catch (err) {
+      console.warn('OpenAI TTS failed, falling back to browser speech synthesis.', err);
+    }
+
+    if (!window.speechSynthesis) return;
 
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.rate = 1.0;
     utterance.pitch = 1.0;
     utterance.volume = 1.0;
 
-    // Try to pick a good voice
     const voices = window.speechSynthesis.getVoices();
     const preferred = voices.find(
       (v) => v.name.includes('Samantha') || v.name.includes('Google') || v.name.includes('Daniel')
     );
-    if (preferred) utterance.voice = preferred;
+    if (preferred) {
+      utterance.voice = preferred;
+    }
 
     window.speechSynthesis.speak(utterance);
   }, [ttsEnabled]);
@@ -148,7 +179,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ agent, onClose }) => {
         setMessages((prev) => [...prev, msg]);
         // Speak assistant responses
         if (msg.role === 'assistant' && msg.content) {
-          speak(msg.content);
+          void speak(msg.content);
         }
       } catch {
         const content = event.data;
@@ -160,7 +191,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ agent, onClose }) => {
             timestamp: new Date().toISOString(),
           },
         ]);
-        speak(content);
+        void speak(content);
       }
     };
 
@@ -174,6 +205,12 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ agent, onClose }) => {
 
     return () => {
       ws.close();
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+      if (audioUrlRef.current) {
+        URL.revokeObjectURL(audioUrlRef.current);
+      }
       window.speechSynthesis?.cancel();
     };
   }, [agent.name, speak]);
@@ -229,7 +266,14 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ agent, onClose }) => {
               variant={ttsEnabled ? 'plain' : 'plain'}
               onClick={() => {
                 setTtsEnabled(!ttsEnabled);
-                if (ttsEnabled) window.speechSynthesis?.cancel();
+                if (ttsEnabled) {
+                  audioRef.current?.pause();
+                  if (audioUrlRef.current) {
+                    URL.revokeObjectURL(audioUrlRef.current);
+                    audioUrlRef.current = null;
+                  }
+                  window.speechSynthesis?.cancel();
+                }
               }}
               style={{ opacity: ttsEnabled ? 1 : 0.4 }}
               aria-label="Toggle text-to-speech"

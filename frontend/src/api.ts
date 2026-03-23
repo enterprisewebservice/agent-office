@@ -94,3 +94,22 @@ export function createChatWebSocket(agentName: string): WebSocket {
   const host = window.location.host;
   return new WebSocket(`${protocol}//${host}/api/agents/${encodeURIComponent(agentName)}/chat`);
 }
+
+export async function synthesizeSpeech(
+  text: string,
+  voice = 'marin',
+  instructions = 'Speak naturally, warmly, and conversationally. Avoid robotic pacing.'
+): Promise<Blob> {
+  const response = await fetch(`${API_BASE}/api/tts`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text, voice, instructions }),
+  });
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => '');
+    throw new Error(`TTS error ${response.status}: ${body || response.statusText}`);
+  }
+
+  return response.blob();
+}

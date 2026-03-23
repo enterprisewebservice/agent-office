@@ -44,6 +44,7 @@ func main() {
 	agentHandlers := handlers.NewAgentHandlers(clients, namespace, cache)
 	chatHandler := handlers.NewChatHandler(namespace, clients)
 	claudeHandler := handlers.NewClaudeHandler(namespace, clients)
+	ttsHandler := handlers.NewTTSHandler(namespace, clients)
 
 	// Set up routes using Go 1.22 path patterns
 	mux := http.NewServeMux()
@@ -65,6 +66,9 @@ func main() {
 	mux.HandleFunc("POST /api/claude/credentials", claudeHandler.UpdateCredentials)
 	mux.HandleFunc("POST /api/claude/auth/start", claudeHandler.StartAuth)
 	mux.HandleFunc("POST /api/claude/auth/exchange", claudeHandler.ExchangeCode)
+
+	// OpenAI voice output
+	mux.HandleFunc("POST /api/tts", ttsHandler.Synthesize)
 
 	// Routers
 	mux.HandleFunc("GET /api/routers", agentHandlers.ListRouters)
