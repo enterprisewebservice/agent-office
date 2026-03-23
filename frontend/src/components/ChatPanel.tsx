@@ -54,6 +54,8 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ agent, onClose }) => {
   const [wsState, setWsState] = useState<'connecting' | 'open' | 'closed'>('connecting');
   const [isListening, setIsListening] = useState(false);
   const [ttsEnabled, setTtsEnabled] = useState(true);
+  const [voiceNotice, setVoiceNotice] = useState<string | null>(null);
+  const [hasQueuedOpenAIAudio, setHasQueuedOpenAIAudio] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
@@ -67,6 +69,30 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ agent, onClose }) => {
   useEffect(() => {
     scrollToBottom();
   }, [messages, scrollToBottom]);
+
+  const clearAudioState = useCallback(() => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
+    if (audioUrlRef.current) {
+      URL.revokeObjectURL(audioUrlRef.current);
+      audioUrlRef.current = null;
+    }
+    setHasQueuedOpenAIAudio(false);
+  }, []);
+
+  const unlockQueuedAudio = useCallback(async () => {
+    if (!audioRef.current) return;
+
+    try {
+      await audioRef.current.play();
+      setHasQueuedOpenAIAudio(false);
+      setVoiceNotice(null);
+    } catch {
+      setVoiceNotice('OpenAI voice is ready, but your browser is still blocking playback. Press play again.');
+    }
+  }, []);
 
   // Initialize speech recognition
   useEffect(() => {
@@ -117,52 +143,54 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ agent, onClose }) => {
   const speak = useCallback(async (text: string) => {
     if (!ttsEnabled) return;
 
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current = null;
-    }
-    if (audioUrlRef.current) {
-      URL.revokeObjectURL(audioUrlRef.current);
-      audioUrlRef.current = null;
-    }
+    clearAudioState();
     window.speechSynthesis?.cancel();
+    setVoiceNotice(null);
 
+    let blob: Blob;
     try {
-      const blob = await synthesizeSpeech(text);
-      const objectUrl = URL.createObjectURL(blob);
-      audioUrlRef.current = objectUrl;
-      const audio = new Audio(objectUrl);
-      audioRef.current = audio;
-      audio.onended = () => {
-        if (audioUrlRef.current) {
-          URL.revokeObjectURL(audioUrlRef.current);
-          audioUrlRef.current = null;
-        }
-        audioRef.current = null;
-      };
-      await audio.play();
-      return;
+      blob = await synthesizeSpeech(text);
     } catch (err) {
       console.warn('OpenAI TTS failed, falling back to browser speech synthesis.', err);
+      if (!window.speechSynthesis) return;
+
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.rate = 1.0;
+      utterance.pitch = 1.0;
+      utterance.volume = 1.0;
+
+      const voices = window.speechSynthesis.getVoices();
+      const preferred = voices.find(
+        (v) => v.name.includes('Samantha') || v.name.includes('Google') || v.name.includes('Daniel')
+      );
+      if (preferred) {
+        utterance.voice = preferred;
+      }
+
+      setVoiceNotice('OpenAI voice generation failed, so the browser voice was used for this reply.');
+      window.speechSynthesis.speak(utterance);
+      return;
     }
 
-    if (!window.speechSynthesis) return;
+    const objectUrl = URL.createObjectURL(blob);
+    audioUrlRef.current = objectUrl;
+    const audio = new Audio(objectUrl);
+    audioRef.current = audio;
+    audio.onended = () => {
+      clearAudioState();
+      setVoiceNotice(null);
+    };
 
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = 1.0;
-    utterance.pitch = 1.0;
-    utterance.volume = 1.0;
-
-    const voices = window.speechSynthesis.getVoices();
-    const preferred = voices.find(
-      (v) => v.name.includes('Samantha') || v.name.includes('Google') || v.name.includes('Daniel')
-    );
-    if (preferred) {
-      utterance.voice = preferred;
+    try {
+      await audio.play();
+      setHasQueuedOpenAIAudio(false);
+      return;
+    } catch (err) {
+      console.warn('OpenAI TTS playback was blocked by the browser.', err);
+      setHasQueuedOpenAIAudio(true);
+      setVoiceNotice('OpenAI voice is ready. Press play to hear it.');
     }
-
-    window.speechSynthesis.speak(utterance);
-  }, [ttsEnabled]);
+  }, [clearAudioState, ttsEnabled]);
 
   useEffect(() => {
     const ws = createChatWebSocket(agent.name);
@@ -205,15 +233,10 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ agent, onClose }) => {
 
     return () => {
       ws.close();
-      if (audioRef.current) {
-        audioRef.current.pause();
-      }
-      if (audioUrlRef.current) {
-        URL.revokeObjectURL(audioUrlRef.current);
-      }
+      clearAudioState();
       window.speechSynthesis?.cancel();
     };
-  }, [agent.name, speak]);
+  }, [agent.name, clearAudioState, speak]);
 
   const handleSend = () => {
     if (!input.trim() || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
@@ -267,11 +290,8 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ agent, onClose }) => {
               onClick={() => {
                 setTtsEnabled(!ttsEnabled);
                 if (ttsEnabled) {
-                  audioRef.current?.pause();
-                  if (audioUrlRef.current) {
-                    URL.revokeObjectURL(audioUrlRef.current);
-                    audioUrlRef.current = null;
-                  }
+                  clearAudioState();
+                  setVoiceNotice(null);
                   window.speechSynthesis?.cancel();
                 }
               }}
@@ -294,6 +314,30 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ agent, onClose }) => {
         {wsState === 'closed' && (
           <div style={{ textAlign: 'center', padding: '1rem', color: 'var(--pf-t--global--text--color--subtle)' }}>
             Connection closed. Refresh to reconnect.
+          </div>
+        )}
+        {(voiceNotice || hasQueuedOpenAIAudio) && (
+          <div
+            style={{
+              margin: '0 1rem',
+              padding: '0.75rem 1rem',
+              borderRadius: '12px',
+              background: 'var(--pf-t--global--background--color--secondary--default)',
+              border: '1px solid var(--pf-t--global--border--color--default)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '0.75rem',
+            }}
+          >
+            <div style={{ fontSize: '0.9rem' }}>
+              {voiceNotice ?? 'OpenAI voice is ready.'}
+            </div>
+            {hasQueuedOpenAIAudio && (
+              <Button variant="secondary" icon={<VolumeUpIcon />} onClick={() => void unlockQueuedAudio()}>
+                Play OpenAI Voice
+              </Button>
+            )}
           </div>
         )}
 
