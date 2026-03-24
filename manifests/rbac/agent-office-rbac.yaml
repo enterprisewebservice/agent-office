@@ -164,7 +164,7 @@ spec:
       serviceAccountName: agent-office
       containers:
         - name: server
-          image: quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/agent-office-server:0.1.29
+          image: quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/agent-office-server:0.1.30
           imagePullPolicy: Always
           ports:
             - name: http

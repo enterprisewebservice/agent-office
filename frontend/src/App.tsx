@@ -1,7 +1,6 @@
 import React from 'react';
 import { Routes, Route, Link, useLocation } from 'react-router-dom';
 import {
-  Brand,
   Masthead,
   MastheadBrand,
   MastheadContent,
@@ -51,15 +50,9 @@ const App: React.FC = () => {
       </MastheadToggle>
       <MastheadMain>
         <MastheadBrand>
-          <Brand
-            src=""
-            alt="Agent Office"
-            heights={{ default: '36px' }}
-          >
-            <span style={{ fontSize: '1.25rem', fontWeight: 700, color: 'white' }}>
-              Agent Office
-            </span>
-          </Brand>
+          <span style={{ fontSize: '1.25rem', fontWeight: 700, color: 'white' }}>
+            Agent Office
+          </span>
         </MastheadBrand>
       </MastheadMain>
       <MastheadContent>{headerNav}</MastheadContent>
