@@ -79,6 +79,65 @@ subjects:
     name: agent-office
     namespace: agent-office
 ---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agent-office-shared-skills
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/name: agent-office-shared-skills
+    app.kubernetes.io/part-of: agent-office
+data:
+  SKILL_developer-hub.md: |
+    ---
+    name: developer-hub
+    description: Use Red Hat Developer Hub from inside this cluster. This skill is the source of truth for RHDH endpoints, auth flow, catalog APIs, and scaffolder APIs.
+    metadata: { "openclaw": { "emoji": "🧭" } }
+    ---
+
+    # Developer Hub Skill
+
+    Use this skill for any task involving Red Hat Developer Hub, Backstage, the software catalog, scaffolder templates, scaffolder task execution, or component registration.
+
+    ## Canonical Endpoints
+
+    - In-cluster API base: `http://v1-developer-hub.rhdh-test.svc.cluster.local:7007`
+    - Public route: `https://v1-developer-hub-rhdh-test.apps.salamander.aimlworkbench.com`
+    - Namespace: `rhdh-test`
+    - Service: `v1-developer-hub`
+    - Deployment: `v1-developer-hub`
+
+    ## Rules
+
+    - Prefer the in-cluster API base for agent-to-service calls made from inside OpenShift.
+    - Use the public route only when you need a browser-visible URL.
+    - Never guess alternate hostnames like `backstage-developer-hub-*`.
+    - Before declaring Developer Hub unavailable, verify the real deployment and pods:
+      - `oc get deploy -n rhdh-test v1-developer-hub`
+      - `oc get pods -n rhdh-test`
+
+    ## Auth
+
+    - If guest auth is enabled, call `POST /api/auth/guest/refresh` on the in-cluster base URL.
+    - Use the returned token for subsequent catalog and scaffolder API calls.
+
+    ## Common API Paths
+
+    - Guest auth: `POST ${BASE}/api/auth/guest/refresh`
+    - Catalog entities: `GET ${BASE}/api/catalog/entities`
+    - Templates only: `GET ${BASE}/api/catalog/entities?filter=kind=template`
+    - Scaffolder task create: `POST ${BASE}/api/scaffolder/v2/tasks`
+    - Scaffolder task events: `GET ${BASE}/api/scaffolder/v2/tasks/<taskId>/events`
+
+    ## Default Workflow
+
+    1. Use the in-cluster base URL.
+    2. Verify `v1-developer-hub` is healthy before reporting an outage.
+    3. Authenticate.
+    4. Find the target template in the catalog.
+    5. Create the scaffolder task.
+    6. Watch task events until success or failure.
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
