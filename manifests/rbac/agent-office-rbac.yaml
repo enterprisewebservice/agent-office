@@ -118,8 +118,10 @@ data:
 
     ## Auth
 
-    - If guest auth is enabled, call `POST /api/auth/guest/refresh` on the in-cluster base URL.
-    - Use the returned token for subsequent catalog and scaffolder API calls.
+    - If `RHDH_TOKEN` is present in the environment, use it first as `Authorization: Bearer ${RHDH_TOKEN}` for catalog and scaffolder API calls.
+    - Only fall back to `POST /api/auth/guest/refresh` when `RHDH_TOKEN` is absent.
+    - Do not start an interactive GitHub or browser auth flow when `RHDH_TOKEN` is available.
+    - Use the resulting bearer token for subsequent catalog and scaffolder API calls.
 
     ## Common API Paths
 
