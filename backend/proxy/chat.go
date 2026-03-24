@@ -277,6 +277,8 @@ func (gc *GatewayConnection) authenticate(ctx context.Context) error {
 // SendMessage sends a chat message and collects the streaming response.
 // It returns the full response content, metadata (including tools used), and any error.
 func (gc *GatewayConnection) SendMessage(message string) (string, map[string]string, error) {
+	const readTimeout = 10 * time.Minute
+
 	reqID := uuid.New().String()
 
 	req := RequestFrame{
@@ -302,11 +304,13 @@ func (gc *GatewayConnection) SendMessage(message string) (string, map[string]str
 	metadata := make(map[string]string)
 	var toolsUsed []string
 
-	// Set a read deadline
-	gc.conn.SetReadDeadline(time.Now().Add(120 * time.Second))
+	// Keep the socket alive for long-running agent turns. Some agents can spend
+	// multiple minutes inside a Claude Code task before emitting any user-facing
+	// text, while still sending health/tick frames.
 	defer gc.conn.SetReadDeadline(time.Time{})
 
 	for {
+		gc.conn.SetReadDeadline(time.Now().Add(readTimeout))
 		_, msg, err := gc.conn.ReadMessage()
 		if err != nil {
 			if fullContent.Len() > 0 {
