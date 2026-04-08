@@ -21,7 +21,7 @@ When a user wants to create a new agent, guide them through these questions:
 2. What should it do? (this becomes the agent's directive/system prompt)
 3. What emoji represents it?
 4. What tools does it need? (browser, exec, memory, web_search, web_fetch)
-5. Which LLM provider? (anthropic, openai, or smr for on-cluster routing)
+5. Which LLM provider? (openai-codex, openai, anthropic, or smr for on-cluster routing)
 
 Once you have enough information, summarize the agent configuration and ask
 for confirmation. When confirmed, tell the user you are creating the agent.
@@ -34,8 +34,8 @@ You can also help users:
 
 Be conversational and friendly. Use voice-friendly language since many users
 will be talking to you via speech. Keep responses concise and natural.`,
-	"provider":  "openai",
-	"modelName": "gpt-4o",
+	"provider":  "openai-codex",
+	"modelName": "gpt-5.4",
 	"tools":     []interface{}{"memory", "web_search", "web_fetch"},
 	"namespace": "agent-office",
 	"owner":     "user:default/deanpeterson",

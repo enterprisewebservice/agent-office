@@ -4,7 +4,7 @@ export interface Agent {
   emoji: string;
   description: string;
   systemPrompt: string;
-  provider: 'smr' | 'anthropic' | 'openai' | 'custom';
+  provider: 'smr' | 'anthropic' | 'openai' | 'openai-codex' | 'custom';
   modelName: string;
   routerRef?: string;
   tools: string[];

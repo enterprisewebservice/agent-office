@@ -18,62 +18,43 @@ import {
 import { CheckCircleIcon, ExclamationCircleIcon, KeyIcon } from '@patternfly/react-icons';
 
 import type { SmallModelRouter } from '../types';
-import { checkHealth, fetchRouters, fetchClaudeStatus, startClaudeAuth, exchangeClaudeCode } from '../api';
-import type { ClaudeStatus } from '../api';
+import { checkHealth, fetchRouters, fetchCodexStatus, updateCodexCredentials } from '../api';
+import type { CodexStatus } from '../api';
 
 const SettingsPage: React.FC = () => {
   const [healthy, setHealthy] = useState<boolean | null>(null);
   const [routers, setRouters] = useState<SmallModelRouter[]>([]);
   const [routersLoading, setRoutersLoading] = useState(true);
   const [routersError, setRoutersError] = useState<string | null>(null);
-  const [claudeStatus, setClaudeStatus] = useState<ClaudeStatus | null>(null);
-  const [claudeAuthStep, setClaudeAuthStep] = useState<'idle' | 'waiting' | 'code'>('idle');
-  const [claudeCodeInput, setClaudeCodeInput] = useState('');
-  const [claudeSaving, setClaudeSaving] = useState(false);
-  const [claudeMessage, setClaudeMessage] = useState<{ type: 'success' | 'danger' | 'info'; text: string } | null>(null);
+  const [codexStatus, setCodexStatus] = useState<CodexStatus | null>(null);
+  const [codexInput, setCodexInput] = useState('');
+  const [codexSaving, setCodexSaving] = useState(false);
+  const [codexMessage, setCodexMessage] = useState<{ type: 'success' | 'danger' | 'info'; text: string } | null>(null);
 
-  const loadClaudeStatus = () => {
-    fetchClaudeStatus()
-      .then(setClaudeStatus)
-      .catch(() => setClaudeStatus({ connected: false, hasRefreshToken: false, secretExists: false }));
+  const loadCodexStatus = () => {
+    fetchCodexStatus()
+      .then(setCodexStatus)
+      .catch(() => setCodexStatus({ connected: false, hasRefreshToken: false, secretExists: false }));
   };
 
-  const handleStartAuth = async () => {
-    setClaudeMessage(null);
-    setClaudeAuthStep('waiting');
+  const handleSaveCodex = async () => {
+    setCodexSaving(true);
+    setCodexMessage(null);
     try {
-      const result = await startClaudeAuth();
-      window.open(result.authUrl, '_blank');
-      setClaudeAuthStep('code');
-      setClaudeMessage({
-        type: 'info',
-        text: 'A new tab opened for Claude authentication. After signing in, copy the authorization code and paste it below.',
-      });
+      const parsed = JSON.parse(codexInput);
+      const result = await updateCodexCredentials(parsed);
+      setCodexMessage({ type: 'success', text: result.message || 'Codex subscription connected.' });
+      loadCodexStatus();
     } catch (err) {
-      setClaudeMessage({ type: 'danger', text: err instanceof Error ? err.message : 'Failed to start auth' });
-      setClaudeAuthStep('idle');
-    }
-  };
-
-  const handleExchangeCode = async () => {
-    setClaudeSaving(true);
-    setClaudeMessage(null);
-    try {
-      const result = await exchangeClaudeCode(claudeCodeInput.trim());
-      setClaudeMessage({ type: 'success', text: result.message || 'Claude subscription connected!' });
-      setClaudeCodeInput('');
-      setClaudeAuthStep('idle');
-      loadClaudeStatus();
-    } catch (err) {
-      setClaudeMessage({ type: 'danger', text: err instanceof Error ? err.message : 'Failed to exchange code' });
+      setCodexMessage({ type: 'danger', text: err instanceof Error ? err.message : 'Failed to save Codex auth.json' });
     } finally {
-      setClaudeSaving(false);
+      setCodexSaving(false);
     }
   };
 
   useEffect(() => {
     checkHealth().then(setHealthy);
-    loadClaudeStatus();
+    loadCodexStatus();
 
     setRoutersLoading(true);
     fetchRouters()
@@ -127,23 +108,19 @@ const SettingsPage: React.FC = () => {
             </CardBody>
           </Card>
 
-          {/* Claude Subscription */}
+          {/* Codex Subscription */}
           <Card>
-            <CardTitle>Claude Subscription</CardTitle>
+            <CardTitle>OpenAI Codex Subscription</CardTitle>
             <CardBody>
               <DescriptionList>
                 <DescriptionListGroup>
                   <DescriptionListTerm>Status</DescriptionListTerm>
                   <DescriptionListDescription>
-                    {claudeStatus === null ? (
+                    {codexStatus === null ? (
                       <Spinner size="md" />
-                    ) : claudeStatus.connected ? (
+                    ) : codexStatus.connected ? (
                       <Label color="green" icon={<CheckCircleIcon />}>
-                        Connected {claudeStatus.accountId ? `(${claudeStatus.accountId})` : ''}
-                      </Label>
-                    ) : claudeStatus.expired ? (
-                      <Label color="orange" icon={<ExclamationCircleIcon />}>
-                        Expired — please reconnect
+                        Connected {codexStatus.accountId ? `(${codexStatus.accountId})` : ''}
                       </Label>
                     ) : (
                       <Label color="red" icon={<ExclamationCircleIcon />}>
@@ -156,46 +133,35 @@ const SettingsPage: React.FC = () => {
 
               <div style={{ marginTop: '1rem' }}>
                 <p style={{ marginBottom: '0.75rem', fontSize: '0.875rem' }}>
-                  Connect your Claude Max/Pro subscription. All agents will use this shared subscription
-                  for Claude Code access.
+                  Paste the contents of your local <code>~/.codex/auth.json</code>. All agents will use this
+                  shared ChatGPT/Codex subscription as their main OpenClaw model auth.
                 </p>
-
-                {claudeAuthStep === 'idle' && (
-                  <Button variant="primary" icon={<KeyIcon />} onClick={handleStartAuth}>
-                    {claudeStatus?.connected ? 'Reconnect Subscription' : 'Connect Claude Subscription'}
-                  </Button>
-                )}
-
-                {claudeAuthStep === 'code' && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                    <TextArea
-                      aria-label="Authorization code"
-                      placeholder="Paste the authorization code from Claude here..."
-                      value={claudeCodeInput}
-                      onChange={(_e, val) => setClaudeCodeInput(val)}
-                      rows={2}
-                      style={{ fontFamily: 'monospace' }}
-                    />
-                    <div style={{ display: 'flex', gap: '0.5rem' }}>
-                      <Button
-                        variant="primary"
-                        onClick={handleExchangeCode}
-                        isDisabled={!claudeCodeInput.trim() || claudeSaving}
-                        isLoading={claudeSaving}
-                      >
-                        Submit Code
-                      </Button>
-                      <Button variant="link" onClick={() => { setClaudeAuthStep('idle'); setClaudeMessage(null); }}>
-                        Cancel
-                      </Button>
-                    </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  <TextArea
+                    aria-label="Codex auth.json"
+                    placeholder='Paste ~/.codex/auth.json here...'
+                    value={codexInput}
+                    onChange={(_e, val) => setCodexInput(val)}
+                    rows={8}
+                    style={{ fontFamily: 'monospace' }}
+                  />
+                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    <Button
+                      variant="primary"
+                      icon={<KeyIcon />}
+                      onClick={handleSaveCodex}
+                      isDisabled={!codexInput.trim() || codexSaving}
+                      isLoading={codexSaving}
+                    >
+                      {codexStatus?.connected ? 'Update Codex Subscription' : 'Save Codex Subscription'}
+                    </Button>
                   </div>
-                )}
+                </div>
 
-                {claudeMessage && (
+                {codexMessage && (
                   <Alert
-                    variant={claudeMessage.type}
-                    title={claudeMessage.text}
+                    variant={codexMessage.type}
+                    title={codexMessage.text}
                     isInline
                     isPlain
                     style={{ marginTop: '0.75rem' }}

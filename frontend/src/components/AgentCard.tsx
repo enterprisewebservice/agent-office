@@ -46,6 +46,8 @@ const providerLabel = (provider: string): string => {
       return 'Anthropic';
     case 'openai':
       return 'OpenAI';
+    case 'openai-codex':
+      return 'OpenAI Codex';
     case 'custom':
       return 'Custom';
     default:

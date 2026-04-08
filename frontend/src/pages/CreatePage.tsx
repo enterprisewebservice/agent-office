@@ -93,8 +93,8 @@ const CreatePage: React.FC = () => {
   const [systemPrompt, setSystemPrompt] = useState('');
 
   // Step 3: LLM Backend
-  const [backendType, setBackendType] = useState<'direct' | 'smr'>('smr');
-  const [provider, setProvider] = useState<'openai' | 'anthropic'>('openai');
+  const [backendType, setBackendType] = useState<'direct' | 'smr'>('direct');
+  const [provider, setProvider] = useState<'openai-codex' | 'openai' | 'anthropic'>('openai-codex');
   const [apiKey, setApiKey] = useState('');
   const [modelName, setModelName] = useState('');
   const [routers, setRouters] = useState<SmallModelRouter[]>([]);
@@ -174,7 +174,7 @@ const CreatePage: React.FC = () => {
       provider: backendType === 'smr' ? 'smr' : provider,
       modelName: backendType === 'smr' ? 'auto' : modelName,
       routerRef: backendType === 'smr' ? selectedRouter : undefined,
-      apiKey: backendType === 'direct' ? apiKey : undefined,
+      apiKey: backendType === 'direct' && provider !== 'openai-codex' ? apiKey : undefined,
       tools: enabledTools,
     };
 
@@ -305,16 +305,16 @@ const CreatePage: React.FC = () => {
                 <Radio
                   id="radio-smr"
                   name="backend-type"
-                  label="Small Model Router (recommended)"
-                  description="Routes between local and cloud models intelligently. Reduces costs by using free local models for simple tasks."
+                  label="Small Model Router"
+                  description="Routes between local and cloud models intelligently. Useful when you want on-cluster cost optimization."
                   isChecked={backendType === 'smr'}
                   onChange={() => setBackendType('smr')}
                 />
                 <Radio
                   id="radio-direct"
                   name="backend-type"
-                  label="Direct API"
-                  description="Connect directly to OpenAI or Anthropic APIs."
+                  label="Direct Provider"
+                  description="Use OpenClaw providers directly, including your ChatGPT/Codex subscription."
                   isChecked={backendType === 'direct'}
                   onChange={() => setBackendType('direct')}
                   style={{ marginTop: '0.75rem' }}
@@ -325,37 +325,52 @@ const CreatePage: React.FC = () => {
                 <>
                   <FormGroup label="Provider" isRequired fieldId="provider">
                     <Radio
+                      id="radio-openai-codex"
+                      name="provider"
+                      label="OpenAI Codex Subscription (recommended)"
+                      description="Uses your ChatGPT/Codex subscription through OpenClaw's official openai-codex provider. No API key required."
+                      isChecked={provider === 'openai-codex'}
+                      onChange={() => {
+                        setProvider('openai-codex');
+                        setApiKey('');
+                        setModelName('gpt-5.4');
+                      }}
+                    />
+                    <Radio
                       id="radio-openai"
                       name="provider"
-                      label="OpenAI"
+                      label="OpenAI API"
                       isChecked={provider === 'openai'}
                       onChange={() => {
                         setProvider('openai');
-                        if (!modelName) setModelName('gpt-4o');
+                        setModelName('gpt-4o');
                       }}
+                      style={{ marginTop: '0.5rem' }}
                     />
                     <Radio
                       id="radio-anthropic"
                       name="provider"
-                      label="Anthropic"
+                      label="Anthropic API"
                       isChecked={provider === 'anthropic'}
                       onChange={() => {
                         setProvider('anthropic');
-                        if (!modelName) setModelName('claude-sonnet-4-20250514');
+                        setModelName('claude-sonnet-4-20250514');
                       }}
                       style={{ marginTop: '0.5rem' }}
                     />
                   </FormGroup>
-                  <FormGroup label="API Key" isRequired fieldId="api-key">
-                    <TextInput
-                      id="api-key"
-                      type="password"
-                      isRequired
-                      value={apiKey}
-                      onChange={(_e, val) => setApiKey(val)}
-                      placeholder="sk-..."
-                    />
-                  </FormGroup>
+                  {provider !== 'openai-codex' && (
+                    <FormGroup label="API Key" isRequired fieldId="api-key">
+                      <TextInput
+                        id="api-key"
+                        type="password"
+                        isRequired
+                        value={apiKey}
+                        onChange={(_e, val) => setApiKey(val)}
+                        placeholder="sk-..."
+                      />
+                    </FormGroup>
+                  )}
                   <FormGroup label="Model Name" isRequired fieldId="model-name">
                     <TextInput
                       id="model-name"

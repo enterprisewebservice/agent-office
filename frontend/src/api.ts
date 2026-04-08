@@ -44,40 +44,26 @@ export async function fetchRouters(): Promise<SmallModelRouter[]> {
   return handleResponse<SmallModelRouter[]>(response);
 }
 
-export interface ClaudeStatus {
+export interface CodexStatus {
   connected: boolean;
   accountId?: string;
   hasRefreshToken: boolean;
   secretExists: boolean;
-  expired?: boolean;
+  authMode?: string;
 }
 
-export async function fetchClaudeStatus(): Promise<ClaudeStatus> {
-  const response = await fetch(`${API_BASE}/api/claude/status`);
-  return handleResponse<ClaudeStatus>(response);
+export async function fetchCodexStatus(): Promise<CodexStatus> {
+  const response = await fetch(`${API_BASE}/api/codex/status`);
+  return handleResponse<CodexStatus>(response);
 }
 
-export async function updateClaudeCredentials(credentials: object): Promise<{ ok: boolean; message: string }> {
-  const response = await fetch(`${API_BASE}/api/claude/credentials`, {
+export async function updateCodexCredentials(credentials: object): Promise<{ ok: boolean; message: string }> {
+  const response = await fetch(`${API_BASE}/api/codex/credentials`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(credentials),
   });
   return handleResponse<{ ok: boolean; message: string }>(response);
-}
-
-export async function startClaudeAuth(): Promise<{ authUrl: string; message: string }> {
-  const response = await fetch(`${API_BASE}/api/claude/auth/start`, { method: 'POST' });
-  return handleResponse<{ authUrl: string; message: string }>(response);
-}
-
-export async function exchangeClaudeCode(code: string): Promise<{ ok: boolean; message: string; accountId?: string }> {
-  const response = await fetch(`${API_BASE}/api/claude/auth/exchange`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ code }),
-  });
-  return handleResponse<{ ok: boolean; message: string; accountId?: string }>(response);
 }
 
 export async function checkHealth(): Promise<boolean> {
