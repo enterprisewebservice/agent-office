@@ -139,6 +139,51 @@ data:
     4. Find the target template in the catalog.
     5. Create the scaffolder task.
     6. Watch task events until success or failure.
+  SKILL_browser-nodehost.md: |
+    ---
+    name: browser-nodehost
+    description: Use the shared OpenClaw browser node host instead of assuming a local desktop browser exists inside the agent pod.
+    metadata: { "openclaw": { "emoji": "🌐" } }
+    ---
+
+    # Browser Node Host Skill
+
+    Use this skill for any browser task when running inside Agent Office on OpenShift.
+
+    ## Source Of Truth
+
+    - Preferred browser path: OpenClaw node browser proxy
+    - Shared node host name: `fedora-black-zebra-36-nodehost`
+    - Managed browser profile: `openclaw`
+    - Browser runtime location: Fedora VM node host, not the agent pod
+
+    ## Rules
+
+    - Do not assume a local GUI browser exists inside the OpenShift pod.
+    - Do not report browser failure just because `target:"host"` or local browser detection fails.
+    - Prefer the shared node host browser path for page open, navigation, tabs, snapshot, screenshot, form fill, and interaction work.
+    - Use the managed `openclaw` browser profile unless a task explicitly requires a different profile.
+    - Treat the Fedora VM node host as shared browser infrastructure for browser-capable agents.
+
+    ## What Success Looks Like
+
+    - Browser requests are routed through the paired node host.
+    - Chromium runs on the Fedora VM in headless mode.
+    - Tabs, snapshots, and page actions succeed without needing a desktop browser inside the pod.
+
+    ## Troubleshooting Order
+
+    1. Verify the node host is paired and connected before declaring browser failure.
+    2. Prefer the node-backed browser route instead of retrying the local host browser path.
+    3. If browser startup fails, check the node host browser profile and Chromium runtime before blaming the agent pod.
+
+    ## Escalation Guidance
+
+    - If the node host is connected but browser actions still fail, report whether the failure is:
+      - node connectivity
+      - browser startup
+      - page action after startup
+    - Do not ask the user to install Chrome in the pod.
 ---
 apiVersion: apps/v1
 kind: Deployment
