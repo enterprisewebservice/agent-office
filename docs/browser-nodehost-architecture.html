@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Web Researcher Browser Architecture</title>
+  <style>
+    :root {
+      --ink: #162033;
+      --muted: #506074;
+      --line: #cfd8e3;
+      --panel: #ffffff;
+      --panel-alt: #f5f7fb;
+      --brand: #1f5fbf;
+      --brand-soft: #dce9ff;
+      --accent: #0f7b6c;
+      --accent-soft: #dff6f1;
+      --warn: #7b4a13;
+      --warn-soft: #fdeedb;
+      --shadow: 0 10px 28px rgba(22, 32, 51, 0.08);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      padding: 32px;
+      font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+      color: var(--ink);
+      background: #eef3f8;
+      line-height: 1.45;
+    }
+
+    .page {
+      max-width: 1120px;
+      margin: 0 auto;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .hero {
+      padding: 40px 44px 24px;
+      background:
+        radial-gradient(circle at top right, rgba(31, 95, 191, 0.12), transparent 32%),
+        linear-gradient(180deg, #ffffff 0%, #f7f9fd 100%);
+      border-bottom: 1px solid var(--line);
+    }
+
+    h1, h2, h3 {
+      margin: 0 0 12px;
+      line-height: 1.15;
+    }
+
+    h1 {
+      font-size: 34px;
+      letter-spacing: -0.02em;
+    }
+
+    h2 {
+      font-size: 24px;
+      margin-top: 8px;
+    }
+
+    h3 {
+      font-size: 18px;
+      margin-top: 6px;
+    }
+
+    p {
+      margin: 0 0 12px;
+      color: var(--ink);
+    }
+
+    .subhead {
+      max-width: 900px;
+      font-size: 17px;
+      color: var(--muted);
+    }
+
+    .content {
+      padding: 28px 44px 44px;
+    }
+
+    .meta {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+      margin-top: 20px;
+    }
+
+    .meta-card {
+      background: var(--panel-alt);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 14px 16px;
+    }
+
+    .meta-card .label {
+      display: block;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+
+    .meta-card .value {
+      font-size: 16px;
+      font-weight: 700;
+    }
+
+    .section {
+      margin-top: 28px;
+      padding-top: 28px;
+      border-top: 1px solid var(--line);
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 22px;
+      align-items: start;
+    }
+
+    .card {
+      background: var(--panel-alt);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 18px 20px;
+    }
+
+    .diagram {
+      margin-top: 14px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: #ffffff;
+      overflow: hidden;
+    }
+
+    .caption {
+      margin-top: 10px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .pill-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .pill {
+      display: inline-block;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: var(--brand-soft);
+      border: 1px solid #bad1ff;
+      color: #163d7c;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+
+    .pill.alt {
+      background: var(--accent-soft);
+      border-color: #b3eadf;
+      color: #125a50;
+    }
+
+    .pill.warn {
+      background: var(--warn-soft);
+      border-color: #f2d2ab;
+      color: var(--warn);
+    }
+
+    ul {
+      margin: 10px 0 0 20px;
+      padding: 0;
+    }
+
+    li {
+      margin-bottom: 8px;
+    }
+
+    .callout {
+      margin-top: 14px;
+      padding: 14px 16px;
+      border-radius: 14px;
+      background: #fef9ef;
+      border: 1px solid #f1ddac;
+    }
+
+    .small {
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .foot {
+      margin-top: 28px;
+      padding-top: 20px;
+      border-top: 1px solid var(--line);
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    @media print {
+      body {
+        background: white;
+        padding: 0;
+      }
+
+      .page {
+        border: none;
+        border-radius: 0;
+        box-shadow: none;
+      }
+
+      .hero,
+      .content {
+        padding-left: 28px;
+        padding-right: 28px;
+      }
+    }
+
+    @media (max-width: 900px) {
+      body {
+        padding: 12px;
+      }
+
+      .hero,
+      .content {
+        padding-left: 18px;
+        padding-right: 18px;
+      }
+
+      .meta,
+      .grid-2 {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="hero">
+      <h1>Web Researcher Browser Architecture</h1>
+      <p class="subhead">
+        This document captures the browser path that is now working for the <strong>Web Browser Researcher</strong> agent.
+        The key design is that the agent does not rely on a local desktop browser inside its OpenShift pod. It uses
+        OpenClaw's supported <strong>node host browser proxy</strong> pattern and routes browser actions to a Fedora VM.
+      </p>
+      <div class="meta">
+        <div class="meta-card">
+          <span class="label">Agent</span>
+          <span class="value">Web Browser Researcher</span>
+        </div>
+        <div class="meta-card">
+          <span class="label">Browser Runtime</span>
+          <span class="value">Chromium on Fedora VM</span>
+        </div>
+        <div class="meta-card">
+          <span class="label">Control Pattern</span>
+          <span class="value">OpenClaw Node Host</span>
+        </div>
+        <div class="meta-card">
+          <span class="label">Current Result</span>
+          <span class="value">Open, tabs, and browser session working</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="content">
+      <div class="section">
+        <h2>Executive Summary</h2>
+        <div class="grid-2">
+          <div class="card">
+            <p>
+              The working path is:
+              Agent Office UI or Discord message -&gt; Web Researcher agent gateway in OpenShift -&gt; paired OpenClaw node host on the Fedora VM -&gt; managed headless Chromium profile named <strong>openclaw</strong>.
+            </p>
+            <p>
+              That matters because OpenClaw expects remote and container-based browser use to go through a <strong>node host browser proxy</strong>, not through a fake desktop browser inside every pod.
+            </p>
+            <div class="pill-row">
+              <span class="pill">Supported OpenClaw Pattern</span>
+              <span class="pill alt">Shared Browser Infrastructure</span>
+              <span class="pill warn">No Desktop Browser Required In Pod</span>
+            </div>
+          </div>
+          <div class="card">
+            <h3>What Changed</h3>
+            <ul>
+              <li>The web researcher agent was pointed at the node-backed browser path instead of the local host browser path.</li>
+              <li>The Fedora VM became the real browser node host.</li>
+              <li>The node host was moved onto a clean OpenClaw home so it stopped inheriting old personal browser state.</li>
+              <li>The VM node host was upgraded to current OpenClaw and switched to headless Chromium server settings.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>System Context</h2>
+        <div class="diagram">
+          <svg viewBox="0 0 1080 420" width="100%" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+                <path d="M0,0 L12,6 L0,12 z" fill="#4f6480"/>
+              </marker>
+            </defs>
+            <rect x="30" y="56" width="220" height="130" rx="20" fill="#f5f7fb" stroke="#cfd8e3"/>
+            <text x="55" y="92" font-size="24" font-weight="700" fill="#162033">User Interfaces</text>
+            <text x="55" y="126" font-size="18" fill="#506074">Agent Office UI</text>
+            <text x="55" y="152" font-size="18" fill="#506074">Discord</text>
+
+            <rect x="308" y="34" width="370" height="176" rx="24" fill="#ffffff" stroke="#cfd8e3"/>
+            <text x="334" y="72" font-size="26" font-weight="700" fill="#162033">OpenShift: agent-office namespace</text>
+            <rect x="334" y="92" width="318" height="92" rx="16" fill="#dce9ff" stroke="#bad1ff"/>
+            <text x="356" y="122" font-size="20" font-weight="700" fill="#163d7c">agent-web-browser-researcher</text>
+            <text x="356" y="148" font-size="16" fill="#163d7c">OpenClaw gateway + Codex reasoning</text>
+            <text x="356" y="170" font-size="16" fill="#163d7c">browser tool routes to node host</text>
+
+            <rect x="748" y="48" width="290" height="144" rx="22" fill="#f5f7fb" stroke="#cfd8e3"/>
+            <text x="772" y="86" font-size="24" font-weight="700" fill="#162033">Fedora VM</text>
+            <text x="772" y="116" font-size="18" fill="#506074">default/fedora-black-zebra-36</text>
+            <text x="772" y="144" font-size="18" fill="#506074">OpenClaw node host</text>
+            <text x="772" y="168" font-size="18" fill="#506074">Chromium managed profile: openclaw</text>
+
+            <rect x="748" y="248" width="290" height="112" rx="22" fill="#dff6f1" stroke="#b3eadf"/>
+            <text x="772" y="288" font-size="24" font-weight="700" fill="#125a50">Browser Runtime</text>
+            <text x="772" y="316" font-size="18" fill="#125a50">Headless Chromium</text>
+            <text x="772" y="340" font-size="18" fill="#125a50">CDP on managed profile</text>
+
+            <line x1="250" y1="121" x2="308" y2="121" stroke="#4f6480" stroke-width="3" marker-end="url(#arrow)"/>
+            <line x1="678" y1="121" x2="748" y2="121" stroke="#4f6480" stroke-width="3" marker-end="url(#arrow)"/>
+            <line x1="893" y1="192" x2="893" y2="248" stroke="#4f6480" stroke-width="3" marker-end="url(#arrow)"/>
+
+            <text x="260" y="108" font-size="14" fill="#506074">chat request</text>
+            <text x="684" y="108" font-size="14" fill="#506074">node browser proxy</text>
+            <text x="904" y="224" font-size="14" fill="#506074">launch / control</text>
+          </svg>
+        </div>
+        <p class="caption">
+          The pod remains the reasoning and gateway layer. The VM supplies the actual browser runtime through a paired node host.
+        </p>
+      </div>
+
+      <div class="section">
+        <h2>Request Flow</h2>
+        <div class="diagram">
+          <svg viewBox="0 0 1080 520" width="100%" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <marker id="arrow2" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+                <path d="M0,0 L12,6 L0,12 z" fill="#4f6480"/>
+              </marker>
+            </defs>
+            <rect x="70" y="42" width="220" height="60" rx="14" fill="#dce9ff" stroke="#bad1ff"/>
+            <text x="108" y="78" font-size="20" font-weight="700" fill="#163d7c">1. User Request</text>
+
+            <rect x="70" y="144" width="280" height="74" rx="16" fill="#f5f7fb" stroke="#cfd8e3"/>
+            <text x="96" y="178" font-size="20" font-weight="700" fill="#162033">2. Web Researcher Agent</text>
+            <text x="96" y="204" font-size="16" fill="#506074">Chooses browser tool path</text>
+
+            <rect x="70" y="264" width="280" height="84" rx="16" fill="#f5f7fb" stroke="#cfd8e3"/>
+            <text x="96" y="298" font-size="20" font-weight="700" fill="#162033">3. OpenClaw Gateway</text>
+            <text x="96" y="324" font-size="16" fill="#506074">Routes request to connected node host</text>
+
+            <rect x="420" y="144" width="280" height="84" rx="16" fill="#dff6f1" stroke="#b3eadf"/>
+            <text x="446" y="178" font-size="20" font-weight="700" fill="#125a50">4. Fedora Node Host</text>
+            <text x="446" y="204" font-size="16" fill="#125a50">Paired device, browser capability</text>
+
+            <rect x="420" y="264" width="280" height="112" rx="16" fill="#dff6f1" stroke="#b3eadf"/>
+            <text x="446" y="298" font-size="20" font-weight="700" fill="#125a50">5. Managed Browser Profile</text>
+            <text x="446" y="324" font-size="16" fill="#125a50">Profile: openclaw</text>
+            <text x="446" y="348" font-size="16" fill="#125a50">Chromium headless + noSandbox</text>
+
+            <rect x="780" y="192" width="230" height="84" rx="16" fill="#fff8eb" stroke="#f1ddac"/>
+            <text x="806" y="226" font-size="20" font-weight="700" fill="#7b4a13">6. Result</text>
+            <text x="806" y="252" font-size="16" fill="#7b4a13">tabs, snapshot, navigation</text>
+
+            <line x1="180" y1="102" x2="180" y2="144" stroke="#4f6480" stroke-width="3" marker-end="url(#arrow2)"/>
+            <line x1="180" y1="218" x2="180" y2="264" stroke="#4f6480" stroke-width="3" marker-end="url(#arrow2)"/>
+            <line x1="350" y1="306" x2="420" y2="306" stroke="#4f6480" stroke-width="3" marker-end="url(#arrow2)"/>
+            <line x1="560" y1="228" x2="560" y2="264" stroke="#4f6480" stroke-width="3" marker-end="url(#arrow2)"/>
+            <line x1="700" y1="306" x2="780" y2="234" stroke="#4f6480" stroke-width="3" marker-end="url(#arrow2)"/>
+
+            <text x="365" y="294" font-size="14" fill="#506074">browser.proxy</text>
+            <text x="573" y="252" font-size="14" fill="#506074">launch / inspect</text>
+          </svg>
+        </div>
+        <p class="caption">
+          The browser tool no longer depends on a local desktop browser in the pod. The gateway delegates browser execution to the connected node host.
+        </p>
+      </div>
+
+      <div class="section">
+        <h2>Configuration That Made It Work</h2>
+        <div class="grid-2">
+          <div class="card">
+            <h3>Agent Side</h3>
+            <ul>
+              <li>The web researcher agent was configured to prefer the node-backed browser route instead of the local host browser route.</li>
+              <li>The browser tool is enabled in the agent's OpenClaw config.</li>
+              <li>The agent remains in OpenShift and continues to use Codex as its reasoning model.</li>
+              <li>The gateway sees the node host as <strong>paired</strong> and <strong>connected</strong> with browser capability.</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>VM Side</h3>
+            <ul>
+              <li>The Fedora VM runs a dedicated systemd unit for the node host.</li>
+              <li>The node host now uses a clean OpenClaw home, separate from the user's older local OpenClaw setup.</li>
+              <li>The managed browser profile is <strong>openclaw</strong>.</li>
+              <li>Chromium is launched with server-safe settings: <strong>headless</strong> and <strong>noSandbox</strong>.</li>
+              <li>The VM node host was upgraded so its browser proxy behavior matches the newer OpenClaw gateway.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>Why Earlier Attempts Failed</h2>
+        <div class="card">
+          <ul>
+            <li>The pod originally tried to use the desktop-style <strong>host</strong> browser path, which is wrong for this containerized deployment.</li>
+            <li>The VM had stale OpenClaw state from a previous local setup, including an older gateway process and older browser assumptions.</li>
+            <li>The older node-host version was behind the gateway version and added more uncertainty around browser proxy behavior.</li>
+            <li>Chromium was initially launching headful, which failed on a VM context without an X display.</li>
+          </ul>
+          <div class="callout">
+            The final working state came from aligning the system with the intended OpenClaw pattern instead of forcing browser execution inside the pod.
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>Current Operational Model</h2>
+        <div class="card">
+          <p>
+            This browser path is now suitable as the reference pattern for remote browser-capable agents in this environment:
+          </p>
+          <ul>
+            <li>Keep reasoning agents in OpenShift.</li>
+            <li>Run one or a small number of browser-capable node hosts on real machines or VMs.</li>
+            <li>Use managed browser profiles on those node hosts.</li>
+            <li>Route browser actions through the node host browser proxy instead of assuming every pod should carry its own desktop browser stack.</li>
+          </ul>
+          <div class="pill-row">
+            <span class="pill">OpenShift Agents</span>
+            <span class="pill alt">Shared Browser Node Host</span>
+            <span class="pill warn">No Per-Pod Desktop Browsers</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="foot">
+        Prepared for meeting use. This reflects the live working browser architecture as of April 9, 2026.
+      </div>
+    </div>
+  </div>
+</body>
+</html>
