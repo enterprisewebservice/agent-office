@@ -115,10 +115,6 @@ func agentFromCR(obj map[string]interface{}) map[string]interface{} {
 }
 
 func inferAgentPhase(clients *k8s.Clients, namespace, name string, current interface{}) interface{} {
-	if phase, ok := current.(string); ok && phase != "" {
-		return phase
-	}
-
 	deploymentName := fmt.Sprintf("agent-%s", name)
 	deployment, err := clients.Clientset.AppsV1().Deployments(namespace).Get(
 		context.Background(),
@@ -126,6 +122,9 @@ func inferAgentPhase(clients *k8s.Clients, namespace, name string, current inter
 		metav1.GetOptions{},
 	)
 	if err != nil {
+		if phase, ok := current.(string); ok && phase != "" {
+			return phase
+		}
 		return current
 	}
 
