@@ -1,4 +1,11 @@
-import type { Agent, AgentSessionState, CreateAgentRequest, SessionActionResponse, SmallModelRouter } from './types';
+import type {
+  Agent,
+  AgentSessionState,
+  CreateAgentRequest,
+  GovernanceAgent,
+  SessionActionResponse,
+  SmallModelRouter,
+} from './types';
 
 const API_BASE = '';
 
@@ -42,6 +49,11 @@ export async function deleteAgent(name: string): Promise<void> {
 export async function fetchRouters(): Promise<SmallModelRouter[]> {
   const response = await fetch(`${API_BASE}/api/routers`);
   return handleResponse<SmallModelRouter[]>(response);
+}
+
+export async function fetchGovernanceAgents(): Promise<GovernanceAgent[]> {
+  const response = await fetch(`${API_BASE}/api/governance/agents`);
+  return handleResponse<GovernanceAgent[]>(response);
 }
 
 export interface CodexStatus {

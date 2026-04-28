@@ -19,6 +19,7 @@ import '@patternfly/react-core/dist/styles/base.css';
 
 import OfficePage from './pages/OfficePage';
 import CreatePage from './pages/CreatePage';
+import MapPage from './pages/MapPage';
 import SettingsPage from './pages/SettingsPage';
 import VisualOfficePage from './pages/VisualOfficePage';
 
@@ -33,6 +34,9 @@ const App: React.FC = () => {
         </NavItem>
         <NavItem isActive={location.pathname === '/visual'}>
           <Link to="/visual">Visual Office</Link>
+        </NavItem>
+        <NavItem isActive={location.pathname === '/map'}>
+          <Link to="/map">Map</Link>
         </NavItem>
         <NavItem isActive={location.pathname === '/settings'}>
           <Link to="/settings">Settings</Link>
@@ -65,6 +69,7 @@ const App: React.FC = () => {
         <Routes>
           <Route path="/" element={<OfficePage />} />
           <Route path="/visual" element={<VisualOfficePage />} />
+          <Route path="/map" element={<MapPage />} />
           <Route path="/create" element={<CreatePage />} />
           <Route path="/settings" element={<SettingsPage />} />
         </Routes>
