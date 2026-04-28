@@ -372,21 +372,16 @@ func (h *AgentHandlers) GetGovernanceAgents(w http.ResponseWriter, r *http.Reque
 		ga.Image = deploymentContainerImage(h.Clients, h.Namespace, name)
 		ga.PodName, ga.ImageID = runningPodImageInfo(h.Clients, h.Namespace, name)
 
-		// GitOps repo URL by convention. We don't read the per-agent ArgoCD
-		// Application here because it lives in `openshift-gitops` and we want
-		// this handler fast — convention is good enough for v0.
-		ga.GitOpsRepoURL = fmt.Sprintf("https://github.com/enterprisewebservice/%s-agent-gitops", name)
-
-		// Pull the catalog component (Dev Spaces link, owner). Soft-fail on errors
-		// so a single broken catalog entry doesn't take out the whole map.
-		if h.Scaffolder != nil {
-			if entity, err := h.Scaffolder.GetAgentComponent(name); err != nil {
-				log.Printf("governance: catalog lookup failed for %s: %v", name, err)
-			} else if entity != nil {
-				ga.DevSpacesURL = entity.FindLinkByType("devspaces")
-				ga.OwnerRef = entity.Spec.Owner
-			}
-		}
+		// GitOps repo URL + Dev Spaces URL by convention. The conventions match
+		// the openclaw-agent scaffolder template: per-agent gitops repo is at
+		// `https://github.com/<GH_OWNER>/<name>-agent-gitops` and the Dev Spaces
+		// "open this repo" deep link is `<DEVSPACES_URL>/#<repo-url>`.
+		// Convention is the ground truth here — it works without RHDH auth and
+		// matches what the scaffolder writes into catalog-info.yaml. A future
+		// iteration can prefer a Backstage-registered link when RHDH external-
+		// access auth is fixed (TODO: see governance.md).
+		ga.GitOpsRepoURL = gitOpsRepoURLFor(name)
+		ga.DevSpacesURL = devSpacesURLFor(ga.GitOpsRepoURL)
 		ga.BackstageURL = backstageCatalogURLFor(name)
 
 		out = append(out, ga)
@@ -457,6 +452,28 @@ func backstageCatalogURLFor(name string) string {
 		return ""
 	}
 	return fmt.Sprintf("%s/catalog/default/component/%s", strings.TrimRight(base, "/"), name)
+}
+
+// gitOpsRepoURLFor returns the GitHub URL of an agent's per-agent gitops
+// repo. Convention matches the openclaw-agent scaffolder template
+// (`<owner>/<name>-agent-gitops`). Configurable via GITHUB_OWNER env var.
+func gitOpsRepoURLFor(name string) string {
+	owner := os.Getenv("GITHUB_OWNER")
+	if owner == "" {
+		owner = "enterprisewebservice"
+	}
+	return fmt.Sprintf("https://github.com/%s/%s-agent-gitops", owner, name)
+}
+
+// devSpacesURLFor builds the "open this repo in Dev Spaces" deep link.
+// Returns "" when DEVSPACES_URL is unset — the Map view then renders the
+// "Open in Dev Spaces" button as disabled with an explanatory tooltip.
+func devSpacesURLFor(repoURL string) string {
+	base := os.Getenv("DEVSPACES_URL")
+	if base == "" || repoURL == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s/#%s", strings.TrimRight(base, "/"), repoURL)
 }
 
 // ListRouters handles GET /api/routers — lists all SmallModelRouter CRs.

@@ -209,7 +209,7 @@ spec:
       serviceAccountName: agent-office
       containers:
         - name: server
-          image: quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/agent-office-server:0.1.35
+          image: quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/agent-office-server:0.1.36
           imagePullPolicy: Always
           ports:
             - name: http
@@ -227,6 +227,19 @@ spec:
                 secretKeyRef:
                   name: agent-office-rhdh
                   key: token
+            # Dev Spaces deep-link base. The Map view uses this to construct
+            # `${DEVSPACES_URL}/#<gitops-repo-url>` for each agent's "Open in
+            # Dev Spaces" button. Cluster-scoped: same FQDN for every agent.
+            - name: DEVSPACES_URL
+              value: "https://devspaces.apps.salamander.aimlworkbench.com"
+            # GitHub org that owns the per-agent gitops repos (used by the
+            # scaffolder template). Convention: <owner>/<name>-agent-gitops.
+            - name: GITHUB_OWNER
+              value: "enterprisewebservice"
+            # Public RHDH UI base — used to render a "Backstage" link per
+            # agent on the Map view. Optional: link is hidden when unset.
+            - name: RHDH_PUBLIC_URL
+              value: "https://v1-developer-hub-rhdh-test.apps.salamander.aimlworkbench.com"
           resources:
             requests:
               cpu: 100m
