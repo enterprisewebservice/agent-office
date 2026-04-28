@@ -81,6 +81,12 @@ func main() {
 	// Routers
 	mux.HandleFunc("GET /api/routers", agentHandlers.ListRouters)
 
+	// Governance map — enriched per-agent view used by the Map page.
+	// Includes pod image / digest, gitops repo URL, and the catalog-info
+	// "Open in Dev Spaces" link so operators can update agents without
+	// leaving the UI.
+	mux.HandleFunc("GET /api/governance/agents", agentHandlers.GetGovernanceAgents)
+
 	// Serve static frontend files with SPA fallback
 	staticDir := "/app/static/"
 	if dir := os.Getenv("STATIC_DIR"); dir != "" {

@@ -60,6 +60,42 @@ type CatalogEntity struct {
 	} `json:"metadata"`
 }
 
+// CatalogLink mirrors a single entry in a Backstage entity's metadata.links[].
+type CatalogLink struct {
+	URL   string `json:"url"`
+	Title string `json:"title"`
+	Icon  string `json:"icon,omitempty"`
+	Type  string `json:"type,omitempty"`
+}
+
+// CatalogComponentEntity is the slice of /api/catalog/entities/by-name/component/default/<name>
+// that the Map view needs to surface to the operator (links + owner).
+type CatalogComponentEntity struct {
+	Metadata struct {
+		Name        string            `json:"name"`
+		Annotations map[string]string `json:"annotations"`
+		Links       []CatalogLink     `json:"links"`
+	} `json:"metadata"`
+	Spec struct {
+		Owner string `json:"owner"`
+	} `json:"spec"`
+}
+
+// FindLinkByType returns the URL of the first metadata.links[] entry whose
+// `type` matches (e.g. "devspaces"). Returns "" when no match exists, so
+// callers can degrade gracefully.
+func (e *CatalogComponentEntity) FindLinkByType(linkType string) string {
+	if e == nil {
+		return ""
+	}
+	for _, link := range e.Metadata.Links {
+		if link.Type == linkType {
+			return link.URL
+		}
+	}
+	return ""
+}
+
 type CatalogLocationEnvelope struct {
 	Data CatalogLocation `json:"data"`
 }
@@ -185,6 +221,22 @@ func (c *Client) delete(path string) (int, error) {
 		return resp.StatusCode, fmt.Errorf("%s returned status %d: %s", path, resp.StatusCode, strings.TrimSpace(string(respBody)))
 	}
 	return resp.StatusCode, nil
+}
+
+// GetAgentComponent fetches the Backstage component entity for an agent.
+// Returns (nil, nil) when the entity is not registered yet (404), so callers
+// can render the Map view even before catalog registration completes.
+func (c *Client) GetAgentComponent(name string) (*CatalogComponentEntity, error) {
+	entityPath := fmt.Sprintf("/api/catalog/entities/by-name/component/default/%s", name)
+	var entity CatalogComponentEntity
+	statusCode, err := c.get(entityPath, &entity)
+	if statusCode == http.StatusNotFound {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &entity, nil
 }
 
 // DeleteAgentCatalogRegistration removes the catalog location for a scaffolded agent repo.

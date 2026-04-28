@@ -6,8 +6,11 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/enterprisewebservice/agent-office/backend/k8s"
@@ -300,6 +303,160 @@ func (h *AgentHandlers) DeleteAgent(w http.ResponseWriter, r *http.Request) {
 		"name":   name,
 		"status": "fired",
 	})
+}
+
+// GovernanceAgent is the response shape for GET /api/governance/agents.
+// It enriches the basic Agent shape with information an operator needs to
+// keep an eye on agent versions and to find the canonical edit path
+// (Open in Dev Spaces → edit YAML → commit; ArgoCD reconciles).
+type GovernanceAgent struct {
+	Name          string        `json:"name"`
+	DisplayName   string        `json:"displayName"`
+	Emoji         string        `json:"emoji"`
+	Description   string        `json:"description"`
+	Provider      string        `json:"provider"`
+	ModelName     string        `json:"modelName"`
+	Tools         []interface{} `json:"tools"`
+	Phase         string        `json:"phase"`
+	PodName       string        `json:"podName,omitempty"`
+	Image         string        `json:"image,omitempty"`         // declared image (deployment spec)
+	ImageID       string        `json:"imageId,omitempty"`       // running image with @sha256 digest
+	GitOpsRepoURL string        `json:"gitopsRepoUrl,omitempty"` // per-agent gitops repo on GitHub
+	DevSpacesURL  string        `json:"devSpacesUrl,omitempty"`  // from catalog-info link type=devspaces
+	BackstageURL  string        `json:"backstageUrl,omitempty"`  // RHDH UI catalog page (when public URL is configured)
+	OwnerRef      string        `json:"ownerRef,omitempty"`      // catalog-info spec.owner (e.g. user:default/deanpeterson)
+}
+
+// GetGovernanceAgents handles GET /api/governance/agents — returns the
+// enriched list used by the Map view.
+func (h *AgentHandlers) GetGovernanceAgents(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	list, err := k8s.ListAgentWorkstations(ctx, h.Clients, h.Namespace)
+	if err != nil {
+		log.Printf("error listing agents for governance: %v", err)
+		http.Error(w, fmt.Sprintf("failed to list agents: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	out := make([]GovernanceAgent, 0, len(list.Items))
+	for _, item := range list.Items {
+		flat := agentFromCR(item.Object)
+		name, _ := flat["name"].(string)
+		if name == "" {
+			continue
+		}
+
+		ga := GovernanceAgent{Name: name}
+		ga.DisplayName, _ = flat["displayName"].(string)
+		ga.Emoji, _ = flat["emoji"].(string)
+		ga.Description, _ = flat["description"].(string)
+		ga.Provider, _ = flat["provider"].(string)
+		ga.ModelName, _ = flat["modelName"].(string)
+		if t, ok := flat["tools"].([]interface{}); ok {
+			ga.Tools = t
+		} else {
+			ga.Tools = []interface{}{}
+		}
+
+		// Phase reuses the existing inferAgentPhase logic.
+		var current interface{}
+		if status, ok := flat["status"].(map[string]interface{}); ok {
+			current = status["phase"]
+		}
+		if phase, ok := inferAgentPhase(h.Clients, h.Namespace, name, current).(string); ok {
+			ga.Phase = phase
+		}
+
+		// Pod / image — declared image from the deployment spec, running digest from the pod.
+		ga.Image = deploymentContainerImage(h.Clients, h.Namespace, name)
+		ga.PodName, ga.ImageID = runningPodImageInfo(h.Clients, h.Namespace, name)
+
+		// GitOps repo URL by convention. We don't read the per-agent ArgoCD
+		// Application here because it lives in `openshift-gitops` and we want
+		// this handler fast — convention is good enough for v0.
+		ga.GitOpsRepoURL = fmt.Sprintf("https://github.com/enterprisewebservice/%s-agent-gitops", name)
+
+		// Pull the catalog component (Dev Spaces link, owner). Soft-fail on errors
+		// so a single broken catalog entry doesn't take out the whole map.
+		if h.Scaffolder != nil {
+			if entity, err := h.Scaffolder.GetAgentComponent(name); err != nil {
+				log.Printf("governance: catalog lookup failed for %s: %v", name, err)
+			} else if entity != nil {
+				ga.DevSpacesURL = entity.FindLinkByType("devspaces")
+				ga.OwnerRef = entity.Spec.Owner
+			}
+		}
+		ga.BackstageURL = backstageCatalogURLFor(name)
+
+		out = append(out, ga)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(out)
+}
+
+// deploymentContainerImage returns the openclaw container image declared on
+// the agent's Deployment, or empty if none.
+func deploymentContainerImage(clients *k8s.Clients, namespace, name string) string {
+	deployment, err := clients.Clientset.AppsV1().Deployments(namespace).Get(
+		context.Background(),
+		fmt.Sprintf("agent-%s", name),
+		metav1.GetOptions{},
+	)
+	if err != nil || deployment == nil {
+		return ""
+	}
+	for _, c := range deployment.Spec.Template.Spec.Containers {
+		if c.Name == "openclaw" {
+			return c.Image
+		}
+	}
+	if len(deployment.Spec.Template.Spec.Containers) > 0 {
+		return deployment.Spec.Template.Spec.Containers[0].Image
+	}
+	return ""
+}
+
+// runningPodImageInfo returns the running pod name and its actual pulled
+// image digest (ImageID, format `quay.io/...@sha256:...`). Falls back to the
+// first pod when none are Running.
+func runningPodImageInfo(clients *k8s.Clients, namespace, name string) (podName, imageID string) {
+	pods, err := clients.Clientset.CoreV1().Pods(namespace).List(context.Background(), metav1.ListOptions{
+		LabelSelector: fmt.Sprintf("app.kubernetes.io/name=%s", name),
+	})
+	if err != nil || len(pods.Items) == 0 {
+		return "", ""
+	}
+	pickContainer := func(p corev1.Pod) string {
+		for _, cs := range p.Status.ContainerStatuses {
+			if cs.Name == "openclaw" {
+				return cs.ImageID
+			}
+		}
+		if len(p.Status.ContainerStatuses) > 0 {
+			return p.Status.ContainerStatuses[0].ImageID
+		}
+		return ""
+	}
+	for _, p := range pods.Items {
+		if p.Status.Phase == corev1.PodRunning {
+			return p.Name, pickContainer(p)
+		}
+	}
+	first := pods.Items[0]
+	return first.Name, pickContainer(first)
+}
+
+// backstageCatalogURLFor builds the public RHDH UI URL for a component, when
+// RHDH_PUBLIC_URL is set. Returns "" otherwise — in that case the Map view
+// suppresses the Backstage link.
+func backstageCatalogURLFor(name string) string {
+	base := os.Getenv("RHDH_PUBLIC_URL")
+	if base == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s/catalog/default/component/%s", strings.TrimRight(base, "/"), name)
 }
 
 // ListRouters handles GET /api/routers — lists all SmallModelRouter CRs.
