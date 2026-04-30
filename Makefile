@@ -7,7 +7,10 @@ UI_IMG = $(QUAY_HOST)/$(QUAY_ORG)/agent-office-ui:$(VERSION)
 OPENCLAW_IMG ?= quay.io/aicatalyst/openclaw:latest
 
 CONTAINER_TOOL ?= podman
-TLS_VERIFY ?= false
+# Cluster ingress + Quay both serve publicly-trusted certs. Default to verifying.
+# Set TLS_VERIFY=false on the command line if you ever need to talk to a
+# self-signed dev environment.
+TLS_VERIFY ?= true
 
 .PHONY: all build push deploy undeploy
 

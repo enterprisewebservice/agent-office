@@ -372,17 +372,27 @@ func (h *AgentHandlers) GetGovernanceAgents(w http.ResponseWriter, r *http.Reque
 		ga.Image = deploymentContainerImage(h.Clients, h.Namespace, name)
 		ga.PodName, ga.ImageID = runningPodImageInfo(h.Clients, h.Namespace, name)
 
-		// GitOps repo URL + Dev Spaces URL by convention. The conventions match
-		// the openclaw-agent scaffolder template: per-agent gitops repo is at
-		// `https://github.com/<GH_OWNER>/<name>-agent-gitops` and the Dev Spaces
-		// "open this repo" deep link is `<DEVSPACES_URL>/#<repo-url>`.
-		// Convention is the ground truth here — it works without RHDH auth and
-		// matches what the scaffolder writes into catalog-info.yaml. A future
-		// iteration can prefer a Backstage-registered link when RHDH external-
-		// access auth is fixed (TODO: see governance.md).
+		// URLs come from convention by default (works even when RHDH is
+		// unhealthy). The scaffolder template writes the same shape into
+		// catalog-info.yaml so the convention matches the canonical source.
 		ga.GitOpsRepoURL = gitOpsRepoURLFor(name)
 		ga.DevSpacesURL = devSpacesURLFor(ga.GitOpsRepoURL)
 		ga.BackstageURL = backstageCatalogURLFor(name)
+
+		// Prefer real Backstage catalog data when available — picks up custom
+		// links and ownership the scaffolder didn't generate. Soft-fails on
+		// per-agent errors so a single bad catalog entry doesn't break the
+		// whole map (e.g. agent created before catalog registration completes).
+		if h.Scaffolder != nil {
+			if entity, err := h.Scaffolder.GetAgentComponent(name); err != nil {
+				log.Printf("governance: catalog lookup failed for %s: %v", name, err)
+			} else if entity != nil {
+				if link := entity.FindLinkByType("devspaces"); link != "" {
+					ga.DevSpacesURL = link
+				}
+				ga.OwnerRef = entity.Spec.Owner
+			}
+		}
 
 		out = append(out, ga)
 	}
