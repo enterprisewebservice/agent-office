@@ -166,6 +166,15 @@ const AgentMapCard: React.FC<{ agent: GovernanceAgent }> = ({ agent }) => {
               <span style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>{agent.podName}</span>
             </StackItem>
           )}
+
+          {agent.ownerRef && (
+            <StackItem>
+              <strong style={{ display: 'block', marginBottom: '0.25rem' }}>Owner</strong>
+              <Label color="purple" variant="outline">
+                {agent.ownerRef}
+              </Label>
+            </StackItem>
+          )}
         </Stack>
       </CardBody>
 

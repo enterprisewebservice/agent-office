@@ -1,0 +1,73 @@
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: agent-office-on-push
+  namespace: default-tenant
+  annotations:
+    # PaC trigger — only on push to main (PRs are handled by the sibling
+    # pull-request file). This mirrors the rodan-demo-v5 / Konflux template
+    # so the Tekton + Tekton Chains + Cosign + SBOM + ACS scan stack we
+    # demo to customers is the same one that builds agent-office itself.
+    pipelinesascode.tekton.dev/on-cel-expression: 'event == "push" && target_branch == "main"'
+    pipelinesascode.tekton.dev/cancel-in-progress: "false"
+    pipelinesascode.tekton.dev/max-keep-runs: "5"
+    build.appstudio.openshift.io/repo: 'https://github.com/enterprisewebservice/agent-office?rev={{revision}}'
+    build.appstudio.redhat.com/commit_sha: '{{revision}}'
+    build.appstudio.redhat.com/target_branch: '{{target_branch}}'
+  labels:
+    appstudio.openshift.io/application: agent-office
+    appstudio.openshift.io/component: agent-office-server
+    pipelines.appstudio.openshift.io/type: build
+spec:
+  params:
+    - name: git-url
+      value: '{{source_url}}'
+    - name: revision
+      value: '{{revision}}'
+    - name: output-image
+      value: 'quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/agent-office-server:on-push-{{revision}}'
+    # The agent-office Dockerfile is multi-stage (frontend + Go backend +
+    # distroless final image). Path context is the repo root so the build
+    # context includes both backend/ and frontend/.
+    - name: dockerfile
+      value: backend/Dockerfile
+    - name: path-context
+      value: .
+    - name: rebuild
+      value: "true"
+    # Skip Conforma/Enterprise-Contract gating during this bring-up.
+    # Re-enable once we wire AgentCard policy + Cosign identity binding.
+    - name: skip-checks
+      value: "true"
+  pipelineRef:
+    resolver: bundles
+    params:
+      - name: bundle
+        value: 'quay.io/konflux-ci/tekton-catalog/pipeline-docker-build@sha256:1b2a544f5308a50b8ebf76e76f10f8be3e12342d6ce7233d2520aca724294a82'
+      - name: name
+        value: docker-build
+      - name: kind
+        value: pipeline
+  taskRunSpecs:
+    - pipelineTaskName: build-container
+      stepSpecs:
+        - name: build
+          computeResources:
+            requests:
+              cpu: "1"
+              memory: 2Gi
+            limits:
+              cpu: "4"
+              memory: 4Gi
+  workspaces:
+    - name: workspace
+      volumeClaimTemplate:
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 1Gi
+    - name: git-auth
+      secret:
+        secretName: '{{ git_auth_secret }}'
