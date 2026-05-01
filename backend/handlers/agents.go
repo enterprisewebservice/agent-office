@@ -2,11 +2,14 @@ package handlers
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -325,6 +328,20 @@ type GovernanceAgent struct {
 	DevSpacesURL  string        `json:"devSpacesUrl,omitempty"`  // from catalog-info link type=devspaces
 	BackstageURL  string        `json:"backstageUrl,omitempty"`  // RHDH UI catalog page (when public URL is configured)
 	OwnerRef      string        `json:"ownerRef,omitempty"`      // catalog-info spec.owner (e.g. user:default/deanpeterson)
+	MemoryFiles  []MemoryFile  `json:"memoryFiles,omitempty"`   // .md files in this agent's ConfigMap + cross-agent sharing
+}
+
+// MemoryFile is one .md key from an agent's per-agent ConfigMap (typically
+// `agent-<name>-config`), with content-hash-based detection of which other
+// agents in the namespace have an identical (filename, content) pair. This
+// powers the Map view's "this SOUL.md is shared with onboarding-agent,
+// devhub-scaffolder" badges — the discovery surface for what eventually
+// becomes a real `MemoryModule` CRD.
+type MemoryFile struct {
+	Name       string   `json:"name"`             // e.g. "AGENTS.md"
+	Sha256     string   `json:"sha256"`           // hex; first 12 chars are usually enough to identify
+	SharedWith []string `json:"sharedWith"`       // OTHER agent names with the same (name, content) pair
+	SizeBytes  int      `json:"sizeBytes,omitempty"`
 }
 
 // GetGovernanceAgents handles GET /api/governance/agents — returns the
@@ -337,6 +354,14 @@ func (h *AgentHandlers) GetGovernanceAgents(w http.ResponseWriter, r *http.Reque
 		log.Printf("error listing agents for governance: %v", err)
 		http.Error(w, fmt.Sprintf("failed to list agents: %v", err), http.StatusInternalServerError)
 		return
+	}
+
+	// Compute memory-file hash sharing for the whole namespace once. Soft-fail
+	// — if the ConfigMap list errors, we render cards without the badges.
+	memoryByAgent, err := computeMemoryFiles(h.Clients, h.Namespace)
+	if err != nil {
+		log.Printf("governance: memory-file scan failed: %v", err)
+		memoryByAgent = nil
 	}
 
 	out := make([]GovernanceAgent, 0, len(list.Items))
@@ -378,6 +403,12 @@ func (h *AgentHandlers) GetGovernanceAgents(w http.ResponseWriter, r *http.Reque
 		ga.GitOpsRepoURL = gitOpsRepoURLFor(name)
 		ga.DevSpacesURL = devSpacesURLFor(ga.GitOpsRepoURL)
 		ga.BackstageURL = backstageCatalogURLFor(name)
+
+		// Memory file badges (cross-agent hash sharing). Empty slice if the
+		// agent has no ConfigMap or the upstream scan failed.
+		if memoryByAgent != nil {
+			ga.MemoryFiles = memoryByAgent[name]
+		}
 
 		// Prefer real Backstage catalog data when available — picks up custom
 		// links and ownership the scaffolder didn't generate. Soft-fails on
@@ -462,6 +493,85 @@ func backstageCatalogURLFor(name string) string {
 		return ""
 	}
 	return fmt.Sprintf("%s/catalog/default/component/%s", strings.TrimRight(base, "/"), name)
+}
+
+// computeMemoryFiles lists every per-agent ConfigMap in the namespace, hashes
+// each .md key, and builds an agent-name → MemoryFile[] map where each
+// MemoryFile knows which OTHER agents in the namespace have an identical
+// (filename, content) pair. Two agents "share" a file when both have the same
+// filename AND the file content is byte-identical (sha256 match).
+//
+// This powers the Map view's "shared with: <agents>" badges and is the
+// discovery layer that surfaces "these N agents have the same SOUL.md, that
+// should probably be a real MemoryModule resource."
+func computeMemoryFiles(clients *k8s.Clients, namespace string) (map[string][]MemoryFile, error) {
+	cms, err := clients.Clientset.CoreV1().ConfigMaps(namespace).List(context.Background(), metav1.ListOptions{
+		LabelSelector: "app.kubernetes.io/managed-by=agent-office",
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	type fileEntry struct {
+		hash string
+		size int
+	}
+	// agent → filename → fileEntry
+	perAgent := make(map[string]map[string]fileEntry)
+	// filename + ":" + hash → []agent (reverse lookup for sharedWith)
+	reverse := make(map[string][]string)
+
+	for _, cm := range cms.Items {
+		// Per-agent ConfigMaps are named `agent-<name>-config` per the
+		// scaffolder template. Skip anything that doesn't match.
+		name := cm.Name
+		if !strings.HasPrefix(name, "agent-") || !strings.HasSuffix(name, "-config") {
+			continue
+		}
+		agent := strings.TrimSuffix(strings.TrimPrefix(name, "agent-"), "-config")
+		perAgent[agent] = make(map[string]fileEntry)
+		for fname, content := range cm.Data {
+			if !strings.HasSuffix(strings.ToLower(fname), ".md") {
+				continue
+			}
+			sum := sha256.Sum256([]byte(content))
+			h := hex.EncodeToString(sum[:])
+			perAgent[agent][fname] = fileEntry{hash: h, size: len(content)}
+			key := fname + ":" + h
+			reverse[key] = append(reverse[key], agent)
+		}
+	}
+
+	out := make(map[string][]MemoryFile, len(perAgent))
+	for agent, files := range perAgent {
+		// Stable order for the response so the UI doesn't reshuffle on every poll.
+		filenames := make([]string, 0, len(files))
+		for fn := range files {
+			filenames = append(filenames, fn)
+		}
+		sort.Strings(filenames)
+
+		entries := make([]MemoryFile, 0, len(filenames))
+		for _, fn := range filenames {
+			entry := files[fn]
+			siblings := reverse[fn+":"+entry.hash]
+			shared := make([]string, 0, len(siblings))
+			for _, s := range siblings {
+				if s != agent {
+					shared = append(shared, s)
+				}
+			}
+			sort.Strings(shared)
+			entries = append(entries, MemoryFile{
+				Name:       fn,
+				Sha256:     entry.hash,
+				SharedWith: shared,
+				SizeBytes:  entry.size,
+			})
+		}
+		out[agent] = entries
+	}
+	return out, nil
 }
 
 // gitOpsRepoURLFor returns the GitHub URL of an agent's per-agent gitops

@@ -11,6 +11,7 @@ import {
   EmptyStateBody,
   EmptyStateHeader,
   EmptyStateIcon,
+  ExpandableSection,
   Flex,
   FlexItem,
   Gallery,
@@ -173,6 +174,54 @@ const AgentMapCard: React.FC<{ agent: GovernanceAgent }> = ({ agent }) => {
               <Label color="purple" variant="outline">
                 {agent.ownerRef}
               </Label>
+            </StackItem>
+          )}
+
+          {agent.memoryFiles && agent.memoryFiles.length > 0 && (
+            <StackItem>
+              <ExpandableSection
+                toggleText={`Memory files (${agent.memoryFiles.length}) — ${
+                  agent.memoryFiles.filter((f) => f.sharedWith.length > 0).length
+                } shared`}
+                isIndented
+              >
+                <Stack hasGutter>
+                  {agent.memoryFiles.map((file) => (
+                    <StackItem key={file.name}>
+                      <Flex
+                        spaceItems={{ default: 'spaceItemsSm' }}
+                        alignItems={{ default: 'alignItemsCenter' }}
+                        flexWrap={{ default: 'wrap' }}
+                      >
+                        <FlexItem>
+                          <Tooltip content={`sha256: ${file.sha256.slice(0, 32)}…`}>
+                            <span style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>
+                              {file.name}
+                            </span>
+                          </Tooltip>
+                        </FlexItem>
+                        {file.sharedWith.length > 0 ? (
+                          <FlexItem>
+                            <LabelGroup numLabels={4} categoryName="shared with">
+                              {file.sharedWith.map((other) => (
+                                <Label key={other} color="purple" variant="outline">
+                                  {other}
+                                </Label>
+                              ))}
+                            </LabelGroup>
+                          </FlexItem>
+                        ) : (
+                          <FlexItem>
+                            <Label color="grey" variant="outline" isCompact>
+                              unique
+                            </Label>
+                          </FlexItem>
+                        )}
+                      </Flex>
+                    </StackItem>
+                  ))}
+                </Stack>
+              </ExpandableSection>
             </StackItem>
           )}
         </Stack>

@@ -56,6 +56,21 @@ export interface SessionActionResponse {
 }
 
 /**
+ * MemoryFile is one .md file from an agent's per-agent ConfigMap, with
+ * content-hash-based detection of which other agents in the namespace have
+ * an identical (filename, content) pair.
+ */
+export interface MemoryFile {
+  /** Filename (e.g. "AGENTS.md"). */
+  name: string;
+  /** SHA-256 of the file content (lowercase hex). */
+  sha256: string;
+  /** Other agent names whose ConfigMap has the same filename + content. */
+  sharedWith: string[];
+  sizeBytes?: number;
+}
+
+/**
  * GovernanceAgent is the response shape for `GET /api/governance/agents`.
  * Used by the Map view to surface what's actually running, and the canonical
  * edit path (Open in Dev Spaces → edit YAML → commit; ArgoCD reconciles).
@@ -82,6 +97,8 @@ export interface GovernanceAgent {
   backstageUrl?: string;
   /** catalog-info `spec.owner` (e.g. `user:default/deanpeterson`). */
   ownerRef?: string;
+  /** .md files in this agent's ConfigMap with cross-agent sharing detection. */
+  memoryFiles?: MemoryFile[];
 }
 
 export interface CreateAgentRequest {
