@@ -1,0 +1,16 @@
+apiVersion: argocd-image-updater.argoproj.io/v1alpha1
+kind: ImageUpdater
+metadata:
+  name: agent-office
+  namespace: openshift-gitops
+# The Red Hat-productized Image Updater (OpenShift GitOps 1.20+) is
+# CRD-driven: the controller scans applications matched by an ImageUpdater
+# CR's applicationRefs. We use `useAnnotations: true` so the existing
+# argocd-image-updater.argoproj.io/* annotations on the agent-office
+# Application are the source of truth for image-list, allow-tags, etc.
+# That means there's only one place to change Image Updater behavior for
+# the agent-office app: its Application annotations (already in cluster).
+spec:
+  applicationRefs:
+    - namePattern: agent-office
+      useAnnotations: true

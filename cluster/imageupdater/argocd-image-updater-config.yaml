@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-image-updater-config
+  namespace: openshift-gitops
+# The OpenShift GitOps operator creates this ConfigMap (empty) when the ArgoCD
+# CR has `spec.imageUpdater.enabled: true`. Per `argoproj-labs/argocd-operator`
+# `controllers/argocd/image_updater.go`:
+#
+#     // reconcileImageUpdaterConfigMap only creates/deletes the configmap
+#     // It does not reconcile/overwrite any fields or information in the
+#     // configmap itself
+#
+# So populating data via GitOps is the supported pattern. Red Hat's own 1.20
+# release notes link Argo CD's upstream docs as the configuration reference,
+# and those docs say to put the registries config under `data.registries.conf`.
+data:
+  registries.conf: |
+    # Image Updater talks to the cluster's Quay through this entry. The
+    # `credentials` reference points at a docker-registry Secret in
+    # openshift-gitops (managed manually for now — see ../README.md).
+    registries:
+      - name: Cluster Quay
+        api_url: https://quay-quay-quay-test.apps.salamander.aimlworkbench.com
+        prefix: quay-quay-quay-test.apps.salamander.aimlworkbench.com
+        ping: yes
+        credentials: pullsecret:openshift-gitops/argocd-image-updater-quay
+        default: true
+        defaultns: deanpeterson
