@@ -1,0 +1,24 @@
+---
+# Namespace for the operator's controller pod. CRs (AgentWorkstation,
+# MemoryModule) live in the agent-office namespace; the operator watches
+# that namespace via the OperatorGroup's targetNamespaces.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: agent-office-operator
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+    app.kubernetes.io/part-of: agent-office
+---
+# OperatorGroup with single-namespace install mode: operator runs in
+# agent-office-operator, watches agent-office.
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: agent-office-operator
+  namespace: agent-office-operator
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  targetNamespaces:
+    - agent-office

@@ -19,3 +19,6 @@ resources:
   - argocd-rbac.yaml
   - pac-repository.yaml
   - catalogsource.yaml
+  - catalog-sa-pullsecret.yaml
+  - operatorgroup.yaml
+  - subscription.yaml

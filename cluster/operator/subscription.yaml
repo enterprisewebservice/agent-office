@@ -1,0 +1,17 @@
+---
+# OLM Subscription — installs the operator from the in-cluster catalog
+# automatically, picks up new digests behind :v0.0.1 via registryPoll on
+# the CatalogSource without manual installPlan approval.
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: agent-office-operator
+  namespace: agent-office-operator
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  channel: alpha
+  name: agent-office-operator
+  source: agent-office-operator-catalog
+  sourceNamespace: openshift-marketplace
+  installPlanApproval: Automatic
