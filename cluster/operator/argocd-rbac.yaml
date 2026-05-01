@@ -1,0 +1,34 @@
+---
+# Lets the OpenShift GitOps application-controller manage Pipelines-as-Code
+# Repository CRs (so this kustomize can install the operator's PaC repo
+# binding via GitOps). Without this, ArgoCD fails to apply the Repository
+# with: "repositories.pipelinesascode.tekton.dev is forbidden".
+#
+# Same pattern as the MemoryModule grant in agent-office-memory-modules.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: argocd-pac-repository-manager
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+    app.kubernetes.io/part-of: agent-office
+rules:
+  - apiGroups: ["pipelinesascode.tekton.dev"]
+    resources: ["repositories"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: argocd-pac-repository-manager
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+    app.kubernetes.io/part-of: agent-office
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: argocd-pac-repository-manager
+subjects:
+  - kind: ServiceAccount
+    name: openshift-gitops-argocd-application-controller
+    namespace: openshift-gitops

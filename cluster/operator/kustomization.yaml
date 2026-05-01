@@ -16,5 +16,6 @@ kind: Kustomization
 # push to the cluster's internal Quay.
 
 resources:
+  - argocd-rbac.yaml
   - pac-repository.yaml
   - catalogsource.yaml
