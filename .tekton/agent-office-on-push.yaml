@@ -8,7 +8,14 @@ metadata:
     # pull-request file). This mirrors the rodan-demo-v5 / Konflux template
     # so the Tekton + Tekton Chains + Cosign + SBOM + ACS scan stack we
     # demo to customers is the same one that builds agent-office itself.
-    pipelinesascode.tekton.dev/on-cel-expression: 'event == "push" && target_branch == "main"'
+    # Skip pushes authored by argocd-image-updater so its automated bump-commits
+    # don't loop the pipeline. The image-updater service account commits as
+    # `noreply@argoproj.io` (default in upstream); we additionally guard against
+    # the bot username in case the commit is amended.
+    pipelinesascode.tekton.dev/on-cel-expression: |
+      event == "push" && target_branch == "main"
+      && body.head_commit.author.email != 'noreply@argoproj.io'
+      && body.head_commit.author.username != 'argocd-image-updater'
     pipelinesascode.tekton.dev/cancel-in-progress: "false"
     pipelinesascode.tekton.dev/max-keep-runs: "5"
     build.appstudio.openshift.io/repo: 'https://github.com/enterprisewebservice/agent-office?rev={{revision}}'
