@@ -1,6 +1,5 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-
 # Mirrors the previous Application source: `directory: { recurse: true, exclude: gitops/* }`.
 # Switching to kustomize so Argo CD Image Updater can edit the `images:` block
 # below on every successful Tekton build (rebumps `newTag` to the newest
@@ -10,9 +9,8 @@ resources:
   - deploy/agent-office-deploy.yaml
   - rbac/agent-office-rbac.yaml
   - samples/onboarding-agent.yaml
-
 # Image source-of-truth. Change `newTag` here to deploy a different version;
 # Image Updater rewrites it automatically when a new build lands.
 images:
   - name: quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/agent-office-server
-    newTag: "0.1.37"
+    newTag: on-push-db22891871868a70a6965cf559673fe0a7126c33
