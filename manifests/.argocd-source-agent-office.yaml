@@ -1,3 +1,0 @@
-kustomize:
-  images:
-  - quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/agent-office-server:on-push-db22891871868a70a6965cf559673fe0a7126c33
