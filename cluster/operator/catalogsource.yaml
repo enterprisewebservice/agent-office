@@ -20,6 +20,11 @@ spec:
   # pipeline runs flow through to a fresh tile without manual GitOps
   # edits or Image Updater wiring.
   image: quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/agent-office-operator-catalog:v0.0.1
+  # Pull secret for the cluster's internal Quay (already exists in
+  # openshift-marketplace; created when the cluster was bootstrapped).
+  # OLM links this to the auto-created CatalogSource ServiceAccount.
+  secrets:
+    - quay-pull-secret
   updateStrategy:
     registryPoll:
       interval: 5m
