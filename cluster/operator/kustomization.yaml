@@ -1,0 +1,20 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Cluster-side bits that wire up the Agent Office Operator:
+#
+# - PaC Repository CR registering the operator's GitHub repo with the
+#   in-cluster Pipelines-as-Code GitHub App so .tekton/ files trigger
+#   builds.
+# - CatalogSource CR that points OLM at the FBC catalog index image, so
+#   "Agent Office Operator" appears as a tile in Ecosystem Software
+#   Catalog (formerly OperatorHub).
+#
+# The operator image, bundle image, and catalog index image themselves
+# are produced by the Tekton pipelines defined in the operator repo's
+# .tekton/ directory — those run in the default-tenant namespace and
+# push to the cluster's internal Quay.
+
+resources:
+  - pac-repository.yaml
+  - catalogsource.yaml

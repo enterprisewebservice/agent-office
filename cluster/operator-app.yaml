@@ -1,0 +1,30 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: agent-office-operator-cluster
+  namespace: openshift-gitops
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/enterprisewebservice/agent-office.git
+    targetRevision: main
+    # Cluster-scoped artifacts for the operator: PaC Repository CR (in
+    # default-tenant) and CatalogSource (in openshift-marketplace). The
+    # operator image / bundle image / catalog index image themselves are
+    # built by the Tekton pipelines defined in the operator's repo and
+    # pushed to the cluster's internal Quay.
+    path: cluster/operator
+  destination:
+    server: https://kubernetes.default.svc
+    # The kustomize resources reference their own namespaces explicitly
+    # (default-tenant and openshift-marketplace), so this destination
+    # namespace is just the placeholder ArgoCD requires.
+    namespace: default
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true

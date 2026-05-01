@@ -1,0 +1,33 @@
+apiVersion: operators.coreos.com/v1alpha1
+kind: CatalogSource
+metadata:
+  name: agent-office-operator-catalog
+  namespace: openshift-marketplace
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+  # ArgoCD Image Updater watches the catalog tag and bumps it on every
+  # operator-catalog-on-push pipeline run, so subsequent commits to the
+  # operator repo flow through to a fresh tile in Ecosystem Software
+  # Catalog without manual intervention.
+  annotations:
+    argocd-image-updater.argoproj.io/image-list: 'catalog=quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/agent-office-operator-catalog'
+    argocd-image-updater.argoproj.io/catalog.update-strategy: latest
+    argocd-image-updater.argoproj.io/catalog.helm.image-tag: image
+spec:
+  sourceType: grpc
+  # Tile metadata for Ecosystem Software Catalog / OperatorHub.
+  displayName: Agent Office Operator
+  publisher: Red Hat Solution Architecture
+  description: >-
+    OLM-managed operator for the Governed Agent Platform on OpenShift.
+    Owns the AgentWorkstation and MemoryModule CRDs and ships a
+    ConsolePlugin that adds Memory Module / Agent Workstation tabs to
+    the operator CSV detail page in OpenShift Console.
+  # Image is bumped by the on-push catalog pipeline; the placeholder tag
+  # below is replaced by Image Updater on the first successful build.
+  image: quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/agent-office-operator-catalog:on-push-bootstrap
+  updateStrategy:
+    registryPoll:
+      interval: 5m
+  grpcPodConfig:
+    securityContextConfig: restricted

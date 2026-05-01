@@ -1,0 +1,11 @@
+apiVersion: pipelinesascode.tekton.dev/v1alpha1
+kind: Repository
+metadata:
+  name: agent-office-operator
+  namespace: default-tenant
+spec:
+  # PaC uses the cluster-global GitHub App credentials (in
+  # openshift-pipelines/pipelines-as-code-secret) to authenticate. The
+  # GitHub App is installed at the org level on enterprisewebservice/* so
+  # this Repository CR is all the per-repo wiring needed.
+  url: https://github.com/enterprisewebservice/agent-office-operator
