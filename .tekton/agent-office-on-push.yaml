@@ -9,13 +9,12 @@ metadata:
     # so the Tekton + Tekton Chains + Cosign + SBOM + ACS scan stack we
     # demo to customers is the same one that builds agent-office itself.
     # Skip pushes authored by argocd-image-updater so its automated bump-commits
-    # don't loop the pipeline. The image-updater service account commits as
-    # `noreply@argoproj.io` (default in upstream); we additionally guard against
-    # the bot username in case the commit is amended.
-    pipelinesascode.tekton.dev/on-cel-expression: |
-      event == "push" && target_branch == "main"
-      && body.head_commit.author.email != 'noreply@argoproj.io'
-      && body.head_commit.author.username != 'argocd-image-updater'
+    # don't loop the pipeline. Filter on the commit author email (the upstream
+    # default is `noreply@argoproj.io`). The previous version also checked
+    # head_commit.author.username, which fails for human pushes when GitHub
+    # can't link the email to a registered user (CEL gets an undefined field
+    # and the whole expression evaluates false → push is silently skipped).
+    pipelinesascode.tekton.dev/on-cel-expression: 'event == "push" && target_branch == "main" && body.head_commit.author.email != "noreply@argoproj.io"'
     pipelinesascode.tekton.dev/cancel-in-progress: "false"
     pipelinesascode.tekton.dev/max-keep-runs: "5"
     build.appstudio.openshift.io/repo: 'https://github.com/enterprisewebservice/agent-office?rev={{revision}}'
