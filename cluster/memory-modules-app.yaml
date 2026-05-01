@@ -1,0 +1,26 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: agent-office-memory-modules
+  namespace: openshift-gitops
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    # Library of shared MemoryModule content. Each module is a single .md
+    # file in modules/<kind>/<name>.md; kustomize generates one ConfigMap
+    # per module with the canonical AAIF / OpenClaw filename as the key.
+    repoURL: https://github.com/enterprisewebservice/agent-office-memory-modules.git
+    targetRevision: main
+    path: .
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: agent-office
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
