@@ -1,10 +1,60 @@
 ---
-# Lets the OpenShift GitOps application-controller manage Pipelines-as-Code
-# Repository CRs (so this kustomize can install the operator's PaC repo
-# binding via GitOps). Without this, ArgoCD fails to apply the Repository
-# with: "repositories.pipelinesascode.tekton.dev is forbidden".
+# Lets the OpenShift GitOps application-controller manage all the
+# resource types this kustomize installs:
 #
-# Same pattern as the MemoryModule grant in agent-office-memory-modules.
+#   - PaC Repository CRs (default-tenant) — registers .tekton/ pipelines
+#   - CatalogSource CRs (openshift-marketplace) — adds the operator tile
+#     to Ecosystem Software Catalog
+#   - ServiceAccounts (openshift-marketplace) — pre-creates the catalog
+#     SA with imagePullSecrets baked in
+#   - OperatorGroup + Subscription (agent-office-operator) — installs
+#     the operator via OLM
+#
+# Grouped into one ClusterRole so the binding stays small. Without
+# these grants ArgoCD fails to apply with "User ... cannot patch
+# resource X is forbidden".
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: argocd-agent-office-operator-installer
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+    app.kubernetes.io/part-of: agent-office
+rules:
+  - apiGroups: ["pipelinesascode.tekton.dev"]
+    resources: ["repositories"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["operators.coreos.com"]
+    resources:
+      - catalogsources
+      - subscriptions
+      - operatorgroups
+      - clusterserviceversions
+      - installplans
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["serviceaccounts", "namespaces"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: argocd-agent-office-operator-installer
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+    app.kubernetes.io/part-of: agent-office
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: argocd-agent-office-operator-installer
+subjects:
+  - kind: ServiceAccount
+    name: openshift-gitops-argocd-application-controller
+    namespace: openshift-gitops
+---
+# Keep the original PaC-only role in place for compatibility with any
+# other apps that may bind to it. The new role above subsumes its perms
+# but doesn't replace it.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
