@@ -21,4 +21,5 @@ resources:
   - catalogsource.yaml
   - catalog-sa-pullsecret.yaml
   - operatorgroup.yaml
+  - operator-pullsecret-copier.yaml
   - subscription.yaml

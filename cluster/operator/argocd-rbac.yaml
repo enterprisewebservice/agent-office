@@ -35,6 +35,13 @@ rules:
   - apiGroups: [""]
     resources: ["serviceaccounts", "namespaces"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Pull-secret copier Job/CronJob and its per-namespace RBAC.
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["roles", "rolebindings"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
