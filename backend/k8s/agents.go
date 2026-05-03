@@ -336,6 +336,21 @@ func CreateAgentResources(ctx context.Context, clients *Clients, namespace strin
 	}
 
 	// 6. AgentWorkstation CR
+	//
+	// Spec layout matches the agent-office-operator's CRD schema (model
+	// nested under spec.model, no flat provider/modelName/routerRef).
+	// Status is owned by the operator now (slice 3) — it observes the
+	// Deployment + Route created in steps 1-5 above and sets phase +
+	// gatewayEndpoint. We don't write status here anymore.
+	model := map[string]interface{}{
+		"provider": req.Provider,
+	}
+	if req.ModelName != "" {
+		model["modelName"] = req.ModelName
+	}
+	if req.RouterRef != "" {
+		model["modelRouterRef"] = req.RouterRef
+	}
 	agentCR := &unstructured.Unstructured{
 		Object: map[string]interface{}{
 			"apiVersion": "agentoffice.ai/v1alpha1",
@@ -350,15 +365,11 @@ func CreateAgentResources(ctx context.Context, clients *Clients, namespace strin
 				"emoji":        req.Emoji,
 				"description":  req.Description,
 				"systemPrompt": req.SystemPrompt,
-				"provider":     req.Provider,
-				"modelName":    req.ModelName,
-				"routerRef":    req.RouterRef,
-				"tools":        toInterfaceSlice(req.Tools),
-				"image":        image,
-			},
-			"status": map[string]interface{}{
-				"phase":    "Provisioning",
-				"endpoint": fmt.Sprintf("http://agent-%s.%s.svc:18789", req.Name, namespace),
+				"model":        model,
+				"tools": map[string]interface{}{
+					"allow": toInterfaceSlice(req.Tools),
+				},
+				"image": image,
 			},
 		},
 	}
@@ -475,28 +486,10 @@ func GetAgentWorkstation(ctx context.Context, clients *Clients, namespace, name 
 	return clients.DynamicClient.Resource(agentWorkstationGVR).Namespace(namespace).Get(ctx, name, metav1.GetOptions{})
 }
 
-// UpdateAgentWorkstationStatus updates the status fields of an AgentWorkstation CR.
-func UpdateAgentWorkstationStatus(ctx context.Context, clients *Clients, namespace, name, phase, endpoint string) error {
-	agent, err := clients.DynamicClient.Resource(agentWorkstationGVR).Namespace(namespace).Get(ctx, name, metav1.GetOptions{})
-	if err != nil {
-		return fmt.Errorf("getting agentworkstation %s: %w", name, err)
-	}
-
-	status, ok := agent.Object["status"].(map[string]interface{})
-	if !ok {
-		status = map[string]interface{}{}
-	}
-	status["phase"] = phase
-	status["endpoint"] = endpoint
-	agent.Object["status"] = status
-
-	_, err = clients.DynamicClient.Resource(agentWorkstationGVR).Namespace(namespace).UpdateStatus(ctx, agent, metav1.UpdateOptions{})
-	if err != nil {
-		return fmt.Errorf("updating agentworkstation status %s: %w", name, err)
-	}
-
-	return nil
-}
+// AgentWorkstation status (phase + gatewayEndpoint) is owned by
+// agent-office-operator's AgentWorkstationReconciler since slice 3.
+// This file no longer writes to status. The watcher cache below still
+// reads it for the UI.
 
 // convertLabels converts map[string]string to map[string]interface{} for unstructured objects.
 func convertLabels(labels map[string]string) map[string]interface{} {

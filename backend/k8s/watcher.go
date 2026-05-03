@@ -161,13 +161,18 @@ func WatchSmallModelRouters(ctx context.Context, clients *Clients) ([]RouterInfo
 			Namespace: item.GetNamespace(),
 		}
 
-		// Extract status fields
+		// Extract status fields. The operator (slice 3) writes
+		// status.gatewayEndpoint, but we still accept the legacy
+		// status.endpoint field for any AWs created with the old
+		// pseudo-controller payload that haven't been reconciled yet.
 		status, ok := item.Object["status"].(map[string]interface{})
 		if ok {
 			if phase, ok := status["phase"].(string); ok {
 				info.Phase = phase
 			}
-			if endpoint, ok := status["endpoint"].(string); ok {
+			if endpoint, ok := status["gatewayEndpoint"].(string); ok {
+				info.Endpoint = endpoint
+			} else if endpoint, ok := status["endpoint"].(string); ok {
 				info.Endpoint = endpoint
 			}
 		}
