@@ -9,21 +9,18 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// UpsertAgentRuntimeSecret ensures the per-agent runtime secret exists in-cluster.
-// Secrets stay out of the GitOps repo and are only stored in Kubernetes.
+// UpsertAgentRuntimeSecret manages the user-supplied API-key Secret
+// (`agent-<name>-credentials`). Gateway tokens are owned by
+// agent-office-operator since slice 4, so this no longer touches them.
 func UpsertAgentRuntimeSecret(ctx context.Context, clients *Clients, namespace, name, provider, apiKey string) error {
-	secretName := fmt.Sprintf("agent-%s-secret", name)
+	secretName := fmt.Sprintf("agent-%s-credentials", name)
 
 	secret, err := clients.Clientset.CoreV1().Secrets(namespace).Get(ctx, secretName, metav1.GetOptions{})
 	if err != nil && !apierrors.IsNotFound(err) {
-		return fmt.Errorf("getting runtime secret: %w", err)
+		return fmt.Errorf("getting credential secret: %w", err)
 	}
 
 	if apierrors.IsNotFound(err) {
-		gatewayToken, tokenErr := generateGatewayToken()
-		if tokenErr != nil {
-			return fmt.Errorf("generating gateway token: %w", tokenErr)
-		}
 		secret = &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      secretName,
@@ -31,23 +28,15 @@ func UpsertAgentRuntimeSecret(ctx context.Context, clients *Clients, namespace, 
 				Labels:    agentLabels(name),
 			},
 			Type: corev1.SecretTypeOpaque,
-			Data: map[string][]byte{
-				"OPENCLAW_GATEWAY_TOKEN": []byte(gatewayToken),
-			},
+			Data: map[string][]byte{},
 		}
 	}
 
 	if secret.Data == nil {
 		secret.Data = map[string][]byte{}
 	}
-	if _, ok := secret.Data["OPENCLAW_GATEWAY_TOKEN"]; !ok || len(secret.Data["OPENCLAW_GATEWAY_TOKEN"]) == 0 {
-		gatewayToken, tokenErr := generateGatewayToken()
-		if tokenErr != nil {
-			return fmt.Errorf("generating gateway token: %w", tokenErr)
-		}
-		secret.Data["OPENCLAW_GATEWAY_TOKEN"] = []byte(gatewayToken)
-	}
 
+	// Wipe stale provider keys so a provider switch is clean.
 	delete(secret.Data, "OPENAI_API_KEY")
 	delete(secret.Data, "ANTHROPIC_API_KEY")
 	delete(secret.Data, "SMR_API_KEY")
@@ -70,14 +59,14 @@ func UpsertAgentRuntimeSecret(ctx context.Context, clients *Clients, namespace, 
 	if secret.CreationTimestamp.IsZero() {
 		_, err = clients.Clientset.CoreV1().Secrets(namespace).Create(ctx, secret, metav1.CreateOptions{})
 		if err != nil {
-			return fmt.Errorf("creating runtime secret: %w", err)
+			return fmt.Errorf("creating credential secret: %w", err)
 		}
 		return nil
 	}
 
 	_, err = clients.Clientset.CoreV1().Secrets(namespace).Update(ctx, secret, metav1.UpdateOptions{})
 	if err != nil {
-		return fmt.Errorf("updating runtime secret: %w", err)
+		return fmt.Errorf("updating credential secret: %w", err)
 	}
 	return nil
 }
