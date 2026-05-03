@@ -33,7 +33,7 @@ rules:
       - installplans
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: [""]
-    resources: ["serviceaccounts", "namespaces"]
+    resources: ["serviceaccounts", "namespaces", "services"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   # Pull-secret copier Job/CronJob and its per-namespace RBAC.
   - apiGroups: ["rbac.authorization.k8s.io"]
