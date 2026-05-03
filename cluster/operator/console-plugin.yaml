@@ -1,0 +1,87 @@
+---
+# Service in front of the plugin pod, with a serving cert annotation so
+# OpenShift's service-ca operator mints TLS for it. The Console only
+# fetches plugin assets over TLS from a service it can verify.
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent-office-plugin
+  namespace: agent-office-operator
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+    app: agent-office-plugin
+  annotations:
+    service.beta.openshift.io/serving-cert-secret-name: agent-office-plugin-serving-cert
+spec:
+  selector:
+    app: agent-office-plugin
+  ports:
+    - name: https
+      port: 9001
+      targetPort: 9001
+      protocol: TCP
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-office-plugin
+  namespace: agent-office-operator
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+    app: agent-office-plugin
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: agent-office-plugin
+  template:
+    metadata:
+      labels:
+        app: agent-office-plugin
+    spec:
+      imagePullSecrets:
+        - name: quay-pull-secret
+      containers:
+        - name: agent-office-plugin
+          image: quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/agent-office-plugin:v0.0.1
+          ports:
+            - containerPort: 9001
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 10m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          volumeMounts:
+            - name: serving-cert
+              mountPath: /etc/serving-cert
+              readOnly: true
+      volumes:
+        - name: serving-cert
+          secret:
+            secretName: agent-office-plugin-serving-cert
+            defaultMode: 420
+---
+# Console picks up the ConsolePlugin CR and merges it into the running
+# Console pod's plugin list. After this is applied, the Console
+# operator's reconciler restarts the console pods to load the bundle.
+apiVersion: console.openshift.io/v1
+kind: ConsolePlugin
+metadata:
+  name: agent-office-plugin
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  displayName: Agent Office Plugin
+  i18n:
+    loadType: Preload
+  backend:
+    type: Service
+    service:
+      name: agent-office-plugin
+      namespace: agent-office-operator
+      port: 9001
+      basePath: /
