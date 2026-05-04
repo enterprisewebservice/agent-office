@@ -1,7 +1,7 @@
 ---
 # Namespace for the operator's controller pod. CRs (AgentWorkstation,
-# MemoryModule) live in the agent-office namespace; the operator watches
-# that namespace via the OperatorGroup's targetNamespaces.
+# MemoryModule, AgentGateway) can live in ANY namespace — the operator
+# is installed in AllNamespaces mode below.
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -10,8 +10,14 @@ metadata:
     app.kubernetes.io/managed-by: agent-office-gitops
     app.kubernetes.io/part-of: agent-office
 ---
-# OperatorGroup with single-namespace install mode: operator runs in
-# agent-office-operator, watches agent-office.
+# OperatorGroup with AllNamespaces install mode (omit
+# spec.targetNamespaces). The operator runs once in
+# agent-office-operator and watches every namespace on the cluster.
+# OLM copies the CSV into every namespace, so the operator tile
+# shows up under "Installed Operators" everywhere — same UX as the
+# Keycloak / Cert-Manager / Tekton operators. The CSV-detail tabs
+# (Agent Workstations, Memory Modules, Agent Gateways) then list
+# instances cluster-wide instead of being scoped to a single ns.
 apiVersion: operators.coreos.com/v1
 kind: OperatorGroup
 metadata:
@@ -19,6 +25,4 @@ metadata:
   namespace: agent-office-operator
   labels:
     app.kubernetes.io/managed-by: agent-office-gitops
-spec:
-  targetNamespaces:
-    - agent-office
+spec: {}
