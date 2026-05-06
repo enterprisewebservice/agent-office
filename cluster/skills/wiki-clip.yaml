@@ -1,0 +1,81 @@
+apiVersion: agentoffice.ai/v1alpha1
+kind: Skill
+metadata:
+  name: wiki-clip
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/managed-by: agent-office
+    agentoffice.ai/skill-family: wiki
+spec:
+  displayName: Wiki Clip
+  description: Capture a URL through the VM browser and file the cleaned Markdown into a KnowledgeBase as a "raw clip".
+  version: v1
+  invocation:
+    tool: browser
+  requires:
+    - browser
+    - web_fetch
+    - exec
+  source:
+    inline: |
+      Use this skill when the user asks you to **save**, **clip**, **archive**, **capture**, or **add** a URL to the wiki.
+
+      ## When to use
+
+      The user wants the *full* article preserved in the KB, not just an answer. Examples:
+
+      - "Save this Red Hat blog post to the wiki: https://..."
+      - "Add this paper to our research notes"
+      - "Clip this — I want to come back to it"
+
+      ## Procedure
+
+      You have access to one or more KnowledgeBases mounted under `/home/node/.openclaw/wiki/<kb-name>/`. The user's `WIKI.md` workspace file lists which ones are available — read it first if you haven't already.
+
+      For each URL the user wants clipped:
+
+      1. **Fetch via the browser tool with `target: "node"`**. This routes through the paired node-host VM where Chromium renders the page properly (handles JS-rendered content, login walls don't apply if the user is on a public page, the browser cookies and history are private to this profile). Visible to the user on the VM display so they can watch the capture.
+
+      2. **Extract clean Markdown**. After the browser opens the URL and the page loads, use `web_fetch` against the same URL with `extractMode: "markdown"` and `extractor: "readability"`. The browser pre-warmed the page; `web_fetch` does the Markdown extraction.
+
+      3. **Slugify the URL** for a filename. Lowercase, replace non-alphanumeric with `-`, collapse repeats, trim. Example: `https://www.redhat.com/en/blog/red-hat-ai-inference-server-technical-deep-dive` → `redhat-ai-inference-server-technical-deep-dive.md`.
+
+      4. **Write the clip** with `exec`:
+
+         ```bash
+         mkdir -p /home/node/.openclaw/wiki/<kb-name>/raw/clips
+         cat > /home/node/.openclaw/wiki/<kb-name>/raw/clips/<slug>.md <<'EOF'
+         ---
+         source_url: <url>
+         clipped_at: <ISO 8601 timestamp UTC>
+         clipped_by: <agent-id>
+         status: raw
+         ---
+
+         # <page title>
+
+         <markdown body from web_fetch>
+         EOF
+         ```
+
+         Frontmatter is YAML-fenced at the top so downstream `wiki-write` and the linter can parse it. `status: raw` signals "not yet integrated into the curated wiki" — the compiler agent (or you, if asked) can promote raw clips into curated articles via `wiki-write`.
+
+      5. **Append to the raw index**:
+
+         ```bash
+         echo "- [<page title>](raw/clips/<slug>.md) — <ISO date>" >> /home/node/.openclaw/wiki/<kb-name>/raw/_index.md
+         ```
+
+         Create `raw/_index.md` with `# Raw Captures\n\n` if it doesn't exist.
+
+      6. **Confirm to the user** with the wiki path you wrote (so they can navigate to it) and a one-sentence summary of what you captured. Don't spam the entire body back at them.
+
+      ## Don't
+
+      - Don't summarize and discard — the value of clipping is preserving the full source. Save the body verbatim (Markdown-formatted).
+      - Don't clip behind authenticated pages on the user's behalf without explicit confirmation. The browser profile is shared per-agent; if you're logged in to something, that login persists.
+      - Don't write outside the KB mount path. Anything outside `/home/node/.openclaw/wiki/<kb-name>/` will be lost on pod restart and isn't visible to other agents.
+
+      ## When the user asks for "search" or "summary" instead
+
+      Use the `wiki-search` skill (read existing wiki content) or `wiki-write` skill (file a curated article). `wiki-clip` is specifically for raw captures.

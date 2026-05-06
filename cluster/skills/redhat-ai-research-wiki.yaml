@@ -1,0 +1,70 @@
+# Sample KnowledgeBase + SkillBindings wiring the three wiki skills
+# (wiki-clip, wiki-search, wiki-write) to every research-role
+# AgentWorkstation in the agent-office namespace. Apply alongside
+# the three Skill manifests in this directory:
+#
+#   oc apply -f cluster/skills/
+#
+# After apply, the AW reconciler renders WIKI.md into each bound
+# agent's workspace, and the gateway reconciler mounts the
+# redhat-ai-research-wiki PVC at
+# /home/node/.openclaw/wiki/redhat-ai-research-wiki/ inside the
+# research-gateway pod.
+
+---
+apiVersion: agentoffice.ai/v1alpha1
+kind: KnowledgeBase
+metadata:
+  name: redhat-ai-research-wiki
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/managed-by: agent-office
+spec:
+  displayName: Red Hat AI Research Wiki
+  description: |
+    Karpathy-style research knowledge base for Red Hat AI announcements,
+    inference engines (vLLM, llm-d), agentic workflows, and openshift-ai
+    platform topics. Shared across every research agent in the
+    research-gateway. Agents file clips and curated articles here so
+    follow-up questions are answered from accumulated knowledge instead
+    of re-deriving from scratch each time.
+  gatewayRef:
+    name: research-gateway
+  storage:
+    size: 5Gi
+---
+apiVersion: agentoffice.ai/v1alpha1
+kind: SkillBinding
+metadata:
+  name: research-wiki-skills
+  namespace: agent-office
+spec:
+  skillRef:
+    name: wiki-clip
+  subjectSelector:
+    matchLabels:
+      agentoffice.ai/role: research
+---
+apiVersion: agentoffice.ai/v1alpha1
+kind: SkillBinding
+metadata:
+  name: research-wiki-search
+  namespace: agent-office
+spec:
+  skillRef:
+    name: wiki-search
+  subjectSelector:
+    matchLabels:
+      agentoffice.ai/role: research
+---
+apiVersion: agentoffice.ai/v1alpha1
+kind: SkillBinding
+metadata:
+  name: research-wiki-write
+  namespace: agent-office
+spec:
+  skillRef:
+    name: wiki-write
+  subjectSelector:
+    matchLabels:
+      agentoffice.ai/role: research
