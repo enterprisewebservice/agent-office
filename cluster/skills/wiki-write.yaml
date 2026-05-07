@@ -118,7 +118,25 @@ spec:
       - **Exists**: append YOUR new article path to that concept page's `backlinks:` frontmatter list.
       - **Missing**: leave the `[[concept]]` in place — the linter will surface it as a "concept page candidate" and propose a draft. (Don't auto-create concept pages from a single mention; the linter handles cross-cutting decisions.)
 
-      ### 5. Confirm
+      ### 5. Append to `log.md`
+
+      The wiki's chronological activity feed. Single line, fixed prefix so the log itself stays parseable (Karpathy convention):
+
+      ```bash
+      # Format: ## [YYYY-MM-DD] <op> | <subject>
+      # Op is one of: write (curated topic), concept (canonical concept page),
+      # query (queries/...md snapshot), summary (auto-summary)
+      echo "## [$(date -u +%Y-%m-%d)] write | <title>" \
+        >> /home/node/.openclaw/wiki/<kb-name>/log.md
+      echo "" >> /home/node/.openclaw/wiki/<kb-name>/log.md
+      echo "<one-line summary of what this article covers>. Filed at \`<path>\`. By: <agent-id>. Cites: <count> sources, <count> backlinks." \
+        >> /home/node/.openclaw/wiki/<kb-name>/log.md
+      echo "" >> /home/node/.openclaw/wiki/<kb-name>/log.md
+      ```
+
+      Create `log.md` with `# Activity Log\n\n` if it doesn't exist. Always append, never rewrite — the log is immutable history.
+
+      ### 6. Confirm
 
       Tell the user the path you wrote (relative to the KB mount root), one-line summary, and any concepts you flagged as missing. Don't paste the body back — it's in the wiki now.
 

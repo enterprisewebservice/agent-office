@@ -68,7 +68,21 @@ spec:
 
          Create `raw/_index.md` with `# Raw Captures\n\n` if it doesn't exist.
 
-      6. **Confirm to the user** with the wiki path you wrote (so they can navigate to it) and a one-sentence summary of what you captured. Don't spam the entire body back at them.
+      6. **Append to `log.md`** — the wiki's chronological activity feed. Single line, fixed prefix so the log itself stays parseable (Karpathy convention):
+
+         ```bash
+         # Format: ## [YYYY-MM-DD] <op> | <subject>
+         echo "## [$(date -u +%Y-%m-%d)] clip | <page title>" \
+           >> /home/node/.openclaw/wiki/<kb-name>/log.md
+         echo "" >> /home/node/.openclaw/wiki/<kb-name>/log.md
+         echo "<one-line summary>. Source: <url>. Filed at \`raw/clips/<slug>.md\`. By: <agent-id>." \
+           >> /home/node/.openclaw/wiki/<kb-name>/log.md
+         echo "" >> /home/node/.openclaw/wiki/<kb-name>/log.md
+         ```
+
+         Create `log.md` with `# Activity Log\n\n` if it doesn't exist. Always append, never rewrite — the log is immutable history. The `## [date] op | subject` prefix is what makes the log greppable: future skills (and the linter agent) parse this format to reconstruct what happened when.
+
+      7. **Confirm to the user** with the wiki path you wrote (so they can navigate to it) and a one-sentence summary of what you captured. Don't spam the entire body back at them.
 
       ## Don't
 

@@ -70,6 +70,22 @@ spec:
       - **Note gaps**: if the wiki has nothing on the topic, say so; this is also a hint to use `wiki-clip` or `wiki-write` to start filling the gap.
       - **File the result** when the user asks a substantial question: use `wiki-write` to drop a `queries/<date>-<topic>.md` snapshot so future sessions benefit. (Don't do this for trivial questions — only when your synthesis adds value.)
 
+      ### Append to `log.md` for substantial queries
+
+      When you actually file a `queries/<date>-<topic>.md` via `wiki-write`, that skill takes care of the log entry. But you can also log a *search-only* operation when the user asked a real question and you read 2+ wiki pages to answer (no new file written). Keeps the timeline honest about what got looked up:
+
+      ```bash
+      # Format: ## [YYYY-MM-DD] <op> | <subject>
+      echo "## [$(date -u +%Y-%m-%d)] query | <user's question>" \
+        >> /home/node/.openclaw/wiki/<kb-name>/log.md
+      echo "" >> /home/node/.openclaw/wiki/<kb-name>/log.md
+      echo "Searched <kb-name>. Read: \`<path-1>\`, \`<path-2>\`. By: <agent-id>." \
+        >> /home/node/.openclaw/wiki/<kb-name>/log.md
+      echo "" >> /home/node/.openclaw/wiki/<kb-name>/log.md
+      ```
+
+      Skip this for trivial single-page lookups — log only when the answer required real synthesis across multiple wiki sources.
+
       ## Tips
 
       - Search broadens with **multiple short queries** rather than one long one. Try the topic, then the related concepts, then specific terms.
