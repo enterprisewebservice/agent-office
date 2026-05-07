@@ -38,20 +38,11 @@ spec:
   # truth that both Backstage TechDocs (via catalog-info.yaml +
   # mkdocs.yml the sidecar bootstraps into the wiki) AND
   # Obsidian (via git clone of the repo as a vault) consume.
-  #
-  # Uncomment + configure to enable. You need:
-  #   1. Create the GitHub repo (empty is fine; the sidecar
-  #      bootstraps mkdocs.yml + catalog-info.yaml + an
-  #      "Open in Obsidian" mkdocs hook on first run).
-  #   2. Mint a fine-grained PAT with repo:write scope on that
-  #      one repo, store it in the Secret named below as
-  #      stringData.GIT_TOKEN.
-  #
-  # gitMirror:
-  #   url: https://github.com/enterprisewebservice/redhat-ai-research-wiki
-  #   branch: main
-  #   cadence: "*/5 * * * *"
-  #   credentialsSecretRef: redhat-ai-research-wiki-git-token
+  gitMirror:
+    url: https://github.com/enterprisewebservice/redhat-ai-research-wiki
+    branch: main
+    cadence: "*/5 * * * *"
+    credentialsSecretRef: redhat-ai-research-wiki-git-token
 ---
 apiVersion: agentoffice.ai/v1alpha1
 kind: SkillBinding
