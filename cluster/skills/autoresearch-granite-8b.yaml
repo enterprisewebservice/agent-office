@@ -1,0 +1,74 @@
+# Sample AutoResearchProject: autonomous QLoRA fine-tuning of
+# granite-8b. Apply after the AutoResearch CRD lands via OLM (v0.0.28+):
+#
+#   oc apply -f cluster/skills/autoresearch-granite-8b.yaml
+#
+# What happens after apply:
+#  - Operator validates the referenced KnowledgeBase + experimenter AgentWorkstation.
+#  - Every 30 min (cadenceMinutes), the operator submits a Kubernetes Job
+#    running the AutoResearch trainer image on one GPU.
+#  - The trainer Pod's init container caps the GPU at 250W BEFORE training
+#    starts (4090 breaker safety).
+#  - The trainer downloads ibm-granite/granite-3.1-8b-instruct, applies
+#    QLoRA, fine-tunes on alpaca, and emits eval_loss.
+#  - Operator reads eval_loss from the pod log, makes a keep/revert decision,
+#    appends to the project's status.recentRuns ring.
+#  - When OpenShift AI's Experiments UI integration lands (v0.0.2), runs
+#    show up in Develop & train → Experiments → autoresearch-granite-8b.
+#
+# v0.0.1 caveats (noted, will be removed in subsequent versions):
+#   - The "experimenter agent" reference here is wired but the operator's
+#     requestProposal() is a deterministic starter config in v0.0.1.
+#     v0.0.2 swaps in real agent-driven proposals via the gateway.
+#   - Trainer runs as a raw Kubernetes Job. v0.0.2 swaps to DSP runs so
+#     they show up in the Experiments UI.
+
+apiVersion: agentoffice.ai/v1alpha1
+kind: AutoResearchProject
+metadata:
+  name: autoresearch-granite-8b
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/managed-by: agent-office
+    agentoffice.ai/role: research
+spec:
+  displayName: "Autonomous QLoRA fine-tuning — Granite 3.1 8B"
+  description: |
+    Karpathy-style autonomous loop. Each cycle: agent proposes a QLoRA
+    config → trainer fine-tunes granite-8b → eval_loss decides keep/revert
+    → results filed in the shared wiki + status of this CR.
+  knowledgeBase: redhat-ai-research-wiki
+  experimenter:
+    workstation: redhat-ai-researcher
+  baseModel:
+    huggingfaceId: ibm-granite/granite-3.1-8b-instruct
+    revision: main
+  trainingData:
+    huggingfaceDataset: tatsu-lab/alpaca
+    split: train
+    sampleCount: 2000
+  eval:
+    metric: eval_loss
+    direction: minimize
+    # marginPct omitted = any improvement keeps. Set to "1" to require
+    # 1% improvement before keeping (anti-noise gate).
+  loopConfig:
+    cadenceMinutes: 30
+    maxExperimentsPerCycle: 1
+    maxTotalExperiments: 50      # 25 hours of single-GPU experiments
+    maxConcurrentRuns: 1
+  trainer:
+    # Image is the v0.0.1 trainer Konflux just built. The hostname
+    # is the Quay route pattern (route=quay-quay in namespace=quay-test),
+    # not three "quay" tokens.
+    image: quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/autoresearch-trainer:v0.0.1
+    gpuCount: 1
+    powerCapWatts: 250
+    oneTrainingPodPerNode: true
+    offloadStrategy: cpu
+  pipelineRef:
+    # v0.0.2 wires this — operator submits to DSP instead of raw Job.
+    # v0.0.1 ignores it.
+    name: autoresearch-qlora-train-eval
+    namespace: agent-office
+  experimentName: autoresearch-granite-8b
