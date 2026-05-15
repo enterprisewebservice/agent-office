@@ -4,11 +4,18 @@ kind: Kustomization
 # Switching to kustomize so Argo CD Image Updater can edit the `images:` block
 # below on every successful Tekton build (rebumps `newTag` to the newest
 # `on-push-<sha>` Quay tag, commits to main, ArgoCD reconciles, pod rolls).
+#
+# CRDs are managed by the OLM-installed agent-office-operator
+# bundle now (not raw kustomize) — the prior `crd/` ref was
+# dangling after CRD lifecycle moved to the operator.
+#
+# onboarding-agent.yaml sample is also removed: the agent was
+# deleted earlier in the platform's lifetime and leaving the
+# sample in this kustomize root would resurrect it on every
+# Argo sync.
 resources:
-  - crd/agentworkstation-crd.yaml
   - deploy/agent-office-deploy.yaml
   - rbac/agent-office-rbac.yaml
-  - samples/onboarding-agent.yaml
 # Image source-of-truth. Change `newTag` here to deploy a different version;
 # Image Updater rewrites it automatically when a new build lands.
 images:
