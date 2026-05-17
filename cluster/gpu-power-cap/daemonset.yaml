@@ -76,11 +76,16 @@ spec:
       tolerations:
         - operator: Exists
       # Wait for the NVIDIA container toolkit + driver to be ready
-      # before trying nvidia-smi. Same gate gpu-feature-discovery uses.
+      # before trying nvidia-smi. The nvidia/gpu-operator image is
+      # distroless (no /bin/sh) so we use a tiny ubi-minimal image
+      # for the wait loop — has bash + standard coreutils with no
+      # nvidia dependency. The /run/nvidia/validations file is
+      # created by the GPU operator's toolkit-validation step on
+      # each GPU node, so we just poll for it.
       initContainers:
         - name: toolkit-ready
-          image: nvcr.io/nvidia/gpu-operator@sha256:634471cdfedcc3bd6b4412a905a9fbc9a9bf91df7f436aa00454b088d087c60a
-          command: ["/bin/sh", "-c"]
+          image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+          command: ["/bin/bash", "-c"]
           args:
             - |
               until [ -f /run/nvidia/validations/toolkit-ready ]; do
