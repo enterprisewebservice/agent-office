@@ -1,0 +1,32 @@
+# ArgoCD's application-controller SA needs cluster-admin in this
+# namespace to manage the Namespace, ServiceAccount, ConfigMap, and
+# DaemonSet resources we declare here. Without this CRB, ArgoCD
+# attempts to apply the manifests and fails with:
+#
+#   daemonsets.apps "gpu-power-cap" is forbidden:
+#   User "system:serviceaccount:openshift-gitops:openshift-gitops-argocd-application-controller"
+#   cannot patch resource "daemonsets" in API group "apps"
+#   in the namespace "gpu-power-cap"
+#
+# Same pattern the other agent-office namespaces use
+# (argocd-agent-office-manager etc.). Kept inline in this dir so
+# the GPU power cap stack is self-contained: one git path, one
+# ArgoCD app, one CRB.
+#
+# Chicken-and-egg: ArgoCD can't apply a CRB that grants ArgoCD
+# permission. So this manifest needs a one-time bootstrap with
+# `oc apply -f cluster/gpu-power-cap/argocd-rbac.yaml` outside
+# of ArgoCD. After that, ArgoCD owns it via the kustomization
+# below and prune+selfHeal keep it in sync.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: argocd-gpu-power-cap-manager
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+  - kind: ServiceAccount
+    name: openshift-gitops-argocd-application-controller
+    namespace: openshift-gitops
