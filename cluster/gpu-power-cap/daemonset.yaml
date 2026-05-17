@@ -1,0 +1,158 @@
+# Per-GPU power cap DaemonSet.
+#
+# Cluster has 5 NVIDIA GPUs across 4 nodes (2x RTX 4090 on one node;
+# 2x RTX 3090 Ti and 1x RTX 3090 on others). Defaults are 450W per
+# 4090 / 450W per 3090 Ti / 350W per 3090 — combined ~2150W if all
+# train at once. On a household 15A/120V circuit (~1800W effective)
+# that risks tripping the breaker mid-training.
+#
+# This DaemonSet runs on every node labeled `nvidia.com/gpu.present=true`,
+# applies `nvidia-smi -pl <watts>` from the value in the
+# `gpu-power-cap-config` ConfigMap, then re-applies every 5 minutes
+# so the cap survives any transient kernel module reset. Persistence
+# mode is enabled first so the cap actually sticks across power-state
+# transitions.
+#
+# The CRD-level field `AutoResearchProject.spec.trainer.powerCapWatts`
+# is informational only at the moment — the actual safety belt is
+# this cluster-wide DS. A future iteration may replace this with a
+# mutating webhook that injects an init container into every kfp
+# pipeline pod, honoring the per-project value. For now, one cap fits
+# all because consumer-GPU clusters generally have one circuit.
+#
+# To change the cap: edit the ConfigMap and the DS picks up the new
+# value within 5 minutes (re-applies on every loop iteration).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gpu-power-cap
+  labels:
+    # Reuse the same NVIDIA pull-secret + tolerations the GPU operator
+    # establishes; the DS doesn't need anything novel.
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/warn: privileged
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gpu-power-cap-config
+  namespace: gpu-power-cap
+data:
+  # Per-GPU cap in watts. Reapplied every 5 min. Change here +
+  # commit; ArgoCD syncs; DS picks up the new value on its next
+  # loop tick. No DS restart needed.
+  POWER_CAP_WATTS: "250"
+  # Loop interval; tunable for testing.
+  REAPPLY_INTERVAL_SECONDS: "300"
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: gpu-power-cap
+  namespace: gpu-power-cap
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: gpu-power-cap
+  namespace: gpu-power-cap
+  labels:
+    app: gpu-power-cap
+spec:
+  selector:
+    matchLabels:
+      app: gpu-power-cap
+  template:
+    metadata:
+      labels:
+        app: gpu-power-cap
+    spec:
+      serviceAccountName: gpu-power-cap
+      # Match the GPU Operator's labeling so we only land on GPU nodes.
+      nodeSelector:
+        nvidia.com/gpu.present: "true"
+      # Same tolerations the GPU Operator's own DSs use.
+      tolerations:
+        - operator: Exists
+      # Wait for the NVIDIA container toolkit + driver to be ready
+      # before trying nvidia-smi. Same gate gpu-feature-discovery uses.
+      initContainers:
+        - name: toolkit-ready
+          image: nvcr.io/nvidia/gpu-operator@sha256:634471cdfedcc3bd6b4412a905a9fbc9a9bf91df7f436aa00454b088d087c60a
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              until [ -f /run/nvidia/validations/toolkit-ready ]; do
+                echo "waiting for nvidia toolkit ready";
+                sleep 5;
+              done
+          volumeMounts:
+            - mountPath: /run/nvidia/validations
+              name: run-nvidia-validations
+              readOnly: true
+      containers:
+        - name: cap
+          # k8s-device-plugin image ships nvidia-smi and is already on
+          # every GPU node from the GPU operator's own pulls. Reusing
+          # avoids a new image to mirror.
+          image: nvcr.io/nvidia/k8s-device-plugin@sha256:50ac011ab941ab0140d52f56aa0e2fdc553bca96836ab3b26be394fc823fd9e7
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -eu
+              echo "[gpu-power-cap] node=$NODE_NAME starting"
+              # Persistence mode = the cap persists across power-state
+              # transitions. Without this, suspend+resume can reset
+              # the cap to default. -pm 1 = enable.
+              nvidia-smi -pm 1 || echo "[gpu-power-cap] WARN nvidia-smi -pm 1 failed"
+              while true; do
+                # Reload values from ConfigMap mount on each iteration
+                # so a `kubectl edit cm` change is picked up without
+                # restarting the DS.
+                WATTS=$(cat /etc/gpu-power-cap/POWER_CAP_WATTS)
+                INTERVAL=$(cat /etc/gpu-power-cap/REAPPLY_INTERVAL_SECONDS)
+                # Apply to every GPU on this node. Quiet the noisy
+                # success output; keep error output.
+                if out=$(nvidia-smi -pl "$WATTS" 2>&1); then
+                  echo "[gpu-power-cap] node=$NODE_NAME cap=${WATTS}W applied"
+                else
+                  echo "[gpu-power-cap] node=$NODE_NAME ERROR setting cap=${WATTS}W: $out"
+                fi
+                sleep "$INTERVAL"
+              done
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            # Same NVIDIA env vars gpu-feature-discovery uses.
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: all
+            - name: NVIDIA_DRIVER_CAPABILITIES
+              value: all
+          securityContext:
+            privileged: true
+          resources:
+            # Tiny — this DS sleeps 99% of the time.
+            requests:
+              cpu: "10m"
+              memory: "32Mi"
+            limits:
+              cpu: "100m"
+              memory: "128Mi"
+          volumeMounts:
+            - mountPath: /etc/gpu-power-cap
+              name: config
+              readOnly: true
+            - mountPath: /run/nvidia/validations
+              name: run-nvidia-validations
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: gpu-power-cap-config
+        - name: run-nvidia-validations
+          hostPath:
+            path: /run/nvidia/validations

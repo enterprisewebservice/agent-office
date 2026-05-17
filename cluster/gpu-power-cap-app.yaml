@@ -1,0 +1,31 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: gpu-power-cap
+  namespace: openshift-gitops
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/enterprisewebservice/agent-office.git
+    targetRevision: main
+    # DaemonSet that applies nvidia-smi -pl <watts> on every GPU node.
+    # Defaults to 250W per GPU (configurable via the ConfigMap in the
+    # gpu-power-cap namespace). Survives node reboots, re-applies
+    # every 5 min so transient resets self-heal.
+    #
+    # Separate from cluster/operator/ because this is a safety belt
+    # for the WHOLE cluster (any GPU workload, not just autoresearch),
+    # so it's worth its own ArgoCD app + lifecycle.
+    path: cluster/gpu-power-cap
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: gpu-power-cap
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+      - CreateNamespace=true

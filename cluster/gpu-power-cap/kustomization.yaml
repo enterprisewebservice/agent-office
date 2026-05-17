@@ -1,0 +1,8 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Single-file DS — but a kustomization keeps the dir conventional and
+# leaves room for future additions (e.g. NetworkPolicy if we tighten
+# isolation, or a PrometheusRule that alerts on cap-application errors).
+resources:
+  - daemonset.yaml
