@@ -92,6 +92,15 @@ spec:
                 echo "waiting for nvidia toolkit ready";
                 sleep 5;
               done
+          # Init container needs privileged too — without it,
+          # SELinux blocks stat() on the hostPath-mounted files
+          # (they show as "??????????" perms inside the pod even
+          # though `ls` on the host shows them readable). The
+          # main container has privileged: true below for the
+          # same reason. Both need it because each container gets
+          # its own SELinux context.
+          securityContext:
+            privileged: true
           volumeMounts:
             - mountPath: /run/nvidia/validations
               name: run-nvidia-validations
