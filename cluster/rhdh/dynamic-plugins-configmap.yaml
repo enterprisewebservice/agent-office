@@ -100,7 +100,13 @@ data:
       pluginConfig:
         dynamicPlugins:
           frontend:
-            agent-office.backstage-plugin-source-filtered-entity-picker:
+            # MUST match the loaded plugin name scalprum logs at startup
+            # — that name comes from this plugin's package.json `name`
+            # field, which is hyphen-only (`agent-office-backstage-
+            # plugin-source-filtered-entity-picker`). The dot-form
+            # convention only applies when the package name starts
+            # with `@<scope>/...`; ours has no npm scope.
+            agent-office-backstage-plugin-source-filtered-entity-picker:
               scaffolderFieldExtensions:
                 - importName: sourceFilteredEntityPickerFieldExtension
                   module: PluginRoot
