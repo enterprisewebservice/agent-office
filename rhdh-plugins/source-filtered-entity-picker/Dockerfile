@@ -28,11 +28,15 @@ COPY package.json ./
 COPY tsconfig.json ./
 COPY src ./src
 
-# Yarn install — keep this simple. The plugin has no lockfile yet,
-# which means hash mismatches are possible across builds but we only
-# build behind a Konflux pipeline that pins everything via image
-# digests upstream of this step.
-RUN npm install --no-audit --no-fund
+# npm install — `--legacy-peer-deps` is required because
+# @material-ui/icons@4 declares a peer of @types/react ^16||^17, but
+# the rest of Backstage 1.45's plugin-scaffolder-react chain wants
+# @types/react@18. The combination is well-tested at runtime
+# (MUI v4 works fine with React 18); npm 7+ just refuses to resolve
+# the optional peer without this flag. The plugin has no lockfile
+# yet — that's intentional since this is the only environment that
+# builds it; reproducibility comes from pinned base images upstream.
+RUN npm install --no-audit --no-fund --legacy-peer-deps
 
 # Two-step build:
 #   1. `backstage-cli package build`  → produces dist/
