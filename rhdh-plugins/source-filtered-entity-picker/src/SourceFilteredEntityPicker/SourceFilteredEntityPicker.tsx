@@ -1,33 +1,39 @@
 /*
  * SourceFilteredEntityPicker — a scaffolder field extension that
- * wraps the catalog's `EntityPicker` with a filter-icon affordance.
+ * shows a typeahead picker for catalog entities alongside a filter-
+ * icon popover that narrows the list by source annotation.
  *
  * Use case: the agent-office operator emits Backstage `Resource`
  * entities for every ml-model it knows about, tagged either
- * `model-registry` or `model-catalog` depending on whether the
- * model came from RHOAI's per-instance Model Registry or the
- * Red Hat-curated Model Catalog. The template's `baseModel` field
- * needs to let workshop attendees narrow the dropdown to one
- * source without typing — a single filter-icon button next to the
- * picker opens a popover with one checkbox per source.
+ * `model-registry` or `model-catalog` in `agentoffice.ai/model-
+ * source`. The karpathy-research-agent template's `baseModel`
+ * field uses this picker so workshop attendees can narrow the
+ * dropdown by source with a single click on a filter icon.
  *
- * The component composes (rather than reimplements) the underlying
- * EntityPicker so all of its behavior (search, validation,
- * allowArbitraryValues, openCatalogLink, etc.) is preserved.
- * We pass through every `uiSchema['ui:options']` field except
- * `catalogFilter`, which we *augment* with the user's source
- * selections from the popover.
+ * Implementation notes:
+ * - Uses Material-UI Autocomplete directly rather than depending
+ *   on Backstage's internal EntityPicker component (which moves
+ *   between packages across versions and isn't on a stable public
+ *   import path). All the catalog work happens via the public
+ *   catalogApiRef.
+ * - The value emitted to the form is a Backstage entity ref string
+ *   (`<kind>:<namespace>/<name>`), matching what stock EntityPicker
+ *   produces. Templates that consume the value with
+ *   `entityRef: ${{ parameters.baseModel }}` will work unchanged.
+ * - On first render with an existing value, we fetch the
+ *   corresponding entity so the autocomplete shows the saved
+ *   selection rather than the raw ref string.
  */
 
 import React from 'react';
-import { Entity } from '@backstage/catalog-model';
+import { Entity, stringifyEntityRef, parseEntityRef } from '@backstage/catalog-model';
 import { useApi } from '@backstage/core-plugin-api';
 import { catalogApiRef } from '@backstage/plugin-catalog-react';
-import {
-  EntityPicker,
-  EntityPickerProps,
-} from '@backstage/plugin-scaffolder-react/alpha';
 import { FieldExtensionComponentProps } from '@backstage/plugin-scaffolder-react';
+import Autocomplete from '@material-ui/lab/Autocomplete';
+import FormControl from '@material-ui/core/FormControl';
+import FormHelperText from '@material-ui/core/FormHelperText';
+import TextField from '@material-ui/core/TextField';
 import IconButton from '@material-ui/core/IconButton';
 import Popover from '@material-ui/core/Popover';
 import FormGroup from '@material-ui/core/FormGroup';
@@ -43,9 +49,6 @@ import { makeStyles } from '@material-ui/core/styles';
 import { useAsync } from 'react-use';
 
 const useStyles = makeStyles(theme => ({
-  // Wrap the picker + filter button in a flex row. The button sits
-  // to the right of the picker at full height; matching how RHDH's
-  // catalog page surfaces its filter sidebar trigger.
   wrapper: {
     display: 'flex',
     alignItems: 'flex-start',
@@ -58,10 +61,26 @@ const useStyles = makeStyles(theme => ({
   },
   filterButton: {
     marginTop: theme.spacing(3),
+    position: 'relative',
+  },
+  activeBadge: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    backgroundColor: theme.palette.secondary.main,
+    color: theme.palette.secondary.contrastText,
+    fontSize: 10,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    padding: '0 4px',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   popoverContent: {
     padding: theme.spacing(2),
-    minWidth: 260,
+    minWidth: 280,
   },
   countChip: {
     marginLeft: theme.spacing(1),
@@ -73,40 +92,25 @@ const useStyles = makeStyles(theme => ({
     fontStyle: 'italic',
     paddingTop: theme.spacing(1),
   },
-  activeBadge: {
-    backgroundColor: theme.palette.secondary.main,
-    color: theme.palette.secondary.contrastText,
-    fontSize: 10,
-    minWidth: 16,
-    height: 16,
-    borderRadius: 8,
-    padding: '0 6px',
-    marginLeft: 4,
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
+  clearLink: {
+    cursor: 'pointer',
+    userSelect: 'none',
   },
 }));
 
-// Each option in the popover corresponds to one value the operator
-// emits via the `agentoffice.ai/model-source` annotation. Right
-// now there are exactly two; new sources will appear here on their
-// own as soon as the operator emits them, no plugin redeploy needed.
 type SourceOption = {
-  // The annotation value we match against (e.g. "model-registry").
   value: string;
-  // What we show in the popover row.
   label: string;
-  // Number of entities with this source — surfaced as a Chip beside
-  // the label so the user knows what they're filtering out.
   count: number;
 };
 
-// What our component reads out of `uiSchema['ui:options']`. We extend
-// the stock EntityPicker options with one new key.
-type SourceFilteredEntityPickerOptions = NonNullable<
-  EntityPickerProps['uiSchema']['ui:options']
-> & {
+type CatalogFilter =
+  | Record<string, string | string[]>
+  | Record<string, string | string[]>[]
+  | undefined;
+
+type SourceFilteredEntityPickerOptions = {
+  catalogFilter?: CatalogFilter;
   /**
    * Annotation name carrying the source identifier on each entity.
    * Defaults to `agentoffice.ai/model-source` — change this if you
@@ -119,10 +123,17 @@ type SourceFilteredEntityPickerOptions = NonNullable<
    *     model-registry: "Model Registry"
    *     model-catalog:  "Model Catalog"
    * Sources we encounter that aren't listed here fall back to the
-   * raw annotation value (kebab-cased).
+   * raw annotation value.
    */
   sourceLabels?: Record<string, string>;
 };
+
+// Human label for an entity in the autocomplete dropdown. Prefer
+// metadata.title (which the operator sets to include the [Registry]
+// / [Catalog] prefix); fall back to the entity name.
+function entityLabel(e: Entity): string {
+  return e.metadata.title || e.metadata.name;
+}
 
 export const SourceFilteredEntityPicker = (
   props: FieldExtensionComponentProps<string>,
@@ -130,8 +141,18 @@ export const SourceFilteredEntityPicker = (
   const classes = useStyles();
   const catalogApi = useApi(catalogApiRef);
 
+  const {
+    onChange,
+    formData,
+    schema: { title = 'Entity', description },
+    required,
+    rawErrors,
+    idSchema,
+  } = props;
+
   const uiOptions =
-    ((props.uiSchema?.['ui:options'] ?? {}) as SourceFilteredEntityPickerOptions);
+    (props.uiSchema?.['ui:options'] ?? {}) as SourceFilteredEntityPickerOptions;
+  const baseCatalogFilter = uiOptions.catalogFilter;
   const sourceAnnotation =
     uiOptions.sourceAnnotation ?? 'agentoffice.ai/model-source';
   const sourceLabels = uiOptions.sourceLabels ?? {
@@ -139,36 +160,35 @@ export const SourceFilteredEntityPicker = (
     'model-catalog': 'Model Catalog',
   };
 
-  // The set of source values the user has selected in the popover.
-  // `null` (the initial state) means "no filter applied" — every
-  // entity is allowed through. An empty Set means "no sources are
-  // allowed" — picker is intentionally empty.
-  const [selectedSources, setSelectedSources] = React.useState<Set<string> | null>(
-    null,
-  );
+  // null = no filter; Set() with values = active filter narrowed to
+  // the listed source values.
+  const [selectedSources, setSelectedSources] =
+    React.useState<Set<string> | null>(null);
+  const [anchorEl, setAnchorEl] =
+    React.useState<HTMLButtonElement | null>(null);
 
-  // Popover open state (anchored to the filter button).
-  const [anchorEl, setAnchorEl] = React.useState<HTMLButtonElement | null>(null);
+  // Fetch entities matching the base filter + (optional) selected
+  // sources. Re-run on any of those changing.
+  const { value: entities = [], loading } = useAsync(async (): Promise<Entity[]> => {
+    const filter = combineFilters(baseCatalogFilter, selectedSources, sourceAnnotation);
+    const resp = await catalogApi.getEntities(filter ? { filter: filter as any } : undefined);
+    return (resp.items ?? []) as Entity[];
+  }, [
+    catalogApi,
+    JSON.stringify(baseCatalogFilter),
+    selectedSources === null ? null : Array.from(selectedSources).sort().join('|'),
+    sourceAnnotation,
+  ]);
 
-  // Resolve the underlying catalogFilter so we know what kinds of
-  // entities EntityPicker is about to fetch. We re-query the catalog
-  // with the SAME filter and then summarise their sources, so the
-  // popover only shows sources that are actually present in the
-  // current scope. (For our karpathy template that means Resource +
-  // spec.type=ml-model; the popover only lists model-registry /
-  // model-catalog and never something unrelated like "rhel-vms".)
+  // For the source-filter popover: ALWAYS query with the base filter
+  // (ignoring the user's source selection) so the popover lists every
+  // available source and lets the user widen as well as narrow.
   const { value: sourceOptions = [], loading: sourcesLoading } = useAsync(async (): Promise<SourceOption[]> => {
-    const filter = uiOptions.catalogFilter as
-      | Record<string, string | string[]>
-      | Record<string, string | string[]>[]
-      | undefined;
-    // catalogApi.getEntities supports the same filter shape as
-    // catalogFilter in the UI options — pass it through verbatim.
-    const result = await catalogApi.getEntities(
-      filter ? { filter: filter as any } : undefined,
+    const resp = await catalogApi.getEntities(
+      baseCatalogFilter ? { filter: baseCatalogFilter as any } : undefined,
     );
     const counts = new Map<string, number>();
-    for (const e of result.items as Entity[]) {
+    for (const e of (resp.items ?? []) as Entity[]) {
       const v = e.metadata?.annotations?.[sourceAnnotation];
       if (!v) continue;
       counts.set(v, (counts.get(v) ?? 0) + 1);
@@ -182,14 +202,33 @@ export const SourceFilteredEntityPicker = (
       }));
   }, [
     catalogApi,
+    JSON.stringify(baseCatalogFilter),
     sourceAnnotation,
-    JSON.stringify(uiOptions.catalogFilter),
     JSON.stringify(sourceLabels),
   ]);
 
-  // When the user toggles a checkbox we update the selection set.
-  // First toggle (from null → Set) starts WITH the toggled source
-  // selected, mirroring how filter sidebars usually behave.
+  // Resolve the current value (an entity ref string) into the
+  // matching Entity from the loaded list so the Autocomplete shows
+  // its label, not the raw ref. Best-effort; if the ref doesn't
+  // resolve in the current list we leave it as a free-text fallback.
+  const selectedEntity = React.useMemo<Entity | null>(() => {
+    if (!formData) return null;
+    try {
+      const ref = parseEntityRef(formData);
+      return (
+        entities.find(
+          e =>
+            e.kind.toLowerCase() === ref.kind.toLowerCase() &&
+            e.metadata.namespace?.toLowerCase() ===
+              (ref.namespace ?? 'default').toLowerCase() &&
+            e.metadata.name.toLowerCase() === ref.name.toLowerCase(),
+        ) ?? null
+      );
+    } catch {
+      return null;
+    }
+  }, [formData, entities]);
+
   const toggleSource = (value: string) => {
     setSelectedSources(prev => {
       const next = new Set(prev ?? []);
@@ -201,158 +240,174 @@ export const SourceFilteredEntityPicker = (
       return next;
     });
   };
-
   const clearFilter = () => setSelectedSources(null);
-
-  // Compose the catalogFilter that's actually passed to EntityPicker.
-  // - When `selectedSources` is null → forward the base filter as-is.
-  // - When the user has selected one or more sources → OR-them by
-  //   producing multiple filter objects (an array in catalogFilter is
-  //   union semantics in Backstage's catalog API).
-  // - When the user has selected zero sources → produce a filter
-  //   that matches nothing so the picker shows empty (consistent
-  //   with the popover's visible state).
-  const effectiveCatalogFilter = React.useMemo(() => {
-    const base = uiOptions.catalogFilter;
-    if (selectedSources === null) return base;
-    if (selectedSources.size === 0) {
-      // Sentinel "match nothing": filter on an annotation that no
-      // entity will carry. Keeps EntityPicker happy without
-      // requiring a separate "show no items" code path.
-      return [
-        {
-          ...(base && !Array.isArray(base) ? base : {}),
-          [`metadata.annotations.${sourceAnnotation}`]: '__none__',
-        },
-      ];
-    }
-    const sources = Array.from(selectedSources);
-    // Build one filter object per source value, each inheriting the
-    // base filter fields. EntityPicker accepts an array — Backstage
-    // treats it as an OR across the array members.
-    const baseObj =
-      base && !Array.isArray(base) ? (base as Record<string, unknown>) : undefined;
-    return sources.map(v => ({
-      ...(baseObj ?? {}),
-      [`metadata.annotations.${sourceAnnotation}`]: v,
-    }));
-  }, [uiOptions.catalogFilter, selectedSources, sourceAnnotation]);
-
-  // Build the uiSchema we forward to the wrapped EntityPicker —
-  // identical to the user's input but with our composed
-  // catalogFilter substituted in. Important: we shallow-copy
-  // ui:options so the original schema object stays untouched.
-  const wrappedUiSchema: typeof props.uiSchema = {
-    ...props.uiSchema,
-    'ui:options': {
-      ...(props.uiSchema?.['ui:options'] ?? {}),
-      catalogFilter: effectiveCatalogFilter,
-    },
-  };
-
-  const activeCount =
-    selectedSources === null ? 0 : selectedSources.size;
+  const activeCount = selectedSources === null ? 0 : selectedSources.size;
 
   return (
-    <div className={classes.wrapper}>
-      <div className={classes.pickerColumn}>
-        <EntityPicker
-          {...(props as unknown as EntityPickerProps)}
-          uiSchema={wrappedUiSchema as EntityPickerProps['uiSchema']}
-        />
-      </div>
-      <Tooltip
-        title={
-          activeCount > 0
-            ? `Filtering by ${activeCount} source${activeCount === 1 ? '' : 's'}`
-            : 'Filter by source'
-        }
-      >
-        <IconButton
-          aria-label="Filter by source"
-          onClick={event => setAnchorEl(event.currentTarget)}
-          className={classes.filterButton}
-          color={activeCount > 0 ? 'secondary' : 'default'}
-          size="medium"
+    <FormControl
+      margin="normal"
+      required={required}
+      error={Boolean(rawErrors?.length) && !formData}
+    >
+      <div className={classes.wrapper}>
+        <div className={classes.pickerColumn}>
+          <Autocomplete
+            id={idSchema?.$id}
+            value={selectedEntity}
+            loading={loading}
+            options={entities}
+            getOptionLabel={entityLabel}
+            getOptionSelected={(opt, val) =>
+              opt && val
+                ? stringifyEntityRef(opt) === stringifyEntityRef(val)
+                : false
+            }
+            onChange={(_e, val) =>
+              onChange(val ? stringifyEntityRef(val) : undefined)
+            }
+            noOptionsText={loading ? 'Loading…' : 'No entities match the current filter.'}
+            renderInput={params => (
+              <TextField
+                {...params}
+                label={title}
+                margin="dense"
+                required={required}
+                error={Boolean(rawErrors?.length) && !formData}
+                variant="outlined"
+              />
+            )}
+          />
+        </div>
+        <Tooltip
+          title={
+            activeCount > 0
+              ? `Filtering by ${activeCount} source${activeCount === 1 ? '' : 's'}`
+              : 'Filter by source'
+          }
         >
-          <FilterListIcon />
-          {activeCount > 0 && (
-            <span className={classes.activeBadge}>{activeCount}</span>
-          )}
-        </IconButton>
-      </Tooltip>
-      <Popover
-        open={Boolean(anchorEl)}
-        anchorEl={anchorEl}
-        onClose={() => setAnchorEl(null)}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-        transformOrigin={{ vertical: 'top', horizontal: 'right' }}
-      >
-        <Box className={classes.popoverContent}>
-          <Typography variant="subtitle2">Filter by source</Typography>
-          <Typography variant="caption" color="textSecondary">
-            Narrow the dropdown to one or more model sources.
-          </Typography>
-          <Box mt={1} mb={1}>
-            <Divider />
-          </Box>
-          {sourcesLoading && (
-            <Typography className={classes.emptyState} variant="body2">
-              Loading sources…
+          <IconButton
+            aria-label="Filter by source"
+            onClick={ev => setAnchorEl(ev.currentTarget)}
+            className={classes.filterButton}
+            color={activeCount > 0 ? 'secondary' : 'default'}
+            size="medium"
+          >
+            <FilterListIcon />
+            {activeCount > 0 && (
+              <span className={classes.activeBadge}>{activeCount}</span>
+            )}
+          </IconButton>
+        </Tooltip>
+        <Popover
+          open={Boolean(anchorEl)}
+          anchorEl={anchorEl}
+          onClose={() => setAnchorEl(null)}
+          anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+          transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+        >
+          <Box className={classes.popoverContent}>
+            <Typography variant="subtitle2">Filter by source</Typography>
+            <Typography variant="caption" color="textSecondary">
+              Narrow the picker to one or more model sources.
             </Typography>
-          )}
-          {!sourcesLoading && sourceOptions.length === 0 && (
-            <Typography className={classes.emptyState} variant="body2">
-              No source annotations found on the entities in scope.
-            </Typography>
-          )}
-          {!sourcesLoading && sourceOptions.length > 0 && (
-            <FormGroup>
-              {sourceOptions.map(opt => {
-                const checked =
-                  selectedSources !== null && selectedSources.has(opt.value);
-                return (
-                  <FormControlLabel
-                    key={opt.value}
-                    control={
-                      <Checkbox
-                        checked={checked}
-                        onChange={() => toggleSource(opt.value)}
-                        color="primary"
-                      />
-                    }
-                    label={
-                      <>
-                        {opt.label}
-                        <Chip
-                          label={opt.count}
-                          size="small"
-                          className={classes.countChip}
-                        />
-                      </>
-                    }
-                  />
-                );
-              })}
-            </FormGroup>
-          )}
-          {selectedSources !== null && (
-            <Box mt={1}>
+            <Box mt={1} mb={1}>
               <Divider />
-              <Box mt={1}>
-                <Typography
-                  variant="caption"
-                  color="primary"
-                  style={{ cursor: 'pointer' }}
-                  onClick={clearFilter}
-                >
-                  Clear filter
-                </Typography>
-              </Box>
             </Box>
-          )}
-        </Box>
-      </Popover>
-    </div>
+            {sourcesLoading && (
+              <Typography className={classes.emptyState} variant="body2">
+                Loading sources…
+              </Typography>
+            )}
+            {!sourcesLoading && sourceOptions.length === 0 && (
+              <Typography className={classes.emptyState} variant="body2">
+                No source annotations found on the entities in scope.
+              </Typography>
+            )}
+            {!sourcesLoading && sourceOptions.length > 0 && (
+              <FormGroup>
+                {sourceOptions.map(opt => {
+                  const checked =
+                    selectedSources !== null && selectedSources.has(opt.value);
+                  return (
+                    <FormControlLabel
+                      key={opt.value}
+                      control={
+                        <Checkbox
+                          checked={checked}
+                          onChange={() => toggleSource(opt.value)}
+                          color="primary"
+                        />
+                      }
+                      label={
+                        <>
+                          {opt.label}
+                          <Chip
+                            label={opt.count}
+                            size="small"
+                            className={classes.countChip}
+                          />
+                        </>
+                      }
+                    />
+                  );
+                })}
+              </FormGroup>
+            )}
+            {selectedSources !== null && (
+              <Box mt={1}>
+                <Divider />
+                <Box mt={1}>
+                  <Typography
+                    variant="caption"
+                    color="primary"
+                    className={classes.clearLink}
+                    onClick={clearFilter}
+                  >
+                    Clear filter
+                  </Typography>
+                </Box>
+              </Box>
+            )}
+          </Box>
+        </Popover>
+      </div>
+      {description && (
+        <FormHelperText error={false}>{description}</FormHelperText>
+      )}
+      {rawErrors && rawErrors.length > 0 && !formData && (
+        <FormHelperText error>{rawErrors[0]}</FormHelperText>
+      )}
+    </FormControl>
   );
 };
+
+/**
+ * Compose the base filter with the user's source selections. When
+ * selectedSources is non-empty, we emit an array of filter objects
+ * (one per chosen source) — Backstage's catalog API treats an array
+ * as an OR across its members. Each entry inherits the base
+ * (non-array) filter's keys so kind / spec.type still apply.
+ */
+function combineFilters(
+  base: CatalogFilter,
+  selectedSources: Set<string> | null,
+  sourceAnnotation: string,
+): CatalogFilter {
+  if (selectedSources === null) return base;
+  if (selectedSources.size === 0) {
+    // Sentinel filter that matches no entity, so the picker shows
+    // empty consistent with the popover's all-unchecked state.
+    return [
+      {
+        ...(base && !Array.isArray(base) ? base : {}),
+        [`metadata.annotations.${sourceAnnotation}`]: '__none__',
+      },
+    ];
+  }
+  const baseObj =
+    base && !Array.isArray(base) ? (base as Record<string, unknown>) : undefined;
+  return Array.from(selectedSources).map(v => ({
+    ...(baseObj ?? {}),
+    [`metadata.annotations.${sourceAnnotation}`]: v,
+  })) as Record<string, string | string[]>[];
+}
