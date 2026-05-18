@@ -58,11 +58,14 @@ RUN npx janus-cli package export-dynamic-plugin --in-place --no-embed-as-depende
 #   - app-config.yaml     (the dynamicPlugins.frontend default config)
 # Build attempt #8 only shipped the scalprum chunks under the wrong
 # parent dir, so PluginScanner errored with ENOENT package.json.
-RUN mkdir -p /out/${PLUGIN_NAME} && \
-    cp package.json /out/${PLUGIN_NAME}/ && \
-    cp -R dist-scalprum /out/${PLUGIN_NAME}/dist-scalprum && \
-    if [ -f app-config.yaml ]; then cp app-config.yaml /out/${PLUGIN_NAME}/; fi && \
-    ls /out/${PLUGIN_NAME}
+# Assemble into a hard-coded path so the COPY in stage 2 doesn't
+# depend on ARG/ENV expansion at copy time (buildah preserves env
+# inside RUN steps but not always in COPY source paths).
+RUN mkdir -p /out/agent-office-backstage-plugin-source-filtered-entity-picker && \
+    cp package.json /out/agent-office-backstage-plugin-source-filtered-entity-picker/ && \
+    cp -R dist-scalprum /out/agent-office-backstage-plugin-source-filtered-entity-picker/dist-scalprum && \
+    if [ -f app-config.yaml ]; then cp app-config.yaml /out/agent-office-backstage-plugin-source-filtered-entity-picker/; fi && \
+    ls -la /out/agent-office-backstage-plugin-source-filtered-entity-picker/
 
 # ---------- runtime ----------
 # RHDH's install-dynamic-plugins.sh expects the OCI image's filesystem
@@ -79,7 +82,7 @@ ENV PLUGIN_NAME=${PLUGIN_NAME}
 # this tarball into the dev-hub pod's
 # dynamic-plugins-root/<plugin-name>/ and Backstage's PluginScanner
 # reads package.json from there.
-COPY --from=builder /out/${PLUGIN_NAME} /${PLUGIN_NAME}
+COPY --from=builder /out/agent-office-backstage-plugin-source-filtered-entity-picker /agent-office-backstage-plugin-source-filtered-entity-picker
 
 LABEL io.openshift.maintainer="agent-office team"
 LABEL io.openshift.tags="backstage,rhdh,scaffolder,plugin"
