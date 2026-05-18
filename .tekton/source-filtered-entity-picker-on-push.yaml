@@ -29,7 +29,7 @@ spec:
     # restart deploy/v1-developer-hub` is all that's needed to pick
     # up a new build. No image-updater wiring required.
     - name: output-image
-      value: 'quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/agent-office-source-filtered-entity-picker:v0.0.2'
+      value: 'quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/agent-office-source-filtered-entity-picker:v0.0.3'
     - name: dockerfile
       value: rhdh-plugins/source-filtered-entity-picker/Dockerfile
     # Build context is the plugin folder itself — keeps the layer

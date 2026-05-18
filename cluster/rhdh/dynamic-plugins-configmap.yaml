@@ -95,7 +95,7 @@ data:
     # Image is built by the Konflux pipeline at
     # `.tekton/source-filtered-entity-picker-on-push.yaml` from the
     # plugin source at `rhdh-plugins/source-filtered-entity-picker/`.
-    - package: "oci://quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/agent-office-source-filtered-entity-picker:v0.0.2!agent-office-backstage-plugin-source-filtered-entity-picker"
+    - package: "oci://quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/agent-office-source-filtered-entity-picker:v0.0.3!agent-office-backstage-plugin-source-filtered-entity-picker"
       disabled: false
       pluginConfig:
         dynamicPlugins:
