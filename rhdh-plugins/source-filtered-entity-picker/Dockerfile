@@ -50,14 +50,19 @@ RUN npm install --no-audit --no-fund --legacy-peer-deps
 #      into the dev-hub pod.
 RUN npx tsc
 RUN npx backstage-cli package build
-# janus-cli writes the scalprum-built frontend chunks to
-# dist-scalprum/ (not dist-dynamic/ as older docs suggest). Move to
-# the canonical dist-dynamic/ path that RHDH's install script
-# expects so the final COPY can grab it.
-RUN npx janus-cli package export-dynamic-plugin --in-place --no-embed-as-dependencies && \
-    if [ -d dist-scalprum ] && [ ! -d dist-dynamic ]; then \
-      mv dist-scalprum dist-dynamic ; \
-    fi
+RUN npx janus-cli package export-dynamic-plugin --in-place --no-embed-as-dependencies
+# Assemble what RHDH's install-dynamic-plugins.py extracts from the
+# image's `!<plugin-path>` directory. For a frontend plugin it needs:
+#   - package.json        (so Backstage's PluginScanner finds the role)
+#   - dist-scalprum/      (the webpack-bundled chunks janus-cli built)
+#   - app-config.yaml     (the dynamicPlugins.frontend default config)
+# Build attempt #8 only shipped the scalprum chunks under the wrong
+# parent dir, so PluginScanner errored with ENOENT package.json.
+RUN mkdir -p /out/${PLUGIN_NAME} && \
+    cp package.json /out/${PLUGIN_NAME}/ && \
+    cp -R dist-scalprum /out/${PLUGIN_NAME}/dist-scalprum && \
+    if [ -f app-config.yaml ]; then cp app-config.yaml /out/${PLUGIN_NAME}/; fi && \
+    ls /out/${PLUGIN_NAME}
 
 # ---------- runtime ----------
 # RHDH's install-dynamic-plugins.sh expects the OCI image's filesystem
@@ -69,14 +74,12 @@ FROM registry.access.redhat.com/ubi9/ubi-micro:latest
 ARG PLUGIN_NAME=agent-office-backstage-plugin-source-filtered-entity-picker
 ENV PLUGIN_NAME=${PLUGIN_NAME}
 
-# RHDH's install-dynamic-plugins.py reads the `!<path>` suffix from
-# the package reference in v1-dynamic-plugins.yaml (we use
-# `!agent-office-backstage-plugin-source-filtered-entity-picker`) and
-# extracts that path from the image's root filesystem. So the plugin
-# content needs to live at `/<plugin-name>/`, NOT under
-# `/dynamic-plugins/...`. First build attempts copied to the wrong
-# path and the install script silently produced a stub directory.
-COPY --from=builder /workspace/dist-dynamic /${PLUGIN_NAME}
+# Copy the assembled plugin tree built in /out/<plugin-name>/ to the
+# image root at the same path. install-dynamic-plugins.py extracts
+# this tarball into the dev-hub pod's
+# dynamic-plugins-root/<plugin-name>/ and Backstage's PluginScanner
+# reads package.json from there.
+COPY --from=builder /out/${PLUGIN_NAME} /${PLUGIN_NAME}
 
 LABEL io.openshift.maintainer="agent-office team"
 LABEL io.openshift.tags="backstage,rhdh,scaffolder,plugin"
