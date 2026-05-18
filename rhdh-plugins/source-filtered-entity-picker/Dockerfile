@@ -38,10 +38,17 @@ COPY src ./src
 # builds it; reproducibility comes from pinned base images upstream.
 RUN npm install --no-audit --no-fund --legacy-peer-deps
 
-# Two-step build:
-#   1. `backstage-cli package build`  → produces dist/
-#   2. `janus-cli package export-dynamic-plugin` → produces dist-dynamic/
-#      with a Backstage-loadable bundle (UMD + manifest.json).
+# Three-step build:
+#   1. `tsc` emits .d.ts files into dist-types/ that the rest of the
+#      pipeline needs. `backstage-cli package build` does NOT do
+#      this itself — it expects dist-types/src/index.d.ts to already
+#      exist, then bundles the runtime JS separately.
+#   2. `backstage-cli package build`  → produces dist/ (CJS + ESM).
+#   3. `janus-cli package export-dynamic-plugin` → produces
+#      dist-dynamic/ with a Backstage-loadable bundle (UMD +
+#      manifest.json) that RHDH's install-dynamic-plugins.sh copies
+#      into the dev-hub pod.
+RUN npx tsc
 RUN npx backstage-cli package build
 RUN npx janus-cli package export-dynamic-plugin --in-place --no-embed-as-dependencies
 
