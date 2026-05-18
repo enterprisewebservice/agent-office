@@ -50,7 +50,14 @@ RUN npm install --no-audit --no-fund --legacy-peer-deps
 #      into the dev-hub pod.
 RUN npx tsc
 RUN npx backstage-cli package build
-RUN npx janus-cli package export-dynamic-plugin --in-place --no-embed-as-dependencies
+# janus-cli writes the scalprum-built frontend chunks to
+# dist-scalprum/ (not dist-dynamic/ as older docs suggest). Move to
+# the canonical dist-dynamic/ path that RHDH's install script
+# expects so the final COPY can grab it.
+RUN npx janus-cli package export-dynamic-plugin --in-place --no-embed-as-dependencies && \
+    if [ -d dist-scalprum ] && [ ! -d dist-dynamic ]; then \
+      mv dist-scalprum dist-dynamic ; \
+    fi
 
 # ---------- runtime ----------
 # RHDH's install-dynamic-plugins.sh expects the OCI image's filesystem
