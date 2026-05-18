@@ -1,30 +1,29 @@
 /*
  * Plugin registration.
  *
- * Backstage 1.45 splits the scaffolder frontend across two packages:
+ * IMPORTANT (v0.0.2 fix): DO NOT import `scaffolderPlugin` from
+ * `@backstage/plugin-scaffolder`. Doing so pulls the entire
+ * scaffolder frontend plugin into the dynamic chunk that scalprum
+ * loads at runtime. The host RHDH app already has its own
+ * scaffolder plugin loaded — when our chunk evaluates, Backstage's
+ * plugin registry sees two plugins with id 'scaffolder' and throws:
  *
- *  - `@backstage/plugin-scaffolder`         → the `scaffolderPlugin`
- *    instance (the runtime hook RHDH's app uses to mount the
- *    Scaffolder UI), which exposes `.provide(...)` for registering
- *    plugins-with-extensions.
+ *   Error: Duplicate plugin found 'scaffolder'
  *
- *  - `@backstage/plugin-scaffolder-react`   → the SDK used by field
- *    extension authors. Exports `createScaffolderFieldExtension`
- *    + `FieldExtensionComponentProps`.
+ * That error bricks the entire frontend (blank page).
  *
- * We grab the plugin from the first, the factory from the second.
+ * The right pattern for a dynamic field-extension plugin: export
+ * the bare `FieldExtension` descriptor produced by
+ * `createScaffolderFieldExtension`. RHDH's dynamic loader reads
+ * the `scaffolderFieldExtensions` entry in our config and wires it
+ * into the host scaffolder. No `scaffolderPlugin.provide()` needed
+ * — that's a static-app pattern.
  */
 import { createScaffolderFieldExtension } from '@backstage/plugin-scaffolder-react';
-import { scaffolderPlugin } from '@backstage/plugin-scaffolder';
 import { SourceFilteredEntityPicker } from './SourceFilteredEntityPicker';
 
-// Re-export the underlying scaffolder plugin so RHDH's frontend
-// loader has something to attach the extension to.
-export { scaffolderPlugin as sourceFilteredEntityPickerPlugin };
-
-export const sourceFilteredEntityPickerFieldExtension = scaffolderPlugin.provide(
+export const sourceFilteredEntityPickerFieldExtension =
   createScaffolderFieldExtension({
     component: SourceFilteredEntityPicker,
     name: 'SourceFilteredEntityPicker',
-  }),
-);
+  });
