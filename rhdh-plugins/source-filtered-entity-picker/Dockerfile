@@ -68,14 +68,15 @@ RUN mkdir -p /out/agent-office-backstage-plugin-source-filtered-entity-picker &&
     ls -la /out/agent-office-backstage-plugin-source-filtered-entity-picker/
 
 # ---------- runtime ----------
-# RHDH's install-dynamic-plugins.sh expects the OCI image's filesystem
-# to have the plugin at the path declared in its manifest. The
-# convention is `/dynamic-plugins/<plugin-name>/` — we name the
-# folder identically to package.json's `name`.
-FROM registry.access.redhat.com/ubi9/ubi-micro:latest
-
-ARG PLUGIN_NAME=agent-office-backstage-plugin-source-filtered-entity-picker
-ENV PLUGIN_NAME=${PLUGIN_NAME}
+# FROM scratch (not ubi-micro) so the final image has exactly ONE
+# layer containing only the plugin files. RHDH's
+# install-dynamic-plugins.py reads ONLY `manifest.layers[0]` (not the
+# whole stack), so any base-image layer pushed first would leave the
+# plugin in layer 1 — which the script ignores. Builds #8 through
+# #10 silently extracted zero files for that reason.
+# `FROM scratch` makes our COPY the only layer and the install
+# script's first-layer logic Just Works.
+FROM scratch
 
 # Copy the assembled plugin tree built in /out/<plugin-name>/ to the
 # image root at the same path. install-dynamic-plugins.py extracts
@@ -84,10 +85,29 @@ ENV PLUGIN_NAME=${PLUGIN_NAME}
 # reads package.json from there.
 COPY --from=builder /out/agent-office-backstage-plugin-source-filtered-entity-picker /agent-office-backstage-plugin-source-filtered-entity-picker
 
-LABEL io.openshift.maintainer="agent-office team"
-LABEL io.openshift.tags="backstage,rhdh,scaffolder,plugin"
-LABEL description="Backstage scaffolder field extension that adds a filter-icon popover to EntityPicker, narrowing the dropdown by model source (Registry / Catalog)."
+# No metadata LABELs on FROM scratch — they require a base image
+# config to attach to. We could add an explicit config, but for an
+# install-dynamic-plugin tarball-style image RHDH only cares about
+# the layer contents.
 
-# RHDH copies content out of the image — no need for a CMD. Set a
-# no-op so container scanners don't complain about a missing entrypoint.
-CMD ["true"]
+# RHDH's install-dynamic-plugins.py reads this base64-JSON OCI
+# annotation to discover which plugin paths to extract from the image
+# layers. WITHOUT IT the script silently extracts zero files even
+# though it reports "Successfully installed" — that's the bug builds
+# #8 through #10 hit (image had the right tarball but no annotation).
+#
+# The decoded JSON is:
+#   [{"agent-office-backstage-plugin-source-filtered-entity-picker":{
+#     "name": "agent-office-backstage-plugin-source-filtered-entity-picker",
+#     "version": "0.0.1",
+#     "backstage": {
+#       "role": "frontend-plugin",
+#       "pluginId": "source-filtered-entity-picker",
+#       "pluginPackage": "agent-office-backstage-plugin-source-filtered-entity-picker",
+#       "pluginPackages": ["agent-office-backstage-plugin-source-filtered-entity-picker"],
+#       "supported-versions": "1.45.3"
+#     }
+#   }}]
+LABEL io.backstage.dynamic-packages="W3siYWdlbnQtb2ZmaWNlLWJhY2tzdGFnZS1wbHVnaW4tc291cmNlLWZpbHRlcmVkLWVudGl0eS1waWNrZXIiOnsibmFtZSI6ImFnZW50LW9mZmljZS1iYWNrc3RhZ2UtcGx1Z2luLXNvdXJjZS1maWx0ZXJlZC1lbnRpdHktcGlja2VyIiwidmVyc2lvbiI6IjAuMC4xIiwiYmFja3N0YWdlIjp7InJvbGUiOiJmcm9udGVuZC1wbHVnaW4iLCJwbHVnaW5JZCI6InNvdXJjZS1maWx0ZXJlZC1lbnRpdHktcGlja2VyIiwicGx1Z2luUGFja2FnZSI6ImFnZW50LW9mZmljZS1iYWNrc3RhZ2UtcGx1Z2luLXNvdXJjZS1maWx0ZXJlZC1lbnRpdHktcGlja2VyIiwicGx1Z2luUGFja2FnZXMiOlsiYWdlbnQtb2ZmaWNlLWJhY2tzdGFnZS1wbHVnaW4tc291cmNlLWZpbHRlcmVkLWVudGl0eS1waWNrZXIiXSwic3VwcG9ydGVkLXZlcnNpb25zIjoiMS40NS4zIn19fV0="
+
+# RHDH copies content out of the image. No CMD on `FROM scratch`.
