@@ -69,7 +69,14 @@ FROM registry.access.redhat.com/ubi9/ubi-micro:latest
 ARG PLUGIN_NAME=agent-office-backstage-plugin-source-filtered-entity-picker
 ENV PLUGIN_NAME=${PLUGIN_NAME}
 
-COPY --from=builder /workspace/dist-dynamic /dynamic-plugins/${PLUGIN_NAME}
+# RHDH's install-dynamic-plugins.py reads the `!<path>` suffix from
+# the package reference in v1-dynamic-plugins.yaml (we use
+# `!agent-office-backstage-plugin-source-filtered-entity-picker`) and
+# extracts that path from the image's root filesystem. So the plugin
+# content needs to live at `/<plugin-name>/`, NOT under
+# `/dynamic-plugins/...`. First build attempts copied to the wrong
+# path and the install script silently produced a stub directory.
+COPY --from=builder /workspace/dist-dynamic /${PLUGIN_NAME}
 
 LABEL io.openshift.maintainer="agent-office team"
 LABEL io.openshift.tags="backstage,rhdh,scaffolder,plugin"
