@@ -1,0 +1,89 @@
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: source-filtered-entity-picker-on-push
+  namespace: default-tenant
+  annotations:
+    # Trigger only when the plugin sources change on main. The CEL
+    # filter on body.commits avoids re-triggering on unrelated edits
+    # elsewhere in this monorepo. Keep this tight — the build is slow.
+    pipelinesascode.tekton.dev/on-cel-expression: 'event == "push" && target_branch == "main" && (body.head_commit.modified.exists(f, f.startsWith("rhdh-plugins/source-filtered-entity-picker/")) || body.head_commit.added.exists(f, f.startsWith("rhdh-plugins/source-filtered-entity-picker/")))'
+    pipelinesascode.tekton.dev/cancel-in-progress: "true"
+    pipelinesascode.tekton.dev/max-keep-runs: "5"
+    build.appstudio.openshift.io/repo: 'https://github.com/enterprisewebservice/agent-office?rev={{revision}}'
+    build.appstudio.redhat.com/commit_sha: '{{revision}}'
+    build.appstudio.redhat.com/target_branch: '{{target_branch}}'
+  labels:
+    appstudio.openshift.io/application: agent-office
+    appstudio.openshift.io/component: source-filtered-entity-picker
+    pipelines.appstudio.openshift.io/type: build
+spec:
+  params:
+    - name: git-url
+      value: '{{source_url}}'
+    - name: revision
+      value: '{{revision}}'
+    # Same tag-stable strategy the operator uses — RHDH's
+    # install-dynamic-plugins.sh pulls the image fresh on every pod
+    # restart, so a bumpable :v0.0.x tag plus a `kubectl rollout
+    # restart deploy/v1-developer-hub` is all that's needed to pick
+    # up a new build. No image-updater wiring required.
+    - name: output-image
+      value: 'quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/agent-office-source-filtered-entity-picker:v0.0.1'
+    - name: dockerfile
+      value: rhdh-plugins/source-filtered-entity-picker/Dockerfile
+    # Build context is the plugin folder itself — keeps the layer
+    # cache hot and prevents accidentally bundling other repo
+    # contents into the image.
+    - name: path-context
+      value: rhdh-plugins/source-filtered-entity-picker
+    - name: rebuild
+      value: "true"
+    - name: skip-checks
+      value: "true"
+  pipelineRef:
+    resolver: bundles
+    params:
+      - name: bundle
+        value: 'quay.io/konflux-ci/tekton-catalog/pipeline-docker-build@sha256:1b2a544f5308a50b8ebf76e76f10f8be3e12342d6ce7233d2520aca724294a82'
+      - name: name
+        value: docker-build
+      - name: kind
+        value: pipeline
+  taskRunTemplate:
+    # Match the operator's node affinity — same bad-node exclusion.
+    podTemplate:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: NotIn
+                    values:
+                      - ec-0d-9a-89-19-46
+  taskRunSpecs:
+    - pipelineTaskName: build-container
+      stepSpecs:
+        - name: build
+          # npm + Backstage's tooling is memory-hungry but mostly
+          # single-threaded. Generous memory; modest CPU.
+          computeResources:
+            requests:
+              cpu: "2"
+              memory: 4Gi
+            limits:
+              cpu: "8"
+              memory: 8Gi
+  workspaces:
+    - name: workspace
+      volumeClaimTemplate:
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 2Gi
+    - name: git-auth
+      secret:
+        secretName: '{{ git_auth_secret }}'

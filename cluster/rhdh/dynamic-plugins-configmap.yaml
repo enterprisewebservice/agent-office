@@ -1,0 +1,106 @@
+# RHDH dynamic-plugins config — declares the OCI plugin images
+# RHDH's init container installs into the developer-hub pod's
+# dynamic-plugins-root volume.
+#
+# This ConfigMap was originally created by the RHDH Helm release
+# `v1` and overlaid via `kubectl apply` to add cluster-specific
+# plugins. Adopting it into the agent-office gitops repo so future
+# plugin changes (like the source-filtered-entity-picker added
+# below) live in version control instead of being manually patched.
+#
+# After updates here, restart the dev-hub pod to make the init
+# container re-pull and re-install:
+#
+#   oc -n rhdh-test rollout restart deploy/v1-developer-hub
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: v1-dynamic-plugins
+  namespace: rhdh-test
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+  annotations:
+    # ArgoCD: replace-on-sync so we win over any leftover Helm
+    # owner labels — the underlying ConfigMap shape is the same,
+    # only the metadata changes hands.
+    argocd.argoproj.io/sync-options: Replace=true
+data:
+  dynamic-plugins.yaml: |
+    includes:
+    - dynamic-plugins.default.yaml
+    plugins:
+    # Red Hat Developer Lightspeed — backend.
+    - package: "oci://ghcr.io/redhat-developer/rhdh-plugin-export-overlays/red-hat-developer-hub-backstage-plugin-lightspeed-backend:bs_1.45.3__1.2.3!red-hat-developer-hub-backstage-plugin-lightspeed-backend"
+      disabled: false
+      pluginConfig:
+        lightspeed:
+          servers:
+            - id: openai
+              url: https://api.openai.com/v1
+              token: ${OPENAI_API_KEY}
+              model: gpt-4o
+
+    # Red Hat Developer Lightspeed — frontend.
+    - package: "oci://ghcr.io/redhat-developer/rhdh-plugin-export-overlays/red-hat-developer-hub-backstage-plugin-lightspeed:bs_1.45.3__1.2.3!red-hat-developer-hub-backstage-plugin-lightspeed"
+      disabled: false
+      pluginConfig:
+        lightspeed:
+          prompts:
+            - title: "Getting Started with Developer Hub"
+              message: "Can you guide me through the first steps to start using Developer Hub?"
+            - title: "Create a New Agent"
+              message: "How do I create a new AI agent using Agent Office?"
+        dynamicPlugins:
+          frontend:
+            red-hat-developer-hub.backstage-plugin-lightspeed:
+              mountPoints:
+                - mountPoint: application/provider
+                  importName: LightspeedDrawerProvider
+                  module: PluginRoot
+                - mountPoint: application/internal/drawer-state
+                  importName: LightspeedDrawerStateExposer
+                  module: PluginRoot
+                - mountPoint: application/listener
+                  importName: LightspeedFAB
+                  module: PluginRoot
+              appIcons:
+                - name: lightspeedIcon
+                  importName: LightspeedIcon
+                  module: PluginRoot
+              dynamicRoutes:
+                - path: /lightspeed
+                  importName: LightspeedPage
+                  module: PluginRoot
+                  menuItem:
+                    icon: lightspeedIcon
+                    text: Lightspeed
+
+    # GitHub scaffolder actions (publish:github, etc.).
+    - package: ./dynamic-plugins/dist/backstage-plugin-scaffolder-backend-module-github-dynamic
+      disabled: false
+
+    # ArgoCD scaffolder action (argocd:create-resources).
+    - package: ./dynamic-plugins/dist/roadiehq-scaffolder-backend-argocd-dynamic
+      disabled: false
+
+    # agent-office Source-Filtered EntityPicker.
+    #
+    # Custom scaffolder field extension that wraps EntityPicker with
+    # a filter-icon popover. Used by the karpathy-research-agent
+    # template's `baseModel` field to let workshop attendees narrow
+    # the model dropdown by source (Registry / Catalog) without
+    # typing. The plugin reads the `agentoffice.ai/model-source`
+    # annotation that the operator writes on every entity.
+    #
+    # Image is built by the Konflux pipeline at
+    # `.tekton/source-filtered-entity-picker-on-push.yaml` from the
+    # plugin source at `rhdh-plugins/source-filtered-entity-picker/`.
+    - package: "oci://quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/agent-office-source-filtered-entity-picker:v0.0.1!agent-office-backstage-plugin-source-filtered-entity-picker"
+      disabled: false
+      pluginConfig:
+        dynamicPlugins:
+          frontend:
+            agent-office.backstage-plugin-source-filtered-entity-picker:
+              scaffolderFieldExtensions:
+                - importName: sourceFilteredEntityPickerFieldExtension
+                  module: PluginRoot

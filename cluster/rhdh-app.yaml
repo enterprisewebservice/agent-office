@@ -1,0 +1,29 @@
+# ArgoCD Application — manages the rhdh-test instance's
+# dynamic-plugins ConfigMap from gitops. Lets plugin changes flow
+# through PR review like every other cluster resource.
+#
+# Scope is intentionally tiny — just the dynamic-plugins CM. The
+# RHDH Helm release still owns the rest of the deployment. The
+# CM's `argocd.argoproj.io/sync-options: Replace=true` annotation
+# lets this Application take ownership cleanly on first sync
+# (overwrites the Helm-managed labels in place).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: agent-office-rhdh
+  namespace: openshift-gitops
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/enterprisewebservice/agent-office.git
+    targetRevision: HEAD
+    path: cluster/rhdh
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: rhdh-test
+  syncPolicy:
+    automated:
+      prune: false # don't delete other RHDH resources on sync glitches
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false # rhdh-test exists already, managed by Helm
