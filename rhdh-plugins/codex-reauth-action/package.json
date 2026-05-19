@@ -27,9 +27,7 @@
     "tsc": "tsc",
     "export-dynamic": "janus-cli package export-dynamic-plugin --in-place --no-embed-as-dependencies"
   },
-  "dependencies": {
-    "zod": "^3.23.0"
-  },
+  "dependencies": {},
   "peerDependencies": {
     "@backstage/backend-plugin-api": "^1.0.0",
     "@backstage/plugin-scaffolder-node": "^0.5.0"

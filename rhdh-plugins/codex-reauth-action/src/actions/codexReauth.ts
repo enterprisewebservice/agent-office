@@ -37,8 +37,20 @@
  *    alongside the operator (see cluster/vault-secret-store/).
  */
 import { createTemplateAction } from '@backstage/plugin-scaffolder-node';
-import { z } from 'zod';
 import fs from 'fs';
+
+interface CodexReauthInput {
+  vaultAddr?: string;
+  vaultPath?: string;
+  vaultK8sRole?: string;
+  timeoutMinutes?: number;
+}
+
+interface CodexReauthOutput {
+  vaultVersion: number;
+  accountId: string;
+  userCode: string;
+}
 
 // Codex (chatgpt-cli) public OAuth client. Same value that ships in
 // the openai-codex CLI binary. Not a secret — it's a public client.
@@ -88,64 +100,56 @@ interface CodexAuthJson {
 }
 
 export const createCodexReauthAction = () =>
-  createTemplateAction({
+  createTemplateAction<CodexReauthInput, CodexReauthOutput>({
     id: 'codex:reauth',
     description:
       'Run OAuth device-code flow against OpenAI Codex, then write the new auth.json to Vault.',
     schema: {
       input: {
-        vaultAddr: z =>
-          z
-            .string()
-            .optional()
-            .describe(
-              `Vault server URL. Defaults to ${DEFAULT_VAULT_ADDR}.`,
-            ),
-        vaultPath: z =>
-          z
-            .string()
-            .optional()
-            .describe(
+        type: 'object',
+        properties: {
+          vaultAddr: {
+            type: 'string',
+            description: `Vault server URL. Defaults to ${DEFAULT_VAULT_ADDR}.`,
+          },
+          vaultPath: {
+            type: 'string',
+            description:
               `KV v2 path (without /data/) under which to write auth.json. ` +
-                `Defaults to ${DEFAULT_VAULT_PATH}.`,
-            ),
-        vaultK8sRole: z =>
-          z
-            .string()
-            .optional()
-            .describe(
-              `Vault kubernetes auth role to assume. Defaults to ${DEFAULT_VAULT_K8S_ROLE}.`,
-            ),
-        timeoutMinutes: z =>
-          z
-            .number()
-            .int()
-            .min(2)
-            .max(30)
-            .optional()
-            .describe(
+              `Defaults to ${DEFAULT_VAULT_PATH}.`,
+          },
+          vaultK8sRole: {
+            type: 'string',
+            description: `Vault kubernetes auth role to assume. Defaults to ${DEFAULT_VAULT_K8S_ROLE}.`,
+          },
+          timeoutMinutes: {
+            type: 'integer',
+            minimum: 2,
+            maximum: 30,
+            description:
               'Maximum wall-clock time to wait for the user to complete OAuth. Default 10 min.',
-            ),
+          },
+        },
       },
       output: {
-        vaultVersion: z =>
-          z
-            .number()
-            .describe(
+        type: 'object',
+        properties: {
+          vaultVersion: {
+            type: 'number',
+            description:
               'KV v2 version number that the new auth.json was written as.',
-            ),
-        accountId: z =>
-          z
-            .string()
-            .describe(
+          },
+          accountId: {
+            type: 'string',
+            description:
               'ChatGPT account_id captured from the id_token (best-effort).',
-            ),
-        userCode: z =>
-          z
-            .string()
-            .describe(
+          },
+          userCode: {
+            type: 'string',
+            description:
               'Device-flow user code shown to the operator (for audit logs).',
-            ),
+          },
+        },
       },
     },
     async handler(ctx) {
