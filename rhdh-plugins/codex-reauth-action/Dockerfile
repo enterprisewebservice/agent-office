@@ -24,6 +24,12 @@ FROM registry.access.redhat.com/ubi9/nodejs-20:latest AS builder
 USER 0
 WORKDIR /workspace
 
+# janus-cli's export-dynamic-plugin shells out to `yarn --version`
+# for backend modules (frontend plugins skip this). Install yarn
+# 1.x globally so the bundling step doesn't fail with "yarn:
+# command not found" right after backstage-cli build succeeds.
+RUN npm install -g yarn@1.22
+
 COPY package.json ./
 COPY tsconfig.json ./
 COPY src ./src
