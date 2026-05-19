@@ -97,9 +97,13 @@ spec:
               HCL
               vault policy write external-secrets /tmp/eso-policy.hcl
 
-              # 5. Bind the ESO SA to the policy
+              # 5. Bind the ESO SA to the policy.
+              # ESO 0.11 names its data-plane controller SA based on
+              # the OperatorConfig name (`cluster`) -> the actual SA
+              # is `cluster-external-secrets`. Earlier releases used
+              # `external-secrets`; we permit both for forward-compat.
               vault write auth/kubernetes/role/external-secrets \
-                bound_service_account_names=external-secrets \
+                bound_service_account_names=cluster-external-secrets,external-secrets \
                 bound_service_account_namespaces=external-secrets \
                 policies=external-secrets \
                 ttl=24h
@@ -111,3 +115,21 @@ kind: ServiceAccount
 metadata:
   name: vault-k8s-auth
   namespace: vault
+---
+# Vault validates caller JWTs by calling the kube TokenReview API
+# using the `token_reviewer_jwt` we passed at bootstrap (this SA's
+# token). TokenReview is a privileged API — the canonical
+# ClusterRole that grants it is system:auth-delegator. Without
+# this binding ESO's login attempts return 403 permission denied.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: vault-k8s-auth-delegator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:auth-delegator
+subjects:
+  - kind: ServiceAccount
+    name: vault-k8s-auth
+    namespace: vault
