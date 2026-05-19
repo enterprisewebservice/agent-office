@@ -39,17 +39,14 @@
 import { createTemplateAction } from '@backstage/plugin-scaffolder-node';
 import fs from 'fs';
 
+// Runtime input shape — also documented in the action's JSON
+// schema above. We hand-cast ctx.input to this so the handler is
+// statically typed even though createTemplateAction has no generic.
 interface CodexReauthInput {
   vaultAddr?: string;
   vaultPath?: string;
   vaultK8sRole?: string;
   timeoutMinutes?: number;
-}
-
-interface CodexReauthOutput {
-  vaultVersion: number;
-  accountId: string;
-  userCode: string;
 }
 
 // Codex (chatgpt-cli) public OAuth client. Same value that ships in
@@ -100,7 +97,14 @@ interface CodexAuthJson {
 }
 
 export const createCodexReauthAction = () =>
-  createTemplateAction<CodexReauthInput, CodexReauthOutput>({
+  // No generics on createTemplateAction. The official type signature
+  // in this Backstage version chains through Zod's namespace types,
+  // which tsc then can't name without importing zod (TS2742). Plus
+  // the input generic requires JsonObject (index signature) which
+  // doesn't compose cleanly with optional-string interfaces. The
+  // schema below still validates at runtime; we cast ctx.input
+  // inside the handler to recover static types.
+  createTemplateAction({
     id: 'codex:reauth',
     description:
       'Run OAuth device-code flow against OpenAI Codex, then write the new auth.json to Vault.',
@@ -156,10 +160,11 @@ export const createCodexReauthAction = () =>
       const log = (msg: string) =>
         ctx.logger.info(`[codex:reauth] ${msg}`);
 
-      const vaultAddr = ctx.input.vaultAddr ?? DEFAULT_VAULT_ADDR;
-      const vaultPath = ctx.input.vaultPath ?? DEFAULT_VAULT_PATH;
-      const vaultRole = ctx.input.vaultK8sRole ?? DEFAULT_VAULT_K8S_ROLE;
-      const timeoutMinutes = ctx.input.timeoutMinutes ?? 10;
+      const input = ctx.input as unknown as CodexReauthInput;
+      const vaultAddr = input.vaultAddr ?? DEFAULT_VAULT_ADDR;
+      const vaultPath = input.vaultPath ?? DEFAULT_VAULT_PATH;
+      const vaultRole = input.vaultK8sRole ?? DEFAULT_VAULT_K8S_ROLE;
+      const timeoutMinutes = input.timeoutMinutes ?? 10;
 
       // ───────────────────────────────────────────────────────
       // 1. Kick off the OAuth device-code flow
