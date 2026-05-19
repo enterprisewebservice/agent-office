@@ -1,0 +1,85 @@
+# One-shot unseal Job that runs after every Vault pod restart.
+#
+# Vault using shamir seal (no KMS) wakes up sealed. The vault-0 pod's
+# readiness probe will never pass until something runs `vault
+# operator unseal` against it. This Job reads the unseal key from
+# the `vault-bootstrap-keys` Secret (created by init-job.yaml) and
+# unseals.
+#
+# Why a Job rather than a sidecar in vault-0:
+#   * Sidecar needs a fresh restart trigger every time the keys
+#     rotate, which we don't have.
+#   * Job is declarative + auditable + finite — exits cleanly when
+#     done. Re-runs are triggered by ArgoCD sync after pod restart.
+#
+# Run frequency: ArgoCD invokes this on every sync (it's a Job, so
+# it executes idempotently). If the Vault pod was already unsealed,
+# the script exits 0 silently.
+#
+# HARDEN-LATER: replace with KMS auto-unseal so this Job is no
+# longer needed and the unseal keys leave etcd entirely.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: vault-unseal
+  namespace: vault
+  annotations:
+    # PostSync hook so it runs AFTER vault statefulset Ready signals
+    # land. Re-creates on each sync.
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vault-unseal
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: unseal
+          image: docker.io/hashicorp/vault:1.17.6
+          env:
+            - name: VAULT_ADDR
+              value: "http://vault.vault.svc:8200"
+            - name: UNSEAL_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: vault-bootstrap-keys
+                  key: unseal-key-1
+                  optional: true   # On a fresh install, the init
+                                   # Job creates this secret. If
+                                   # not present yet, exit and let
+                                   # ArgoCD re-run.
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              if [ -z "${UNSEAL_KEY:-}" ]; then
+                echo "vault-bootstrap-keys Secret not present yet; "
+                echo "init Job must run first. Exiting cleanly so "
+                echo "ArgoCD's next sync re-creates this Job."
+                exit 0
+              fi
+              echo "Waiting for Vault to respond..."
+              for i in $(seq 1 60); do
+                code=$(wget --quiet -O - --server-response \
+                  "$VAULT_ADDR/v1/sys/health" 2>&1 | \
+                  awk '/HTTP\/1.[01]/ {print $2}' | tail -1 || true)
+                case "$code" in
+                  200|429|472|473|501|503) break ;;
+                esac
+                sleep 2
+              done
+
+              status=$(vault status -format=json 2>/dev/null || true)
+              sealed=$(echo "$status" | sed -n 's/.*"sealed":[[:space:]]*\([a-z]*\).*/\1/p' | head -1)
+              if [ "$sealed" = "false" ]; then
+                echo "Vault is already unsealed — nothing to do"
+                exit 0
+              fi
+
+              echo "Unsealing Vault..."
+              vault operator unseal "$UNSEAL_KEY" >/dev/null
+              echo "Done"

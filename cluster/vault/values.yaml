@@ -1,0 +1,83 @@
+# Helm values for the HashiCorp Vault chart, ArgoCD-managed via the
+# vault-app.yaml Application (it pulls hashicorp/vault from the
+# official helm repo).
+#
+# Posture for the demo cluster:
+#   * server.dev.enabled = false          → real Vault, not in-memory.
+#   * server.standalone.enabled = true    → single replica, file
+#     storage on a PVC. Not HA, but persistent across restarts.
+#   * server.ha.enabled = false           → defer Raft / Consul.
+#   * No auto-unseal (no cloud KMS available). The bootstrap job in
+#     init-job.yaml runs `vault operator init` on first boot and
+#     stores the unseal keys in a K8s Secret in the vault namespace.
+#     A separate one-shot Job (unseal-job.yaml) unseals on every
+#     restart by reading that secret.
+#
+# Posture HARDENING TODO (production):
+#   * switch to HA (Raft) with 3 replicas.
+#   * move unseal-keys Secret to a Cloud KMS auto-unseal config.
+#   * enable audit device with a PVC-backed log sink.
+#   * configure TLS with cert-manager.
+
+global:
+  enabled: true
+  tlsDisable: true            # in-cluster Service traffic only; TLS-TODO
+
+injector:
+  enabled: false              # we use ESO instead of agent-injector
+
+server:
+  image:
+    repository: docker.io/hashicorp/vault
+    tag: "1.17.6"
+  dev:
+    enabled: false
+  ha:
+    enabled: false
+  standalone:
+    enabled: true
+    config: |
+      ui = true
+      listener "tcp" {
+        tls_disable = 1
+        address     = "[::]:8200"
+        cluster_address = "[::]:8201"
+      }
+      storage "file" {
+        path = "/vault/data"
+      }
+      # NOTE: no seal block → uses shamir (manual unseal). The
+      # bootstrap Job in cluster/vault/init-job.yaml automates the
+      # one-time init; the unseal Job re-unseals on pod restart.
+  dataStorage:
+    enabled: true
+    size: 5Gi
+    storageClass: ""          # use the cluster's default StorageClass
+  serviceAccount:
+    create: true
+    name: vault
+  service:
+    enabled: true
+    type: ClusterIP
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+  readinessProbe:
+    enabled: true
+    # Vault's default readinessProbe expects unsealed + active. Until
+    # the init Job runs the first time, this will fail. Don't let
+    # that bork ArgoCD's health check on the App — the init Job
+    # converges within a couple minutes.
+    failureThreshold: 60
+
+ui:
+  enabled: true
+  serviceType: ClusterIP
+
+# CSI provider not needed; we use ESO.
+csi:
+  enabled: false

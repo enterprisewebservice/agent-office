@@ -1,0 +1,11 @@
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: external-secrets
+  namespace: external-secrets
+spec:
+  # No targetNamespaces == AllNamespaces watch mode. ESO needs to be
+  # able to reconcile ExternalSecret CRs in every namespace that
+  # spawns an agent (agent-office, plus per-agent namespaces if those
+  # ever land). Restricting to one namespace would defeat the purpose.
+  upgradeStrategy: Default

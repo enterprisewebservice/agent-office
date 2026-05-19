@@ -1,0 +1,11 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Wires ESO -> Vault. Depends on BOTH the ESO operator (for the
+# ClusterSecretStore CRD) and Vault (for the auth-backend endpoint
+# this Job hits). The Application's sync-wave defers this until
+# both are up.
+
+resources:
+  - kubernetes-auth-config-job.yaml
+  - clustersecretstore.yaml

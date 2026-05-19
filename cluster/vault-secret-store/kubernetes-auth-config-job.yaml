@@ -1,0 +1,113 @@
+# Bootstraps Vault's Kubernetes auth backend so ESO (and any other
+# in-cluster client) can authenticate using its SA JWT.
+#
+# Idempotent — every command checks "already configured" and is a
+# no-op if so. Safe to re-run on every ArgoCD sync.
+#
+# Steps the Job runs:
+#  1. Enable KV v2 at the `agent-office` mount path (if not already).
+#  2. Enable kubernetes auth backend (if not already).
+#  3. Configure kubernetes auth with the in-cluster API endpoint and
+#     the kube CA cert (read from the pod's serviceaccount mount).
+#  4. Write an ACL policy `external-secrets` that allows read on
+#     `agent-office/data/*`.
+#  5. Bind the `external-secrets` SA in the external-secrets ns to
+#     that policy via a Vault auth role.
+#
+# Uses the root token from the vault-bootstrap-keys Secret created
+# by the init Job. HARDEN-LATER: rotate the root token after this
+# Job runs so it stops being long-lived in etcd.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: vault-k8s-auth-bootstrap
+  namespace: vault
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vault-k8s-auth-bootstrap
+    spec:
+      serviceAccountName: vault-k8s-auth
+      restartPolicy: OnFailure
+      containers:
+        - name: configure
+          image: docker.io/hashicorp/vault:1.17.6
+          env:
+            - name: VAULT_ADDR
+              value: "http://vault.vault.svc:8200"
+            - name: VAULT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: vault-bootstrap-keys
+                  key: root-token
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              echo "Waiting for Vault unsealed..."
+              for i in $(seq 1 60); do
+                if vault status -format=json 2>/dev/null | \
+                   grep -q '"sealed":[[:space:]]*false'; then
+                  break
+                fi
+                sleep 2
+              done
+
+              # 1. KV v2 mount at `agent-office`
+              if ! vault secrets list -format=json 2>/dev/null | \
+                   grep -q '"agent-office/"'; then
+                echo "Enabling KV v2 at agent-office/"
+                vault secrets enable -path=agent-office -version=2 kv
+              else
+                echo "KV mount agent-office/ already enabled"
+              fi
+
+              # 2. kubernetes auth backend
+              if ! vault auth list -format=json 2>/dev/null | \
+                   grep -q '"kubernetes/"'; then
+                echo "Enabling kubernetes auth backend"
+                vault auth enable kubernetes
+              else
+                echo "kubernetes auth already enabled"
+              fi
+
+              # 3. configure kubernetes auth
+              KUBE_TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+              KUBE_CA=$(cat /var/run/secrets/kubernetes.io/serviceaccount/ca.crt)
+              vault write auth/kubernetes/config \
+                token_reviewer_jwt="$KUBE_TOKEN" \
+                kubernetes_host="https://kubernetes.default.svc:443" \
+                kubernetes_ca_cert="$KUBE_CA" \
+                issuer="https://kubernetes.default.svc.cluster.local"
+
+              # 4. external-secrets policy (read on agent-office/data/*)
+              cat > /tmp/eso-policy.hcl <<'HCL'
+              path "agent-office/data/*" {
+                capabilities = ["read", "list"]
+              }
+              path "agent-office/metadata/*" {
+                capabilities = ["read", "list"]
+              }
+              HCL
+              vault policy write external-secrets /tmp/eso-policy.hcl
+
+              # 5. Bind the ESO SA to the policy
+              vault write auth/kubernetes/role/external-secrets \
+                bound_service_account_names=external-secrets \
+                bound_service_account_namespaces=external-secrets \
+                policies=external-secrets \
+                ttl=24h
+
+              echo "Vault Kubernetes auth + ESO role configured."
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vault-k8s-auth
+  namespace: vault

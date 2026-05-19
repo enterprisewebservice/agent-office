@@ -1,0 +1,114 @@
+# Two ArgoCD Applications drive the Vault install:
+#
+#  1. vault — installs the hashicorp/vault helm chart with our
+#     values.yaml (standalone, file storage, no auto-unseal).
+#     Sync-wave -1 so it lands BEFORE the bootstrap below.
+#
+#  2. vault-bootstrap — applies the kustomize resources in
+#     cluster/vault/ (namespace, init Job, unseal Job).
+#     Sync-wave 0 so the Jobs run AFTER the StatefulSet is reconcilable.
+#
+# Why two Apps: ArgoCD's Application.spec.source allows EITHER a
+# helm chart OR a kustomize tree, not both. Splitting keeps each
+# App's responsibility minimal and makes sync events easy to read.
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: vault
+  namespace: openshift-gitops
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  project: default
+  source:
+    repoURL: https://helm.releases.hashicorp.com
+    chart: vault
+    targetRevision: "0.28.1"
+    helm:
+      releaseName: vault
+      valueFiles: []
+      values: |
+        # See cluster/vault/values.yaml for the canonical commented
+        # version. Inlined here because ArgoCD's helm source can't
+        # cross-repo reference a file. Keep in sync.
+        global:
+          enabled: true
+          tlsDisable: true
+        injector:
+          enabled: false
+        server:
+          image:
+            repository: docker.io/hashicorp/vault
+            tag: "1.17.6"
+          dev:
+            enabled: false
+          ha:
+            enabled: false
+          standalone:
+            enabled: true
+            config: |
+              ui = true
+              listener "tcp" {
+                tls_disable = 1
+                address     = "[::]:8200"
+                cluster_address = "[::]:8201"
+              }
+              storage "file" {
+                path = "/vault/data"
+              }
+          dataStorage:
+            enabled: true
+            size: 5Gi
+          serviceAccount:
+            create: true
+            name: vault
+          service:
+            enabled: true
+            type: ClusterIP
+          readinessProbe:
+            enabled: true
+            failureThreshold: 60
+        ui:
+          enabled: true
+          serviceType: ClusterIP
+        csi:
+          enabled: false
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: vault
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: vault-bootstrap
+  namespace: openshift-gitops
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/enterprisewebservice/agent-office.git
+    targetRevision: main
+    path: cluster/vault
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: vault
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

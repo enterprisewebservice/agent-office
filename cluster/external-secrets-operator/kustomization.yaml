@@ -1,0 +1,20 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# External Secrets Operator (ESO) install via OLM. ESO provides
+# the ExternalSecret + ClusterSecretStore CRDs we use to project
+# Codex (and any other) credentials from HashiCorp Vault into K8s
+# Secrets, without committing the raw secret payloads to gitops.
+#
+# Why community-operators channel: the upstream ESO project is the
+# canonical implementation. There's a Red Hat build planned but
+# not yet GA; switching channels later is a 1-line edit.
+#
+# The ClusterSecretStore that wires ESO -> Vault lives in
+# cluster/vault-secret-store/ so it can deploy AFTER both ESO and
+# Vault are Ready (separate ArgoCD App with sync-wave ordering).
+
+resources:
+  - namespace.yaml
+  - operatorgroup.yaml
+  - subscription.yaml

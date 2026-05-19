@@ -1,0 +1,15 @@
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: external-secrets-operator
+  namespace: external-secrets
+spec:
+  # The community operator on OperatorHub. There's also a Red Hat
+  # build of "external-secrets-operator" shipping in a future RHOAI
+  # but for v1 we use the upstream / community channel — it's the
+  # original from the External Secrets project, well-maintained.
+  channel: stable
+  name: external-secrets-operator
+  source: community-operators
+  sourceNamespace: openshift-marketplace
+  installPlanApproval: Automatic
