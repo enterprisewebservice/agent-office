@@ -47,6 +47,13 @@ RUN npm install --no-audit --no-fund --legacy-peer-deps
 RUN npx tsc
 RUN npx backstage-cli package build
 RUN npx janus-cli package export-dynamic-plugin --in-place --no-embed-as-dependencies
+# Apply package.json's publishConfig overrides (main, types) so the
+# shipped package.json points at dist/index.cjs.js, NOT src/index.ts.
+# Without this, Backstage's backend plugin loader tries to require()
+# the source .ts file and dies with MODULE_NOT_FOUND.
+# `backstage-cli package prepack` is the canonical way to apply
+# publishConfig before shipping a built artifact.
+RUN npx backstage-cli package prepack
 
 # Assemble what RHDH's install-dynamic-plugins.py expects:
 #   <plugin-name>/package.json
