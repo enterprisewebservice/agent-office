@@ -44,14 +44,23 @@ import Typography from '@material-ui/core/Typography';
 import Tooltip from '@material-ui/core/Tooltip';
 import Chip from '@material-ui/core/Chip';
 import Divider from '@material-ui/core/Divider';
-import FilterListIcon from '@material-ui/icons/FilterList';
+// "Tune" is the three-sliders Material icon (rather than the
+// FilterList triangle-stack). v0.0.4 swap so the button matches the
+// affordance the user expects — a settings-sliders glyph reads as
+// "open a filter panel" much more clearly than the small triangle.
+import TuneIcon from '@material-ui/icons/Tune';
 import { makeStyles } from '@material-ui/core/styles';
 import { useAsync } from 'react-use';
 
 const useStyles = makeStyles(theme => ({
   wrapper: {
     display: 'flex',
-    alignItems: 'flex-start',
+    // v0.0.4: center the filter button against the dropdown's input
+    // row instead of top-aligning. The Autocomplete TextField uses a
+    // floating label (variant="outlined"), so the whole control is
+    // a single ~40px-tall input — center-aligning the IconButton
+    // sits it nicely inline rather than below.
+    alignItems: 'center',
     gap: theme.spacing(1),
     width: '100%',
   },
@@ -60,7 +69,10 @@ const useStyles = makeStyles(theme => ({
     minWidth: 0,
   },
   filterButton: {
-    marginTop: theme.spacing(3),
+    // Nudged 1 unit down so the button visually balances with the
+    // input row (FormControl margin="normal" adds a top margin that
+    // pushes the input but not the button — this compensates).
+    marginTop: theme.spacing(1),
     position: 'relative',
   },
   activeBadge: {
@@ -292,7 +304,7 @@ export const SourceFilteredEntityPicker = (
             color={activeCount > 0 ? 'secondary' : 'default'}
             size="medium"
           >
-            <FilterListIcon />
+            <TuneIcon />
             {activeCount > 0 && (
               <span className={classes.activeBadge}>{activeCount}</span>
             )}
