@@ -67,14 +67,24 @@ spec:
               fi
 
               echo "Running vault operator init (key shares=1, threshold=1, demo posture)"
+              # Tell vault to write to a file so we can parse with
+              # awk on a single line (older sed in busybox can't do
+              # multi-line patterns reliably; previous attempt lost
+              # the keys to a parse miss + Vault landed initialized
+              # with no Secret to capture them).
               init_out=$(vault operator init \
                 -key-shares=1 -key-threshold=1 -format=json)
-              unseal_key=$(echo "$init_out" | sed -n 's/.*"unseal_keys_b64":\[[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
-              root_token=$(echo "$init_out" | sed -n 's/.*"root_token":[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
+              echo "$init_out" > /tmp/init.json
+
+              # Flatten the JSON to one token per line then grep:
+              # `cat` -> tr removes newlines + extra spaces.
+              flat=$(tr -d '\n\r ' < /tmp/init.json)
+              unseal_key=$(echo "$flat" | sed -n 's/.*"unseal_keys_b64":\["\([^"]*\)".*/\1/p')
+              root_token=$(echo "$flat" | sed -n 's/.*"root_token":"\([^"]*\)".*/\1/p')
 
               if [ -z "$unseal_key" ] || [ -z "$root_token" ]; then
                 echo "ERROR: failed to parse init output"
-                echo "$init_out"
+                cat /tmp/init.json
                 exit 1
               fi
 
