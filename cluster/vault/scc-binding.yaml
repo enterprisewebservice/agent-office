@@ -1,0 +1,27 @@
+# OpenShift SCC binding for the vault ServiceAccount.
+#
+# HashiCorp's chart hard-codes runAsUser=100 + fsGroup=1000. The
+# default `restricted-v2` SCC requires UIDs in the namespace's
+# auto-assigned range (≈1001180000-1001189999), so vault-0 pod
+# creation fails with:
+#   "unable to validate against any security context constraint"
+#
+# Granting `nonroot-v2` (any non-zero UID, no specific range) lets
+# Vault run as UID 100 without dropping the OpenShift security
+# posture. Vault is genuinely non-root so this is correct.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: vault-scc-nonroot
+  namespace: vault
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  # system:openshift:scc:<name> ClusterRoles are auto-created by
+  # OpenShift for each SCC. Binding gives the subjects "use" on
+  # the matching SCC.
+  name: system:openshift:scc:nonroot-v2
+subjects:
+  - kind: ServiceAccount
+    name: vault
+    namespace: vault
