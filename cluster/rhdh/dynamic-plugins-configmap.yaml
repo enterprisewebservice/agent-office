@@ -110,3 +110,21 @@ data:
               scaffolderFieldExtensions:
                 - importName: sourceFilteredEntityPickerFieldExtension
                   module: PluginRoot
+
+    # codex-reauth-action — backend scaffolder module.
+    # Adds the `codex:reauth` scaffolder action that runs OAuth
+    # device-code flow against OpenAI Codex and writes the resulting
+    # auth.json to Vault path agent-office/codex-subscription-
+    # credentials (CAS-protected). ESO syncs the K8s Secret within
+    # ~60s and every Codex-backed agent pod picks up the new token
+    # on the next kubelet refresh.
+    #
+    # Backend plugins don't have a dynamicPlugins.frontend block;
+    # RHDH's backend loader registers them via the role declared in
+    # the bundled package.json (`backend-plugin-module`) and the
+    # extension point each module hits (scaffolder.actions.v1).
+    #
+    # Image is built by .tekton/codex-reauth-action-on-push.yaml
+    # from rhdh-plugins/codex-reauth-action/.
+    - package: "oci://quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/agent-office-codex-reauth-action:v0.0.1!agent-office-backstage-plugin-codex-reauth-action"
+      disabled: false

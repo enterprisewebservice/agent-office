@@ -118,7 +118,32 @@ spec:
                 policies=external-secrets \
                 ttl=24h
 
-              echo "Vault Kubernetes auth + ESO role configured."
+              # 6. codex-reauth-writer policy (write on the Codex
+              # path, used by the codex-reauth scaffolder action +
+              # the auto-refresh CronJob to write a new auth.json).
+              # No read needed — ESO is the reader.
+              cat > /tmp/codex-writer-policy.hcl <<'HCL'
+              path "agent-office/data/codex-subscription-credentials" {
+                capabilities = ["create", "update", "read"]
+              }
+              path "agent-office/metadata/codex-subscription-credentials" {
+                capabilities = ["read"]
+              }
+              HCL
+              vault policy write codex-reauth-writer /tmp/codex-writer-policy.hcl
+
+              # 7. Bind the RHDH backend SA + the future CronJob SA
+              # to the writer policy. The dev-hub pod's SA is named
+              # by RHDH's deployment template; today that's
+              # `v1-developer-hub` in `rhdh-test`. The CronJob SA
+              # ships in cluster/codex-token-refresh/ (step 6).
+              vault write auth/kubernetes/role/codex-reauth-writer \
+                bound_service_account_names=v1-developer-hub,codex-token-refresh \
+                bound_service_account_namespaces=rhdh-test,agent-office \
+                policies=codex-reauth-writer \
+                ttl=10m
+
+              echo "Vault Kubernetes auth + ESO + codex-reauth roles configured."
 ---
 apiVersion: v1
 kind: ServiceAccount
