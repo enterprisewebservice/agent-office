@@ -46,27 +46,25 @@ RUN npm install --no-audit --no-fund --legacy-peer-deps
 #   3. janus-cli export-dynamic-plugin → wraps everything for RHDH
 RUN npx tsc
 RUN npx backstage-cli package build
+# janus-cli assembles a complete runtime package under dist-dynamic/
+# for backend plugins:
+#   dist-dynamic/
+#     package.json    ← publishConfig-applied main + types + -dynamic suffixed name
+#     dist/           ← bundled CommonJS (index.cjs.js)
+#     node_modules/   ← production deps yarn-installed against the dynamic package
+#     app-config.yaml ← copied from source if present
+#     yarn.lock
+# This is what RHDH expects — node_modules and all. The earlier
+# attempts that copied just `package.json + dist/` were missing the
+# production deps + the publishConfig-rewritten package.json that
+# janus-cli already produces.
 RUN npx janus-cli package export-dynamic-plugin --in-place --no-embed-as-dependencies
-# Apply package.json's publishConfig overrides (main, types) so the
-# shipped package.json points at dist/index.cjs.js, NOT src/index.ts.
-# Without this, Backstage's backend plugin loader tries to require()
-# the source .ts file and dies with MODULE_NOT_FOUND.
-# `backstage-cli package prepack` is the canonical way to apply
-# publishConfig before shipping a built artifact.
-RUN npx backstage-cli package prepack
 
-# Assemble what RHDH's install-dynamic-plugins.py expects:
-#   <plugin-name>/package.json
-#   <plugin-name>/dist/index.cjs.js
-#   <plugin-name>/dist/...
-#   <plugin-name>/app-config.yaml (optional)
-#
-# janus-cli writes the bundled backend artifacts to dist/ (NOT
-# dist-dynamic/ — that's the frontend path). Copy the whole tree.
+# Verified locally: dist-dynamic/ is a self-contained Node module
+# that `require()` can load (default export = BackendModule). Copy
+# it verbatim into the OCI artifact's plugin folder.
 RUN mkdir -p /out/agent-office-backstage-plugin-codex-reauth-action && \
-    cp package.json /out/agent-office-backstage-plugin-codex-reauth-action/ && \
-    cp -R dist /out/agent-office-backstage-plugin-codex-reauth-action/dist && \
-    if [ -f app-config.yaml ]; then cp app-config.yaml /out/agent-office-backstage-plugin-codex-reauth-action/; fi && \
+    cp -R dist-dynamic/. /out/agent-office-backstage-plugin-codex-reauth-action/ && \
     ls -la /out/agent-office-backstage-plugin-codex-reauth-action/
 
 # ---------- runtime ----------
