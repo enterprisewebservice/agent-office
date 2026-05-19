@@ -1,0 +1,9 @@
+# Local-build artifacts produced by the same chain that runs in
+# Docker. Safe to leave behind on the laptop; never want them in git.
+node_modules/
+dist/
+dist-types/
+dist-dynamic/
+package-lock.json
+package.json-prepack
+*.tsbuildinfo
