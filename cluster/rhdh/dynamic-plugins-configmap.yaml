@@ -142,7 +142,7 @@ data:
     # backend action for KV v2 CAS-write to Vault.
     #
     # Image is built by .tekton/codex-reauth-ui-on-push.yaml.
-    - package: "oci://quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/agent-office-codex-reauth-ui:v0.0.1!agent-office-backstage-plugin-codex-reauth-ui"
+    - package: "oci://quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/agent-office-codex-reauth-ui:v0.0.2!agent-office-backstage-plugin-codex-reauth-ui"
       disabled: false
       pluginConfig:
         # Proxy entry so the codex-reauth-ui frontend (running in
@@ -166,16 +166,22 @@ data:
                 - importName: codexAuthPreflightFieldExtension
                   module: PluginRoot
               mountPoints:
-                # Show the auth card on the Overview tab of any entity
-                # carrying the openai-codex provider annotation. The
-                # operator's BackstageCatalogHandler writes that
-                # annotation on Codex-backed AgentWorkstation entities.
+                # Show the Codex Subscription Auth card on every
+                # Component overview tab. The card itself fetches
+                # /codex-auth/status from the operator (via the
+                # proxy entry above) and hides itself if there's no
+                # Codex usage on the cluster — keeping non-agent
+                # Component pages clean. We don't filter by
+                # `hasAnnotation` here because the agent
+                # catalog-info.yaml files in the per-agent gitops
+                # repos don't carry the model-provider annotation
+                # (they're gitops-managed, not operator-mutated).
                 - mountPoint: entity.page.overview/cards
                   importName: CodexAuthCard
                   config:
                     if:
-                      anyOf:
-                        - hasAnnotation: agentoffice.ai/model-provider:openai-codex
+                      allOf:
+                        - isKind: component
                     layout:
                       gridColumn: "1 / -1"
                       gridRowEnd: span 2

@@ -61,7 +61,7 @@ export const CodexAuthPreflightField = (
   const fetchStatus = React.useCallback(async () => {
     try {
       const base = await discovery.getBaseUrl('proxy');
-      const resp = await fetch(`${base}/agent-office/codex-auth-status`);
+      const resp = await fetch(`${base}/agent-office/codex-auth/status`);
       if (!resp.ok) {
         setStatus({ kind: 'unknown' });
         return;
