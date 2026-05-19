@@ -5,7 +5,17 @@
  * + the entry point.
  */
 import { createBackendModule } from '@backstage/backend-plugin-api';
-import { scaffolderActionsExtensionPoint } from '@backstage/plugin-scaffolder-node/alpha';
+// Import from the main entry.
+//
+// History: scaffolderActionsExtensionPoint lived in the main
+// entry of @backstage/plugin-scaffolder-node up through ~0.4,
+// moved to /alpha around v0.5, and was promoted back to the
+// main entry by v0.12 (which is what RHDH 1.x ships). Pinning
+// the devDep to ^0.12.0 so build-time tsc agrees with what's
+// running on the cluster — otherwise the bundle resolved
+// `/alpha.scaffolderActionsExtensionPoint = undefined` at
+// runtime and the host crashed reading `.id` off it.
+import { scaffolderActionsExtensionPoint } from '@backstage/plugin-scaffolder-node';
 import { createCodexReauthAction } from './actions/codexReauth';
 
 export const codexReauthModule = createBackendModule({
@@ -13,9 +23,9 @@ export const codexReauthModule = createBackendModule({
   moduleId: 'codex-reauth',
   register(env) {
     env.registerInit({
-      deps: { scaffolderActions: scaffolderActionsExtensionPoint },
-      async init({ scaffolderActions }) {
-        scaffolderActions.addActions(createCodexReauthAction());
+      deps: { scaffolder: scaffolderActionsExtensionPoint },
+      async init({ scaffolder }) {
+        scaffolder.addActions(createCodexReauthAction());
       },
     });
   },

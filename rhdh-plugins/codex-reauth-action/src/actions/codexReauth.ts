@@ -108,52 +108,65 @@ export const createCodexReauthAction = () =>
     id: 'codex:reauth',
     description:
       'Run OAuth device-code flow against OpenAI Codex, then write the new auth.json to Vault.',
+    // @backstage/plugin-scaffolder-node v0.12 (the version
+    // shipping with RHDH 1.x) accepts ONLY Zod-builder lambdas
+    // for input/output schemas — plain JSONSchema7 objects are
+    // rejected at compile time. The lambda is given a Zod-namespace
+    // import `z` and returns a ZodType. Backstage internally
+    // converts that to JSON Schema for the template UI and uses
+    // it for runtime validation.
     schema: {
       input: {
-        type: 'object',
-        properties: {
-          vaultAddr: {
-            type: 'string',
-            description: `Vault server URL. Defaults to ${DEFAULT_VAULT_ADDR}.`,
-          },
-          vaultPath: {
-            type: 'string',
-            description:
+        vaultAddr: z =>
+          z
+            .string()
+            .optional()
+            .describe(`Vault server URL. Defaults to ${DEFAULT_VAULT_ADDR}.`),
+        vaultPath: z =>
+          z
+            .string()
+            .optional()
+            .describe(
               `KV v2 path (without /data/) under which to write auth.json. ` +
-              `Defaults to ${DEFAULT_VAULT_PATH}.`,
-          },
-          vaultK8sRole: {
-            type: 'string',
-            description: `Vault kubernetes auth role to assume. Defaults to ${DEFAULT_VAULT_K8S_ROLE}.`,
-          },
-          timeoutMinutes: {
-            type: 'integer',
-            minimum: 2,
-            maximum: 30,
-            description:
+                `Defaults to ${DEFAULT_VAULT_PATH}.`,
+            ),
+        vaultK8sRole: z =>
+          z
+            .string()
+            .optional()
+            .describe(
+              `Vault kubernetes auth role to assume. Defaults to ${DEFAULT_VAULT_K8S_ROLE}.`,
+            ),
+        timeoutMinutes: z =>
+          z
+            .number()
+            .int()
+            .min(2)
+            .max(30)
+            .optional()
+            .describe(
               'Maximum wall-clock time to wait for the user to complete OAuth. Default 10 min.',
-          },
-        },
+            ),
       },
       output: {
-        type: 'object',
-        properties: {
-          vaultVersion: {
-            type: 'number',
-            description:
+        vaultVersion: z =>
+          z
+            .number()
+            .describe(
               'KV v2 version number that the new auth.json was written as.',
-          },
-          accountId: {
-            type: 'string',
-            description:
+            ),
+        accountId: z =>
+          z
+            .string()
+            .describe(
               'ChatGPT account_id captured from the id_token (best-effort).',
-          },
-          userCode: {
-            type: 'string',
-            description:
+            ),
+        userCode: z =>
+          z
+            .string()
+            .describe(
               'Device-flow user code shown to the operator (for audit logs).',
-          },
-        },
+            ),
       },
     },
     async handler(ctx) {
