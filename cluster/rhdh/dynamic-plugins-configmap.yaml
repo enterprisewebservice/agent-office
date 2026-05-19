@@ -166,22 +166,25 @@ data:
                 - importName: codexAuthPreflightFieldExtension
                   module: PluginRoot
               mountPoints:
-                # Show the Codex Subscription Auth card on every
-                # Component overview tab. The card itself fetches
-                # /codex-auth/status from the operator (via the
-                # proxy entry above) and hides itself if there's no
-                # Codex usage on the cluster — keeping non-agent
-                # Component pages clean. We don't filter by
-                # `hasAnnotation` here because the agent
-                # catalog-info.yaml files in the per-agent gitops
-                # repos don't carry the model-provider annotation
-                # (they're gitops-managed, not operator-mutated).
+                # Show the Codex Subscription Auth card only on
+                # agent Component entities. We discriminate via the
+                # `agentoffice.ai/agent-kind` annotation that the
+                # karpathy template's catalog-info.yaml emits
+                # (values: autoresearch | research). Non-agent
+                # Components (services, gitops apps, etc.) don't
+                # carry that annotation, so the card never mounts
+                # there.
+                #
+                # Existing pre-annotation agents need a one-line
+                # patch to their catalog-info.yaml; new ones are
+                # already correct via the karpathy skeleton update.
                 - mountPoint: entity.page.overview/cards
                   importName: CodexAuthCard
                   config:
                     if:
                       allOf:
                         - isKind: component
+                        - hasAnnotation: agentoffice.ai/agent-kind
                     layout:
                       gridColumn: "1 / -1"
                       gridRowEnd: span 2
