@@ -77,11 +77,21 @@ spec:
                 echo "kubernetes auth already enabled"
               fi
 
-              # 3. configure kubernetes auth
-              KUBE_TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+              # 3. configure kubernetes auth.
+              # NB: we do NOT pass token_reviewer_jwt anymore. The
+              # kubelet projects a short-lived (~1h) SA token at
+              # /var/run/secrets/kubernetes.io/serviceaccount/token
+              # which auto-rotates; bash-capturing a snapshot of it
+              # at config-write time created a ticking bomb — once
+              # the snapshot expired, every kube-auth login hit
+              # 403 permission denied. Leaving token_reviewer_jwt
+              # unset tells Vault to use its OWN pod's projected SA
+              # token (`vault` SA) at TokenReview time, which the
+              # kubelet keeps fresh forever. The `vault` SA needs
+              # system:auth-delegator (see auth-delegator-vault
+              # binding below).
               KUBE_CA=$(cat /var/run/secrets/kubernetes.io/serviceaccount/ca.crt)
               vault write auth/kubernetes/config \
-                token_reviewer_jwt="$KUBE_TOKEN" \
                 kubernetes_host="https://kubernetes.default.svc:443" \
                 kubernetes_ca_cert="$KUBE_CA" \
                 issuer="https://kubernetes.default.svc.cluster.local"
@@ -116,20 +126,22 @@ metadata:
   name: vault-k8s-auth
   namespace: vault
 ---
-# Vault validates caller JWTs by calling the kube TokenReview API
-# using the `token_reviewer_jwt` we passed at bootstrap (this SA's
-# token). TokenReview is a privileged API — the canonical
-# ClusterRole that grants it is system:auth-delegator. Without
-# this binding ESO's login attempts return 403 permission denied.
+# system:auth-delegator binding for the `vault` SA.
+# Vault calls Kubernetes TokenReview to validate caller JWTs when
+# its kubernetes auth backend has no `token_reviewer_jwt` configured
+# — it falls back to using its own pod's projected SA token. That
+# SA needs `tokenreviews/create` permission, granted by the
+# canonical system:auth-delegator ClusterRole. Without this
+# binding every login attempt comes back 403 permission denied.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: vault-k8s-auth-delegator
+  name: vault-auth-delegator
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
   name: system:auth-delegator
 subjects:
   - kind: ServiceAccount
-    name: vault-k8s-auth
+    name: vault
     namespace: vault
