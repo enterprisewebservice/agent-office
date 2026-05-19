@@ -128,3 +128,40 @@ data:
     # from rhdh-plugins/codex-reauth-action/.
     - package: "oci://quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/agent-office-codex-reauth-action:v0.0.1!agent-office-backstage-plugin-codex-reauth-action"
       disabled: false
+
+    # codex-reauth-ui — frontend plugin.
+    # Renders:
+    #   * CodexAuthCard on the entity overview tab of AgentWorkstation
+    #     entities whose model provider is openai-codex.
+    #   * CodexAuthPreflightField as a scaffolder field extension
+    #     (`ui:field: CodexAuthPreflight`) for any template that wants
+    #     to block submission on Codex token freshness.
+    # Both open a shared dialog that runs the device-code OAuth flow
+    # IN THE BROWSER (server-side calls from cluster IPs are CF-blocked
+    # by OpenAI) and posts the resulting tokens to the codex:reauth
+    # backend action for KV v2 CAS-write to Vault.
+    #
+    # Image is built by .tekton/codex-reauth-ui-on-push.yaml.
+    - package: "oci://quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/agent-office-codex-reauth-ui:v0.0.1!agent-office-backstage-plugin-codex-reauth-ui"
+      disabled: false
+      pluginConfig:
+        dynamicPlugins:
+          frontend:
+            agent-office-backstage-plugin-codex-reauth-ui:
+              scaffolderFieldExtensions:
+                - importName: codexAuthPreflightFieldExtension
+                  module: PluginRoot
+              mountPoints:
+                # Show the auth card on the Overview tab of any entity
+                # carrying the openai-codex provider annotation. The
+                # operator's BackstageCatalogHandler writes that
+                # annotation on Codex-backed AgentWorkstation entities.
+                - mountPoint: entity.page.overview/cards
+                  importName: CodexAuthCard
+                  config:
+                    if:
+                      anyOf:
+                        - hasAnnotation: agentoffice.ai/model-provider:openai-codex
+                    layout:
+                      gridColumn: "1 / -1"
+                      gridRowEnd: span 2

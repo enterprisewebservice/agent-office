@@ -1,0 +1,8 @@
+node_modules/
+dist/
+dist-types/
+dist-dynamic/
+dist-scalprum/
+package-lock.json
+package.json-prepack
+*.tsbuildinfo

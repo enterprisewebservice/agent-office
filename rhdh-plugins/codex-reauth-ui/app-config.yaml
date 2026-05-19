@@ -1,0 +1,15 @@
+# Default dynamic-plugin configuration carried in the OCI image. RHDH
+# merges this into its app-config before the developer-hub container
+# starts. The cluster's v1-dynamic-plugins ConfigMap can also
+# override these values per-deploy.
+#
+# Frontend extension registration: tell RHDH where in the scaffolder
+# UI to mount the field extension. The `importName` must match an
+# export from src/plugin.ts; the `module: PluginRoot` value is the
+# convention used by janus-cli's exporter for the entry chunk.
+dynamicPlugins:
+  frontend:
+    agent-office.backstage-plugin-source-filtered-entity-picker:
+      scaffolderFieldExtensions:
+        - importName: sourceFilteredEntityPickerFieldExtension
+          module: PluginRoot
