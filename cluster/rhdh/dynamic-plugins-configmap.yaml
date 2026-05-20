@@ -142,7 +142,7 @@ data:
     # backend action for KV v2 CAS-write to Vault.
     #
     # Image is built by .tekton/codex-reauth-ui-on-push.yaml.
-    - package: "oci://quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/agent-office-codex-reauth-ui:v0.0.3!agent-office-backstage-plugin-codex-reauth-ui"
+    - package: "oci://quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/agent-office-codex-reauth-ui:v0.0.4!agent-office-backstage-plugin-codex-reauth-ui"
       disabled: false
       pluginConfig:
         # Proxy entry so the codex-reauth-ui frontend (running in

@@ -1,22 +1,39 @@
 /*
- * CodexReauthDialog — the device-code OAuth flow, run IN THE BROWSER.
+ * CodexReauthDialog — runs Codex CLI's *real* device-code OAuth
+ * flow from the browser.
  *
- * Why browser: OpenAI's auth.openai.com sits behind Cloudflare which
- * blocks server-side calls from cluster DC IPs ("Just a moment..."
- * challenge page). Running it in the browser gets through CF because
- * the user's residential IP + real browser context is what CF expects.
+ * Endpoints + request shapes taken VERBATIM from openai/codex
+ * (Rust impl, codex-rs/login/src/device_code_auth.rs and server.rs,
+ * read against commit on main as of this writing):
  *
- * Flow:
- *   1. POST auth.openai.com/oauth/device/code with the codex CLI's
- *      client_id → receive { device_code, user_code, verification_uri }
- *   2. Show the URL + 8-char code to the user.
- *   3. Poll auth.openai.com/oauth/token every N seconds until the user
- *      authorizes in another tab. (RFC 8628 device-flow contract.)
- *   4. On success, POST { tokens } to the codex:reauth scaffolder
- *      action which writes them to Vault using KV v2 CAS.
+ *   1. POST {issuer}/api/accounts/deviceauth/usercode
+ *      body: {"client_id": "<CLIENT_ID>"}
+ *      → {device_auth_id, user_code, interval}
+ *      The verification URL the user opens is hardcoded
+ *      {issuer}/codex/device — they paste user_code there.
  *
- * UX-side, the dialog progresses through three states:
- *   "starting" → "awaiting authorization" → "writing to vault" → done|error
+ *   2. POST {issuer}/api/accounts/deviceauth/token   (poll loop)
+ *      body: {"device_auth_id", "user_code"}
+ *      → 200 success: {authorization_code, code_challenge, code_verifier}
+ *      → 403/404: still pending, keep polling on `interval`
+ *      Max wait 15 min (matches CLI).
+ *
+ *   3. POST {issuer}/oauth/token
+ *      body (form-urlencoded):
+ *        grant_type=authorization_code
+ *        code=<authorization_code from step 2>
+ *        redirect_uri={issuer}/deviceauth/callback   (fixed, NOT
+ *          browser-callable — just an opaque marker the IdP expects)
+ *        client_id=<CLIENT_ID>
+ *        code_verifier=<from step 2>  (PKCE is *server-generated* —
+ *          we don't compute the challenge, that's why the unified
+ *          device-code endpoint hands it back to us)
+ *      → {id_token, access_token, refresh_token}
+ *
+ * The browser-context is essential: server-side calls to
+ * auth.openai.com from cluster DC IPs hit a Cloudflare managed
+ * challenge ("Just a moment..."). From a real browser with
+ * residential IP + cookies, CF lets the same requests through.
  */
 import React from 'react';
 import {
@@ -38,17 +55,23 @@ import ErrorIcon from '@material-ui/icons/Error';
 import { useApi } from '@backstage/core-plugin-api';
 import { scaffolderApiRef } from '@backstage/plugin-scaffolder-react';
 
-// Public OAuth client of the openai/codex CLI. Not a secret — it
-// ships in the binary on every laptop that has Codex installed.
-const CODEX_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
-const DEVICE_URL = 'https://auth.openai.com/oauth/device/code';
-const TOKEN_URL = 'https://auth.openai.com/oauth/token';
-const SCOPE = 'openid profile email offline_access';
+// From codex-rs/login/src/auth/manager.rs:928
+const CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
+// From codex-rs/login/src/server.rs:54
+const ISSUER = 'https://auth.openai.com';
 
-// The scaffolder template the dialog submits when OAuth completes.
-// One-step template that calls codex:reauth with the obtained tokens.
-// Lives in tssc-dev-multi-ci (see template install below).
-const SCAFFOLDER_TEMPLATE_REF = 'template:default/codex-reauth-store';
+const USERCODE_URL = `${ISSUER}/api/accounts/deviceauth/usercode`;
+const POLL_URL = `${ISSUER}/api/accounts/deviceauth/token`;
+const TOKEN_URL = `${ISSUER}/oauth/token`;
+const REDIRECT_URI = `${ISSUER}/deviceauth/callback`;
+// User-facing page hosted by OpenAI that prompts for user_code.
+const VERIFICATION_URL = `${ISSUER}/codex/device`;
+
+// One-step scaffolder template (see tssc-dev-multi-ci) used to
+// hand the obtained tokens back to the cluster-side codex:reauth
+// action which writes them to Vault. The frontend can't reach Vault
+// directly; the backend's SA-token auth is what unlocks the write.
+const VAULT_WRITE_TEMPLATE = 'template:default/codex-reauth-store';
 
 type Phase =
   | { kind: 'idle' }
@@ -56,9 +79,7 @@ type Phase =
   | {
       kind: 'awaiting-authorization';
       userCode: string;
-      verificationUri: string;
-      verificationUriComplete?: string;
-      expiresAt: number;
+      verificationUrl: string;
     }
   | { kind: 'writing-vault' }
   | { kind: 'done'; vaultVersion: number }
@@ -67,22 +88,24 @@ type Phase =
 export interface CodexReauthDialogProps {
   open: boolean;
   onClose: () => void;
-  /** Override default Vault path. Used by callers that test against
-   *  a non-production tenancy. */
   vaultPath?: string;
 }
 
-interface DeviceCodeResponse {
-  device_code: string;
+interface UserCodeResp {
+  device_auth_id: string;
   user_code: string;
-  verification_uri: string;
-  verification_uri_complete?: string;
-  expires_in: number;
-  interval: number;
+  // Codex's API returns interval as a stringified integer; we parse.
+  interval: string | number;
 }
 
-interface TokenResponse {
-  id_token?: string;
+interface AuthCodeResp {
+  authorization_code: string;
+  code_challenge: string;
+  code_verifier: string;
+}
+
+interface TokenResp {
+  id_token: string;
   access_token: string;
   refresh_token: string;
 }
@@ -91,45 +114,54 @@ export const CodexReauthDialog = (props: CodexReauthDialogProps) => {
   const scaffolderApi = useApi(scaffolderApiRef);
   const [phase, setPhase] = React.useState<Phase>({ kind: 'idle' });
 
-  // Kick the flow when the dialog opens.
   React.useEffect(() => {
     if (!props.open) {
       setPhase({ kind: 'idle' });
       return;
     }
     let cancelled = false;
+
     (async () => {
       try {
         setPhase({ kind: 'starting' });
-        const dc = await startDeviceFlow();
+
+        // 1. Get user_code + device_auth_id.
+        const uc = await requestUserCode();
         if (cancelled) return;
+        const intervalSec = Number(uc.interval) || 5;
         setPhase({
           kind: 'awaiting-authorization',
-          userCode: dc.user_code,
-          verificationUri: dc.verification_uri,
-          verificationUriComplete: dc.verification_uri_complete,
-          expiresAt: Date.now() + dc.expires_in * 1000,
+          userCode: uc.user_code,
+          verificationUrl: VERIFICATION_URL,
         });
-        const tokens = await pollForTokens(dc.device_code, dc.interval, dc.expires_in);
+
+        // 2. Poll until the user authorizes (or 15 min timeout).
+        const authResp = await pollForAuthorization(
+          uc.device_auth_id,
+          uc.user_code,
+          intervalSec,
+        );
+        if (cancelled) return;
+
+        // 3. Exchange authorization_code + PKCE for tokens.
+        const tokens = await exchangeForTokens(authResp);
         if (cancelled) return;
 
         setPhase({ kind: 'writing-vault' });
+
+        // 4. Hand tokens to the codex:reauth scaffolder action via a
+        //    one-step template. The action writes them to Vault.
         const accountId = extractAccountId(tokens.id_token);
-        const taskOutput = await submitVaultWrite(
-          scaffolderApi,
-          {
-            idToken: tokens.id_token ?? '',
-            accessToken: tokens.access_token,
-            refreshToken: tokens.refresh_token,
-            accountId: accountId ?? undefined,
-            vaultPath: props.vaultPath,
-          },
-        );
-        if (cancelled) return;
-        setPhase({
-          kind: 'done',
-          vaultVersion: taskOutput.vaultVersion,
+        const taskOutput = await submitVaultWrite(scaffolderApi, {
+          idToken: tokens.id_token,
+          accessToken: tokens.access_token,
+          refreshToken: tokens.refresh_token,
+          accountId: accountId ?? undefined,
+          vaultPath: props.vaultPath,
         });
+        if (cancelled) return;
+
+        setPhase({ kind: 'done', vaultVersion: taskOutput.vaultVersion });
       } catch (err) {
         if (cancelled) return;
         setPhase({
@@ -171,20 +203,19 @@ function renderBody(phase: Phase) {
       return (
         <Box>
           <Typography variant="body2" color="textSecondary">
-            Step 1 — Open the authorization page in another tab:
+            Step 1 — Open in a new tab:
           </Typography>
           <Box mt={1} mb={2}>
             <Link
-              href={phase.verificationUriComplete ?? phase.verificationUri}
+              href={phase.verificationUrl}
               target="_blank"
               rel="noopener noreferrer"
             >
-              {phase.verificationUriComplete ?? phase.verificationUri}{' '}
-              <OpenInNewIcon fontSize="inherit" />
+              {phase.verificationUrl} <OpenInNewIcon fontSize="inherit" />
             </Link>
           </Box>
           <Typography variant="body2" color="textSecondary">
-            Step 2 — Enter this code if prompted:
+            Step 2 — Enter this code:
           </Typography>
           <Box mt={1} mb={2}>
             <Chip
@@ -195,7 +226,7 @@ function renderBody(phase: Phase) {
           <Divider />
           <Box mt={2}>
             <Typography variant="body2">
-              Waiting for you to authorize in the other tab…
+              Waiting for authorization (up to 15 min)…
             </Typography>
             <LinearProgress />
           </Box>
@@ -238,75 +269,85 @@ function renderBody(phase: Phase) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// OAuth bits — run in the browser
+// Codex OAuth bits — match codex-rs/login/src/device_code_auth.rs
 // ─────────────────────────────────────────────────────────────
 
-async function startDeviceFlow(): Promise<DeviceCodeResponse> {
-  const body = new URLSearchParams({
-    client_id: CODEX_CLIENT_ID,
-    scope: SCOPE,
+async function requestUserCode(): Promise<UserCodeResp> {
+  const resp = await fetch(USERCODE_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ client_id: CLIENT_ID }),
   });
-  const resp = await fetch(DEVICE_URL, {
+  if (!resp.ok) {
+    const body = await resp.text().catch(() => '<no body>');
+    throw new Error(
+      `usercode request failed: HTTP ${resp.status} ${body.slice(0, 200)}`,
+    );
+  }
+  return (await resp.json()) as UserCodeResp;
+}
+
+async function pollForAuthorization(
+  deviceAuthId: string,
+  userCode: string,
+  intervalSec: number,
+): Promise<AuthCodeResp> {
+  const maxWaitMs = 15 * 60 * 1000;
+  const start = Date.now();
+  while (Date.now() - start < maxWaitMs) {
+    await new Promise(r => setTimeout(r, intervalSec * 1000));
+    const resp = await fetch(POLL_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        device_auth_id: deviceAuthId,
+        user_code: userCode,
+      }),
+    });
+    if (resp.ok) {
+      return (await resp.json()) as AuthCodeResp;
+    }
+    // CLI's poll loop treats 403 + 404 as "still pending"; anything
+    // else is a hard failure.
+    if (resp.status !== 403 && resp.status !== 404) {
+      const body = await resp.text().catch(() => '<no body>');
+      throw new Error(
+        `device-auth poll failed: HTTP ${resp.status} ${body.slice(0, 200)}`,
+      );
+    }
+  }
+  throw new Error('Timed out waiting for authorization (15 min)');
+}
+
+async function exchangeForTokens(auth: AuthCodeResp): Promise<TokenResp> {
+  // form-urlencoded body — matches codex-rs/login/src/server.rs:740.
+  const body = new URLSearchParams({
+    grant_type: 'authorization_code',
+    code: auth.authorization_code,
+    redirect_uri: REDIRECT_URI,
+    client_id: CLIENT_ID,
+    code_verifier: auth.code_verifier,
+  });
+  const resp = await fetch(TOKEN_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: body.toString(),
   });
   if (!resp.ok) {
+    const bodyText = await resp.text().catch(() => '<no body>');
     throw new Error(
-      `device-code request failed: HTTP ${resp.status} ${await resp.text()}`,
+      `token exchange failed: HTTP ${resp.status} ${bodyText.slice(0, 200)}`,
     );
   }
-  return (await resp.json()) as DeviceCodeResponse;
+  return (await resp.json()) as TokenResp;
 }
 
-async function pollForTokens(
-  deviceCode: string,
-  intervalSec: number,
-  timeoutSec: number,
-): Promise<TokenResponse> {
-  const start = Date.now();
-  let interval = intervalSec;
-  while ((Date.now() - start) / 1000 < timeoutSec) {
-    await new Promise(r => setTimeout(r, interval * 1000));
-    const body = new URLSearchParams({
-      client_id: CODEX_CLIENT_ID,
-      device_code: deviceCode,
-      grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
-    });
-    const resp = await fetch(TOKEN_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: body.toString(),
-    });
-    if (resp.ok) {
-      return (await resp.json()) as TokenResponse;
-    }
-    const err = (await resp.json().catch(() => ({}))) as { error?: string };
-    switch (err.error) {
-      case 'authorization_pending':
-        continue;
-      case 'slow_down':
-        interval = intervalSec + 5;
-        continue;
-      case 'expired_token':
-        throw new Error('OAuth device code expired before authorization');
-      case 'access_denied':
-        throw new Error('OAuth flow denied by user');
-      default:
-        throw new Error(
-          `Unexpected token response: HTTP ${resp.status} err=${err.error ?? '?'}`,
-        );
-    }
-  }
-  throw new Error(`Timed out waiting for authorization (${timeoutSec}s)`);
-}
-
-function extractAccountId(idToken: string | undefined): string | null {
-  if (!idToken) return null;
+function extractAccountId(idToken: string): string | null {
   try {
     const parts = idToken.split('.');
     if (parts.length < 2) return null;
-    const json = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+    const padded = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const json = JSON.parse(atob(padded));
     const auth = json['https://api.openai.com/auth'] as
       | { chatgpt_account_id?: string }
       | undefined;
@@ -317,7 +358,7 @@ function extractAccountId(idToken: string | undefined): string | null {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Scaffolder API (server-side Vault write)
+// Scaffolder API: submit a one-step task that writes Vault
 // ─────────────────────────────────────────────────────────────
 
 async function submitVaultWrite(
@@ -330,19 +371,10 @@ async function submitVaultWrite(
     vaultPath?: string;
   },
 ): Promise<{ vaultVersion: number }> {
-  // Programmatically submit a one-step task that calls codex:reauth
-  // with the tokens we just obtained. Backstage's scaffolder API
-  // (`scaffold`) takes a template ref + values; the template is a
-  // tiny wrapper in tssc-dev-multi-ci (codex-reauth-store).
   const { taskId } = await scaffolderApi.scaffold({
-    templateRef: SCAFFOLDER_TEMPLATE_REF,
+    templateRef: VAULT_WRITE_TEMPLATE,
     values: tokens,
   });
-
-  // Poll task status until done. The scaffolder backend streams
-  // task progress; we don't need the log here, just the final
-  // output. Cap at 30s — the action itself is just a few HTTP
-  // calls to Vault.
   const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
     const task = await scaffolderApi.getTask(taskId);
@@ -351,10 +383,7 @@ async function submitVaultWrite(
       return { vaultVersion: out?.vaultVersion ?? 0 };
     }
     if (task.status === 'failed' || task.status === 'cancelled') {
-      throw new Error(
-        `Vault write task ${task.status}: ` +
-          (task.lastHeartbeatAt ?? 'see scaffolder task logs'),
-      );
+      throw new Error(`Vault write task ${task.status}`);
     }
     await new Promise(r => setTimeout(r, 1000));
   }
