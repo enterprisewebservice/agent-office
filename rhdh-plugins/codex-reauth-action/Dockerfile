@@ -63,9 +63,9 @@ RUN npx janus-cli package export-dynamic-plugin --in-place --no-embed-as-depende
 # Verified locally: dist-dynamic/ is a self-contained Node module
 # that `require()` can load (default export = BackendModule). Copy
 # it verbatim into the OCI artifact's plugin folder.
-RUN mkdir -p /out/agent-office-backstage-plugin-codex-reauth-action && \
-    cp -R dist-dynamic/. /out/agent-office-backstage-plugin-codex-reauth-action/ && \
-    ls -la /out/agent-office-backstage-plugin-codex-reauth-action/
+RUN mkdir -p /out/agent-office-backstage-plugin-codex-reauth-backend && \
+    cp -R dist-dynamic/. /out/agent-office-backstage-plugin-codex-reauth-backend/ && \
+    ls -la /out/agent-office-backstage-plugin-codex-reauth-backend/
 
 # ---------- runtime ----------
 # FROM scratch so the final image has exactly ONE layer with only
@@ -74,18 +74,18 @@ RUN mkdir -p /out/agent-office-backstage-plugin-codex-reauth-action && \
 # leave the plugin in a layer the script ignores.
 FROM scratch
 
-COPY --from=builder /out/agent-office-backstage-plugin-codex-reauth-action /agent-office-backstage-plugin-codex-reauth-action
+COPY --from=builder /out/agent-office-backstage-plugin-codex-reauth-backend /agent-office-backstage-plugin-codex-reauth-backend
 
 # Decoded annotation JSON:
-#   [{"agent-office-backstage-plugin-codex-reauth-action":{
-#     "name": "agent-office-backstage-plugin-codex-reauth-action",
+#   [{"agent-office-backstage-plugin-codex-reauth-backend":{
+#     "name": "agent-office-backstage-plugin-codex-reauth-backend",
 #     "version": "0.0.1",
 #     "backstage": {
 #       "role": "backend-plugin-module",
 #       "pluginId": "scaffolder",
-#       "pluginPackage": "agent-office-backstage-plugin-codex-reauth-action",
-#       "pluginPackages": ["agent-office-backstage-plugin-codex-reauth-action"],
+#       "pluginPackage": "agent-office-backstage-plugin-codex-reauth-backend",
+#       "pluginPackages": ["agent-office-backstage-plugin-codex-reauth-backend"],
 #       "supported-versions": "1.45.3"
 #     }
 #   }}]
-LABEL io.backstage.dynamic-packages="W3siYWdlbnQtb2ZmaWNlLWJhY2tzdGFnZS1wbHVnaW4tY29kZXgtcmVhdXRoLWFjdGlvbiI6eyJuYW1lIjoiYWdlbnQtb2ZmaWNlLWJhY2tzdGFnZS1wbHVnaW4tY29kZXgtcmVhdXRoLWFjdGlvbiIsInZlcnNpb24iOiIwLjAuMSIsImJhY2tzdGFnZSI6eyJyb2xlIjoiYmFja2VuZC1wbHVnaW4tbW9kdWxlIiwicGx1Z2luSWQiOiJzY2FmZm9sZGVyIiwicGx1Z2luUGFja2FnZSI6ImFnZW50LW9mZmljZS1iYWNrc3RhZ2UtcGx1Z2luLWNvZGV4LXJlYXV0aC1hY3Rpb24iLCJwbHVnaW5QYWNrYWdlcyI6WyJhZ2VudC1vZmZpY2UtYmFja3N0YWdlLXBsdWdpbi1jb2RleC1yZWF1dGgtYWN0aW9uIl0sInN1cHBvcnRlZC12ZXJzaW9ucyI6IjEuNDUuMyJ9fX1d"
+LABEL io.backstage.dynamic-packages="W3siYWdlbnQtb2ZmaWNlLWJhY2tzdGFnZS1wbHVnaW4tY29kZXgtcmVhdXRoLWJhY2tlbmQiOnsibmFtZSI6ImFnZW50LW9mZmljZS1iYWNrc3RhZ2UtcGx1Z2luLWNvZGV4LXJlYXV0aC1iYWNrZW5kIiwidmVyc2lvbiI6IjAuMC41IiwiYmFja3N0YWdlIjp7InJvbGUiOiJiYWNrZW5kLXBsdWdpbiIsInBsdWdpbklkIjoiY29kZXgtcmVhdXRoIiwicGx1Z2luUGFja2FnZSI6ImFnZW50LW9mZmljZS1iYWNrc3RhZ2UtcGx1Z2luLWNvZGV4LXJlYXV0aC1iYWNrZW5kIiwicGx1Z2luUGFja2FnZXMiOlsiYWdlbnQtb2ZmaWNlLWJhY2tzdGFnZS1wbHVnaW4tY29kZXgtcmVhdXRoLWJhY2tlbmQiXSwic3VwcG9ydGVkLXZlcnNpb25zIjoiMS40NS4zIn19fV0="

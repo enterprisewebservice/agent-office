@@ -52,8 +52,11 @@ import {
 import OpenInNewIcon from '@material-ui/icons/OpenInNew';
 import CheckCircleIcon from '@material-ui/icons/CheckCircle';
 import ErrorIcon from '@material-ui/icons/Error';
-import { useApi } from '@backstage/core-plugin-api';
-import { scaffolderApiRef } from '@backstage/plugin-scaffolder-react';
+import {
+  useApi,
+  discoveryApiRef,
+  fetchApiRef,
+} from '@backstage/core-plugin-api';
 
 // From codex-rs/login/src/auth/manager.rs:928
 const CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
@@ -67,11 +70,11 @@ const REDIRECT_URI = `${ISSUER}/deviceauth/callback`;
 // User-facing page hosted by OpenAI that prompts for user_code.
 const VERIFICATION_URL = `${ISSUER}/codex/device`;
 
-// One-step scaffolder template (see tssc-dev-multi-ci) used to
-// hand the obtained tokens back to the cluster-side codex:reauth
-// action which writes them to Vault. The frontend can't reach Vault
-// directly; the backend's SA-token auth is what unlocks the write.
-const VAULT_WRITE_TEMPLATE = 'template:default/codex-reauth-store';
+// Backend plugin route: discovery.getBaseUrl('codex-reauth') resolves
+// to {backend-baseUrl}/api/codex-reauth — this code POSTs /write on
+// top of that. The plugin's HTTP handler extracts tokens from the
+// body, reads the pod's SA token, exchanges it for a Vault token,
+// and CAS-writes auth.json.
 
 type Phase =
   | { kind: 'idle' }
@@ -111,7 +114,12 @@ interface TokenResp {
 }
 
 export const CodexReauthDialog = (props: CodexReauthDialogProps) => {
-  const scaffolderApi = useApi(scaffolderApiRef);
+  // Backstage's backend default auth policy demands a user identity
+  // token on every request; fetchApi.fetch attaches it automatically.
+  // discoveryApi resolves the cluster-internal URL of any backend
+  // plugin by pluginId — `codex-reauth` maps to /api/codex-reauth/.
+  const discovery = useApi(discoveryApiRef);
+  const fetchApi = useApi(fetchApiRef);
   const [phase, setPhase] = React.useState<Phase>({ kind: 'idle' });
 
   React.useEffect(() => {
@@ -149,10 +157,10 @@ export const CodexReauthDialog = (props: CodexReauthDialogProps) => {
 
         setPhase({ kind: 'writing-vault' });
 
-        // 4. Hand tokens to the codex:reauth scaffolder action via a
-        //    one-step template. The action writes them to Vault.
+        // 4. POST tokens to the codex-reauth backend plugin's HTTP
+        //    route. The backend owns the SA-token-to-Vault exchange.
         const accountId = extractAccountId(tokens.id_token);
-        const taskOutput = await submitVaultWrite(scaffolderApi, {
+        const result = await postVaultWrite(discovery, fetchApi, {
           idToken: tokens.id_token,
           accessToken: tokens.access_token,
           refreshToken: tokens.refresh_token,
@@ -161,7 +169,7 @@ export const CodexReauthDialog = (props: CodexReauthDialogProps) => {
         });
         if (cancelled) return;
 
-        setPhase({ kind: 'done', vaultVersion: taskOutput.vaultVersion });
+        setPhase({ kind: 'done', vaultVersion: result.vaultVersion });
       } catch (err) {
         if (cancelled) return;
         setPhase({
@@ -173,7 +181,7 @@ export const CodexReauthDialog = (props: CodexReauthDialogProps) => {
     return () => {
       cancelled = true;
     };
-  }, [props.open, scaffolderApi, props.vaultPath]);
+  }, [props.open, discovery, fetchApi, props.vaultPath]);
 
   return (
     <Dialog open={props.open} onClose={props.onClose} maxWidth="sm" fullWidth>
@@ -358,11 +366,12 @@ function extractAccountId(idToken: string): string | null {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Scaffolder API: submit a one-step task that writes Vault
+// Direct HTTP call to the codex-reauth backend plugin
 // ─────────────────────────────────────────────────────────────
 
-async function submitVaultWrite(
-  scaffolderApi: any,
+async function postVaultWrite(
+  discovery: { getBaseUrl(pluginId: string): Promise<string> },
+  fetchApi: { fetch(input: any, init?: any): Promise<Response> },
   tokens: {
     idToken: string;
     accessToken: string;
@@ -371,21 +380,20 @@ async function submitVaultWrite(
     vaultPath?: string;
   },
 ): Promise<{ vaultVersion: number }> {
-  const { taskId } = await scaffolderApi.scaffold({
-    templateRef: VAULT_WRITE_TEMPLATE,
-    values: tokens,
+  // discovery.getBaseUrl('codex-reauth') resolves to
+  // {backend-baseUrl}/api/codex-reauth. The plugin's router mounts
+  // POST /write on top of that.
+  const base = await discovery.getBaseUrl('codex-reauth');
+  const resp = await fetchApi.fetch(`${base}/write`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(tokens),
   });
-  const deadline = Date.now() + 30_000;
-  while (Date.now() < deadline) {
-    const task = await scaffolderApi.getTask(taskId);
-    if (task.status === 'completed') {
-      const out = task.output as { vaultVersion?: number } | undefined;
-      return { vaultVersion: out?.vaultVersion ?? 0 };
-    }
-    if (task.status === 'failed' || task.status === 'cancelled') {
-      throw new Error(`Vault write task ${task.status}`);
-    }
-    await new Promise(r => setTimeout(r, 1000));
+  if (!resp.ok) {
+    const body = await resp.text().catch(() => '<no body>');
+    throw new Error(
+      `vault write failed: HTTP ${resp.status} ${body.slice(0, 300)}`,
+    );
   }
-  throw new Error('Vault write task did not complete within 30s');
+  return (await resp.json()) as { vaultVersion: number };
 }
