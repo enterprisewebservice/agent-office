@@ -133,12 +133,23 @@ spec:
               vault policy write codex-reauth-writer /tmp/codex-writer-policy.hcl
 
               # 7. Bind the RHDH backend SA + the future CronJob SA
-              # to the writer policy. The dev-hub pod's SA is named
-              # by RHDH's deployment template; today that's
-              # `v1-developer-hub` in `rhdh-test`. The CronJob SA
-              # ships in cluster/codex-token-refresh/ (step 6).
+              # to the writer policy.
+              #
+              # The RHDH v1 Helm chart's developer-hub Deployment
+              # does NOT set spec.serviceAccountName, so the pod
+              # falls through to the `default` SA in rhdh-test.
+              # Bind that explicitly — switching the deployment to
+              # a dedicated SA is a separate gitops change.
+              #
+              # The auto-refresh CronJob SA (step 6) ships in
+              # cluster/codex-token-refresh/ as `codex-token-refresh`
+              # in `agent-office`.
+              #
+              # Note: Vault's k8s auth checks (SA-name ∈ names) AND
+              # (SA-namespace ∈ namespaces), so listing both names
+              # and both namespaces means EITHER pair works.
               vault write auth/kubernetes/role/codex-reauth-writer \
-                bound_service_account_names=v1-developer-hub,codex-token-refresh \
+                bound_service_account_names=default,codex-token-refresh \
                 bound_service_account_namespaces=rhdh-test,agent-office \
                 policies=codex-reauth-writer \
                 ttl=10m
