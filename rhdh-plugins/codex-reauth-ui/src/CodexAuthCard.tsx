@@ -33,7 +33,11 @@ import {
   CircularProgress,
 } from '@material-ui/core';
 import VpnKeyIcon from '@material-ui/icons/VpnKey';
-import { useApi, discoveryApiRef } from '@backstage/core-plugin-api';
+import {
+  useApi,
+  discoveryApiRef,
+  fetchApiRef,
+} from '@backstage/core-plugin-api';
 import { CodexReauthDialog } from './CodexReauthDialog';
 
 type Status =
@@ -52,13 +56,18 @@ function isNoCodexUsage(reason: string | undefined): boolean {
 
 export const CodexAuthCard = () => {
   const discovery = useApi(discoveryApiRef);
+  // fetchApi attaches the user's identity token to every request,
+  // which Backstage's proxy plugin requires (returns 401 to plain
+  // fetch()). Without this the card silently hid itself because
+  // every status check came back as !resp.ok.
+  const fetchApi = useApi(fetchApiRef);
   const [status, setStatus] = React.useState<Status>({ kind: 'loading' });
   const [dialogOpen, setDialogOpen] = React.useState(false);
 
   const fetchStatus = React.useCallback(async () => {
     try {
       const base = await discovery.getBaseUrl('proxy');
-      const resp = await fetch(`${base}/agent-office/codex-auth/status`);
+      const resp = await fetchApi.fetch(`${base}/agent-office/codex-auth/status`);
       if (!resp.ok) {
         setStatus({ kind: 'hidden' });
         return;
@@ -84,7 +93,7 @@ export const CodexAuthCard = () => {
       // with errors. Hide silently.
       setStatus({ kind: 'hidden' });
     }
-  }, [discovery]);
+  }, [discovery, fetchApi]);
 
   React.useEffect(() => {
     void fetchStatus();

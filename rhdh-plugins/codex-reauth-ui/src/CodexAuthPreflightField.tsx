@@ -35,7 +35,11 @@ import {
 } from '@material-ui/core';
 import CheckCircleIcon from '@material-ui/icons/CheckCircle';
 import ErrorIcon from '@material-ui/icons/Error';
-import { useApi, discoveryApiRef } from '@backstage/core-plugin-api';
+import {
+  useApi,
+  discoveryApiRef,
+  fetchApiRef,
+} from '@backstage/core-plugin-api';
 import { FieldExtensionComponentProps } from '@backstage/plugin-scaffolder-react';
 import { CodexReauthDialog } from './CodexReauthDialog';
 
@@ -55,13 +59,16 @@ export const CodexAuthPreflightField = (
   props: FieldExtensionComponentProps<string>,
 ) => {
   const discovery = useApi(discoveryApiRef);
+  // Use fetchApi (not raw fetch) so Backstage's proxy plugin sees
+  // the user's identity token — otherwise it returns 401.
+  const fetchApi = useApi(fetchApiRef);
   const [status, setStatus] = React.useState<Status>({ kind: 'loading' });
   const [dialogOpen, setDialogOpen] = React.useState(false);
 
   const fetchStatus = React.useCallback(async () => {
     try {
       const base = await discovery.getBaseUrl('proxy');
-      const resp = await fetch(`${base}/agent-office/codex-auth/status`);
+      const resp = await fetchApi.fetch(`${base}/agent-office/codex-auth/status`);
       if (!resp.ok) {
         setStatus({ kind: 'unknown' });
         return;
@@ -85,7 +92,7 @@ export const CodexAuthPreflightField = (
       setStatus({ kind: 'unknown' });
       props.onChange('ok');
     }
-  }, [discovery, props]);
+  }, [discovery, fetchApi, props]);
 
   React.useEffect(() => {
     void fetchStatus();
