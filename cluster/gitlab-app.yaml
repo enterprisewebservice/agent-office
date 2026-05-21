@@ -1,0 +1,31 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: gitlab
+  namespace: openshift-gitops
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  annotations:
+    # Wave 0 = after the operator install (wave -1). At this point
+    # the apps.gitlab.com/v1beta1 GitLab CRD exists on the cluster,
+    # so Argo can apply our GitLab CR without a "no matches for
+    # kind" error.
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/enterprisewebservice/agent-office.git
+    targetRevision: main
+    path: cluster/gitlab
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: gitlab-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+      # The GitLab CR's `chart.values` payload is bulky and
+      # ServerSideApply lets us own it without "field is owned by
+      # another manager" warnings if the operator adds anything.

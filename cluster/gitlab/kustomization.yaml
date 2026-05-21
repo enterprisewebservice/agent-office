@@ -1,0 +1,8 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# The GitLab instance itself, distinct from the operator install
+# in cluster/gitlab-operator/. Sync wave 0 (operator was -1) so
+# Argo waits for the GitLab CRD to exist before applying the CR.
+resources:
+  - gitlab.yaml
