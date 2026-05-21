@@ -1,0 +1,30 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: gitlab-operator
+  namespace: openshift-gitops
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  annotations:
+    # GitLab operator install lands BEFORE any GitLab CR is created
+    # (a future cluster/gitlab/ app, one sync-wave higher, will own
+    # the actual GitLab instance). Sync wave -1 puts it alongside
+    # ESO + Vault — all "platform plumbing the rest of the cluster
+    # depends on" goes in this wave.
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/enterprisewebservice/agent-office.git
+    targetRevision: main
+    path: cluster/gitlab-operator
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: gitlab-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
