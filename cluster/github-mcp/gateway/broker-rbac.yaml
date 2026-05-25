@@ -1,0 +1,50 @@
+# RBAC for the mcp-gateway broker pod to read the
+# github-mcp-broker-token Secret it needs for backend discovery.
+#
+# The mcp-gateway operator (v0.6.0 Tech Preview) does NOT
+# dynamically grant the broker SA read access to credential Secrets
+# referenced via MCPServerRegistration.credentialRef. The broker's
+# SA `mcp-gateway` (auto-created in the namespace where the broker
+# pod runs — agent-office, same as the Gateway resource) has only
+# the minimal RBAC needed for its own operation; it cannot read
+# tenant Secrets without an explicit grant.
+#
+# Symptom without this: MCPServerRegistration stays Ready=False with
+# `credential secret X not found` (a misleading message — the
+# Secret exists, the SA just can't read it; oc auth can-i confirms
+# this).
+#
+# Scope is tight: ONE Secret name, get/list/watch only. The broker
+# never writes to credential Secrets; ESO owns their lifecycle.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: mcp-gateway-broker-token-reader
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/name: mcp-gateway
+    app.kubernetes.io/component: broker-rbac
+    app.kubernetes.io/managed-by: agent-office-gitops
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["github-mcp-broker-token"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: mcp-gateway-broker-token-reader
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/name: mcp-gateway
+    app.kubernetes.io/component: broker-rbac
+    app.kubernetes.io/managed-by: agent-office-gitops
+subjects:
+  - kind: ServiceAccount
+    name: mcp-gateway
+    namespace: agent-office
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: mcp-gateway-broker-token-reader

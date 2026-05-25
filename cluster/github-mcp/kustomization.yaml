@@ -49,3 +49,4 @@ resources:
   - gateway/github-mcp-server-route.yaml
   - gateway/github-mcp-registration.yaml
   - gateway/broker-token-externalsecret.yaml
+  - gateway/broker-rbac.yaml
