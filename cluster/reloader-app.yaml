@@ -50,18 +50,33 @@ spec:
     helm:
       releaseName: reloader
       values: |
-        # Run as the lowest-privilege OpenShift workload (restricted-v2
-        # compatible). Chart already sets allowPrivilegeEscalation:false
-        # and drops ALL caps by default; we add a non-root user.
+        # OpenShift restricted-v2 SCC requires a UID in the namespace's
+        # allocated range (e.g. 1001500000-1001509999), assigned by the
+        # platform. The upstream chart defaults to runAsUser: 65534
+        # (nobody) which is rejected. Strategy: clear runAsUser so
+        # OpenShift assigns one from the namespace range, and clear
+        # runAsGroup/fsGroup similarly.
         reloader:
           deployment:
             securityContext:
               runAsNonRoot: true
               seccompProfile:
                 type: RuntimeDefault
+              # Explicitly null these so the chart's defaults don't
+              # override OpenShift's namespace-assigned UID.
+              runAsUser: null
+              runAsGroup: null
+              fsGroup: null
+            podSecurityContext:
+              runAsNonRoot: true
+              runAsUser: null
+              runAsGroup: null
+              fsGroup: null
             containerSecurityContext:
               allowPrivilegeEscalation: false
               readOnlyRootFilesystem: true
+              runAsUser: null
+              runAsGroup: null
               capabilities:
                 drop: [ALL]
           # Minimal logging — we want events for Secret-change-triggered

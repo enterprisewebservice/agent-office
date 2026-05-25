@@ -68,15 +68,18 @@ spec:
         - name: mcp-server
           image: ghcr.io/github/github-mcp-server:latest
           imagePullPolicy: IfNotPresent
-          # SSE transport on :8080 with all toolsets enabled.
-          # Binary path is /server/github-mcp-server per upstream
-          # Dockerfile; args[0]="http" selects the SSE subcommand.
+          # HTTP transport on :8080 with all toolsets enabled.
+          # The `http` subcommand serves MCP via the Streamable HTTP
+          # transport (which supersedes the older SSE-only flag set).
+          # Binary always binds 0.0.0.0 in a container — no --host
+          # flag exists. Real flags per `server http --help`:
+          #   --port (default 8082; we use 8080 to match Service)
+          # Global flag for tool surface:
+          #   --toolsets=all (covers projects, issues, repos, etc.)
           args:
             - "http"
-            - "--transport=sse"
-            - "--host=0.0.0.0"
             - "--port=8080"
-            - "--enable-toolsets=all"
+            - "--toolsets=all"
           # envFrom: every key in the Secret becomes a pod env var.
           # The Secret has exactly one key — GITHUB_PERSONAL_ACCESS_TOKEN
           # — produced by the ExternalSecret's rewrite rule.
