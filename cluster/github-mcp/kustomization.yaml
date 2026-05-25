@@ -1,0 +1,29 @@
+# cluster/github-mcp — github-mcp-server + App-token refresh sidecar
+#
+# Hosts the official github/github-mcp-server (https://github.com/github/github-mcp-server)
+# as an in-cluster Deployment with our existing GitHub App identity
+# preserved via a sidecar that refreshes the installation token every
+# 50 minutes (1-hour TTL; 10-minute safety margin).
+#
+# Why a sidecar instead of a static PAT: github/github-mcp-server reads
+# GITHUB_PERSONAL_ACCESS_TOKEN once at startup. App installation tokens
+# expire hourly, so we mint + write + SIGTERM the server every 50 min;
+# kubelet restarts the container, the entrypoint wrapper reads the
+# freshly-written token. SSE connections drop briefly each cycle —
+# acceptable for the agent-orchestration use case where PM agent's
+# requests are spiky, not long-running streams.
+#
+# Auth path summary:
+#   App private key (already in agent-office/agent-office-github-app Secret,
+#      same one the operator uses for wiki pushes)
+#   → init container signs JWT + exchanges for installation token
+#   → token written to emptyDir at /tokens/github-installation
+#   → mcp-server container's entrypoint reads file into env at startup
+#   → sidecar repeats every 50 min and SIGTERMs the server to refresh
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: agent-office
+resources:
+  - mcp-server-deployment.yaml
+  - mcp-server-service.yaml
+  - refresh-script-configmap.yaml

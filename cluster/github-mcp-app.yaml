@@ -1,0 +1,28 @@
+# ArgoCD Application — reconciles cluster/github-mcp/ into agent-office.
+#
+# Depends on: agent-office namespace (already exists) +
+# agent-office-github-app Secret (already exists, same one operator
+# uses for wiki commits). Both prerequisites are unchanged by this app
+# — we just reference them.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: github-mcp
+  namespace: openshift-gitops
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/enterprisewebservice/agent-office.git
+    targetRevision: main
+    path: cluster/github-mcp
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: agent-office
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true

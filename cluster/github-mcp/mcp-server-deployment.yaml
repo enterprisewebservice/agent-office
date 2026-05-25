@@ -1,0 +1,166 @@
+# github-mcp-server Deployment — App-auth-preserved via sidecar.
+#
+# Pod composition (all in one Pod so the token never leaves):
+#
+#   initContainer / token-mint    — runs mint-token.sh once before
+#                                    main containers start, so the
+#                                    entrypoint wrapper has a valid
+#                                    token to read at boot.
+#
+#   container / mcp-server         — github/github-mcp-server (Go binary)
+#                                    wrapped in server-entrypoint.sh.
+#                                    Listens on :8080 SSE.
+#
+#   container / token-refresher    — sidecar. Loops: sleep 50min →
+#                                    mint-token.sh → SIGTERM the
+#                                    mcp-server binary. kubelet
+#                                    restarts mcp-server; entrypoint
+#                                    re-reads the freshly written
+#                                    token. SSE drops briefly each
+#                                    cycle (~1s reconnect).
+#
+# Shared state:
+#   /tokens         emptyDir, written by sidecar, read by mcp-server
+#   /app-key        readOnly Secret mount of agent-office-github-app
+#   /scripts        readOnly ConfigMap mount of refresh + entrypoint scripts
+#
+# shareProcessNamespace: true is required so the sidecar's `pkill`
+# can see the mcp-server's PID. The trade-off is that any container
+# can see all PIDs in the pod — acceptable here because both
+# containers are operator-controlled, neither runs user code.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: github-mcp-server
+  labels:
+    app.kubernetes.io/name: github-mcp-server
+    app.kubernetes.io/component: mcp-server
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: github-mcp-server
+  strategy:
+    # Recreate (not RollingUpdate) — there's only ever one instance
+    # and we don't want two pods racing on the same App installation
+    # token mint. The sidecar's restart cycle is the only legitimate
+    # "second pod" we'd see during a Deployment update.
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: github-mcp-server
+        app.kubernetes.io/component: mcp-server
+    spec:
+      # Sidecar needs to SIGTERM the mcp-server PID. Both containers
+      # are in our trust boundary; no user-supplied images.
+      shareProcessNamespace: true
+
+      # Run as a low-privilege UID; both containers can use it.
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+
+      initContainers:
+        # Mints the very first installation token before mcp-server
+        # tries to start. Without this, the entrypoint's "token
+        # file is empty" FATAL would fire on first pod start.
+        - name: token-mint-init
+          image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+          command: ["/bin/sh", "/scripts/mint-token.sh"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - {name: app-key, mountPath: /app-key, readOnly: true}
+            - {name: scripts, mountPath: /scripts, readOnly: true}
+            - {name: tokens,  mountPath: /tokens}
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits:   {cpu: 100m, memory: 64Mi}
+
+      containers:
+        - name: mcp-server
+          # GitHub's official MCP server image. Pinned to a digest
+          # in a real environment; using :latest here for the v1.0
+          # spike. Bump to a sha256 once we validate the demo.
+          image: ghcr.io/github/github-mcp-server:latest
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "/scripts/server-entrypoint.sh"]
+          ports:
+            - name: sse
+              containerPort: 8080
+              protocol: TCP
+          # Liveness + readiness against the SSE root. The
+          # mcp-server doesn't expose a dedicated /healthz; SSE
+          # endpoint responds 200 OK on initial GET.
+          startupProbe:
+            httpGet: {path: /, port: sse}
+            periodSeconds: 5
+            failureThreshold: 12   # 60s startup grace
+          readinessProbe:
+            httpGet: {path: /, port: sse}
+            periodSeconds: 10
+          # No livenessProbe — the sidecar's SIGTERM is the only
+          # restart signal we want. Adding liveness would cause
+          # additional unexpected restarts.
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - {name: tokens,  mountPath: /tokens,  readOnly: true}
+            - {name: scripts, mountPath: /scripts, readOnly: true}
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits:   {cpu: 500m, memory: 256Mi}
+
+        - name: token-refresher
+          # Same tiny RHEL image — needs openssl + curl, both
+          # present in ubi9-minimal via microdnf install at build
+          # time, but for runtime ubi9-minimal has openssl-libs +
+          # we can curl via an alpine alt if needed. Keeping ubi9
+          # for Red Hat support story; verify openssl + curl are
+          # both present on first deploy.
+          image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+          command: ["/bin/sh", "/scripts/refresh-loop.sh"]
+          env:
+            - name: REFRESH_SEC
+              value: "3000"   # 50 minutes
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              # SIGTERM to another container's process requires
+              # CAP_KILL (kill any process). With
+              # shareProcessNamespace + same UID, no extra cap is
+              # strictly needed, but keeping the default drop is
+              # safer.
+              drop: [ALL]
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - {name: app-key, mountPath: /app-key, readOnly: true}
+            - {name: scripts, mountPath: /scripts, readOnly: true}
+            - {name: tokens,  mountPath: /tokens}
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits:   {cpu: 100m, memory: 64Mi}
+
+      volumes:
+        # The App key Secret already exists — same one the operator
+        # uses for wiki commits (see internal/controller/githubapp.go).
+        # Three keys: appId, installationId, privateKey (PEM).
+        - name: app-key
+          secret:
+            secretName: agent-office-github-app
+            defaultMode: 0o400
+        - name: scripts
+          configMap:
+            name: github-mcp-refresh-scripts
+            defaultMode: 0o555
+        - name: tokens
+          emptyDir:
+            medium: Memory   # tmpfs — token never hits node disk
+            sizeLimit: 1Mi
