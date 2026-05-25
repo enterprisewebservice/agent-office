@@ -1,0 +1,79 @@
+# ArgoCD Application — installs stakater/Reloader from upstream Helm chart.
+#
+# Why Reloader is here:
+#   We rotate the GitHub App installation token used by github-mcp-server
+#   via ESO (External Secrets Operator) every 30min. The upstream
+#   ghcr.io/github/github-mcp-server image is distroless and reads
+#   GITHUB_PERSONAL_ACCESS_TOKEN env var ONCE at startup, so when the
+#   token Secret changes, the Deployment must be rolled to pick up the
+#   new value.
+#
+#   Reloader watches Secrets/ConfigMaps annotated with
+#   `reloader.stakater.com/auto: "true"` (or specific reload triggers)
+#   and patches a SHA1 annotation on the consuming Deployment's pod
+#   template — triggering a normal RollingUpdate.
+#
+#   We evaluated alternatives — `appthrust/tokenaut`,
+#   `isometry/github-token-manager`, Kagenti AuthBridge — all of which
+#   either don't solve the env-var-at-startup problem or are premature
+#   (preview-only) for our MVP. Reloader is the smallest possible
+#   addition to close the loop and is well-maintained (last release
+#   2026-03 with E2E + CodeQL CI).
+#
+# Why not OLM-packaged: still an open issue upstream
+# (stakater/Reloader#551). We pull the official Helm chart directly,
+# following the same pattern used for `vault` (see cluster/vault-app.yaml).
+#
+# Scope: cluster-wide watch on annotated Secrets/ConfigMaps. The
+# default Helm values are deliberately not customized — we want the
+# upstream defaults to keep this as a drop-in component, and we only
+# use Reloader for one specific Deployment (github-mcp-server),
+# annotated explicitly.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: reloader
+  namespace: openshift-gitops
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  annotations:
+    # Sync ahead of github-mcp so Reloader is watching the token Secret
+    # before the Deployment annotated with reloader.stakater.com/auto
+    # comes online.
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  project: default
+  source:
+    repoURL: https://stakater.github.io/stakater-charts
+    chart: reloader
+    targetRevision: "2.2.12"
+    helm:
+      releaseName: reloader
+      values: |
+        # Run as the lowest-privilege OpenShift workload (restricted-v2
+        # compatible). Chart already sets allowPrivilegeEscalation:false
+        # and drops ALL caps by default; we add a non-root user.
+        reloader:
+          deployment:
+            securityContext:
+              runAsNonRoot: true
+              seccompProfile:
+                type: RuntimeDefault
+            containerSecurityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop: [ALL]
+          # Minimal logging — we want events for Secret-change-triggered
+          # restarts to be visible but not flood the cluster logs.
+          logFormat: "json"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: reloader
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

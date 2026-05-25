@@ -1,0 +1,43 @@
+# GithubAccessToken generator — mints a fresh GitHub App installation
+# token on each refresh of the ExternalSecret that references this
+# generator (see externalsecret-installation-token.yaml).
+#
+# How it works:
+#   1. ESO controller, on the ExternalSecret's refreshInterval, calls
+#      this generator.
+#   2. Generator reads appID + installID + privateKey from the
+#      agent-office-github-app Secret (ESO-synced from Vault per
+#      cluster/secrets/agent-office-github-app.yaml).
+#   3. Generator signs a JWT with the App private key + exchanges it
+#      at https://api.github.com/app/installations/{id}/access_tokens
+#      for a 60-minute installation token (ghs_… prefix).
+#   4. ESO writes the result into the target Secret (the
+#      ExternalSecret in externalsecret-installation-token.yaml).
+#
+# No permissions/repositories scoping: we want a token that mirrors
+# the full installation grant (Projects v2 + repo + issues + pulls —
+# whatever the App was granted at install time). Adding `permissions`
+# here would downscope; we don't want that for the MVP.
+#
+# Trust note: this generator only reads the App private key. It does
+# NOT cache the minted token anywhere — that's the ExternalSecret's
+# job (Secret in agent-office namespace).
+
+apiVersion: generators.external-secrets.io/v1alpha1
+kind: GithubAccessToken
+metadata:
+  name: github-mcp-installation-token
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/managed-by: agent-office
+    app.kubernetes.io/name: github-mcp-server
+    app.kubernetes.io/component: token-generator
+spec:
+  appID: "3559968"
+  installID: "128488425"
+  auth:
+    privateKey:
+      secretRef:
+        name: agent-office-github-app
+        key: privateKey
+        namespace: agent-office

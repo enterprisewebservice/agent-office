@@ -1,29 +1,39 @@
-# cluster/github-mcp — github-mcp-server + App-token refresh sidecar
+# cluster/github-mcp — github-mcp-server backed by ESO-rotated App tokens
 #
-# Hosts the official github/github-mcp-server (https://github.com/github/github-mcp-server)
-# as an in-cluster Deployment with our existing GitHub App identity
-# preserved via a sidecar that refreshes the installation token every
-# 50 minutes (1-hour TTL; 10-minute safety margin).
+# Hosts the official github/github-mcp-server
+# (https://github.com/github/github-mcp-server) as an in-cluster
+# Deployment whose GITHUB_PERSONAL_ACCESS_TOKEN env var is a rotating
+# GitHub App installation token, minted by ESO's GithubAccessToken
+# generator and refreshed every 30min. Reloader bounces the pod when
+# the token Secret changes.
 #
-# Why a sidecar instead of a static PAT: github/github-mcp-server reads
-# GITHUB_PERSONAL_ACCESS_TOKEN once at startup. App installation tokens
-# expire hourly, so we mint + write + SIGTERM the server every 50 min;
-# kubelet restarts the container, the entrypoint wrapper reads the
-# freshly-written token. SSE connections drop briefly each cycle —
-# acceptable for the agent-orchestration use case where PM agent's
-# requests are spiky, not long-running streams.
+# Why an App-installation-token instead of a static PAT: the PM Agent
+# acts as agent-pipelines-as-code[bot] (the App identity) on every
+# GitHub action — audit trail preserved, no per-human PAT, no risk of
+# a single human's revocation cascading.
 #
 # Auth path summary:
-#   App private key (already in agent-office/agent-office-github-app Secret,
-#      same one the operator uses for wiki pushes)
-#   → init container signs JWT + exchanges for installation token
-#   → token written to emptyDir at /tokens/github-installation
-#   → mcp-server container's entrypoint reads file into env at startup
-#   → sidecar repeats every 50 min and SIGTERMs the server to refresh
+#   Vault: agent-office/github-app (PEM, appId, installationId)
+#     → ExternalSecret (cluster/secrets/agent-office-github-app.yaml)
+#     → K8s Secret: agent-office-github-app
+#     → GithubAccessToken generator (this dir)
+#     → ExternalSecret with refreshInterval 30m (this dir)
+#     → K8s Secret: github-mcp-installation-token
+#       (key: GITHUB_PERSONAL_ACCESS_TOKEN)
+#     → Deployment.envFrom + Reloader annotation
+#     → Pod restart on Secret change → fresh token in env
+#
+# Reloader install: cluster/reloader-app.yaml (Helm chart).
+# MCP Gateway in front: cluster/mcp-gateway-operator-app.yaml + the
+# MCPServerRegistration / MCPGatewayExtension / AuthPolicy that get
+# added once the operator's CRDs land.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: agent-office
 resources:
+  # ESO chain
+  - githubaccesstoken-generator.yaml
+  - externalsecret-installation-token.yaml
+  # Server itself
   - mcp-server-deployment.yaml
   - mcp-server-service.yaml
-  - refresh-script-configmap.yaml
