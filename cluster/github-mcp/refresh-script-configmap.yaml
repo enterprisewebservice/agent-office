@@ -40,10 +40,18 @@ data:
       -H "Authorization: Bearer $jwt" \
       -H "Accept: application/vnd.github+json" \
       "https://api.github.com/app/installations/${INSTALL_ID}/access_tokens")
-    if command -v jq >/dev/null 2>&1; then
+    # Prefer Python3 (UBI9 ships it; robust to pretty-printed JSON).
+    # Fall back to a whitespace-tolerant sed regex if Python is gone.
+    if command -v python3 >/dev/null 2>&1; then
+      token=$(printf '%s' "$resp" | python3 -c "import sys, json; print(json.load(sys.stdin)['token'])")
+    elif command -v jq >/dev/null 2>&1; then
       token=$(printf '%s' "$resp" | jq -r .token)
     else
-      token=$(printf '%s' "$resp" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')
+      # GitHub's response is pretty-printed multi-line JSON; the
+      # `"token": "..."` line has whitespace after the colon. The
+      # earlier no-whitespace regex silently returned empty and
+      # crashed the init container — fixed in v1.0.1 of this script.
+      token=$(printf '%s' "$resp" | sed -n 's/.*"token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
     fi
     if [ -z "$token" ] || [ "$token" = "null" ]; then
       echo "FATAL: mint-token: GitHub returned no token. response: $resp" >&2
