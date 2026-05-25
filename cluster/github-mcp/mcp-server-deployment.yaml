@@ -68,7 +68,7 @@ spec:
         # tries to start. Without this, the entrypoint's "token
         # file is empty" FATAL would fire on first pod start.
         - name: token-mint-init
-          image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+          image: registry.access.redhat.com/ubi9/ubi:latest
           command: ["/bin/sh", "/scripts/mint-token.sh"]
           securityContext:
             allowPrivilegeEscalation: false
@@ -125,7 +125,7 @@ spec:
           # we can curl via an alpine alt if needed. Keeping ubi9
           # for Red Hat support story; verify openssl + curl are
           # both present on first deploy.
-          image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+          image: registry.access.redhat.com/ubi9/ubi:latest
           command: ["/bin/sh", "/scripts/refresh-loop.sh"]
           env:
             - name: REFRESH_SEC
