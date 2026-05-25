@@ -52,31 +52,29 @@ spec:
       values: |
         # OpenShift restricted-v2 SCC requires a UID in the namespace's
         # allocated range (e.g. 1001500000-1001509999), assigned by the
-        # platform. The upstream chart defaults to runAsUser: 65534
-        # (nobody) which is rejected. Strategy: clear runAsUser so
-        # OpenShift assigns one from the namespace range, and clear
-        # runAsGroup/fsGroup similarly.
+        # platform's admission controller. The upstream chart defaults
+        # to runAsUser: 65534 (nobody) which falls outside that range
+        # and is rejected — pod creation fails.
+        #
+        # Fix: clear the pod-level securityContext block ENTIRELY by
+        # setting it to null. The chart template guards rendering with
+        # `{{- if .Values.reloader.deployment.securityContext }}` so a
+        # null value skips emitting the block, letting OpenShift's SCC
+        # admission inject the namespace-assigned UID + non-root +
+        # seccomp defaults.
+        #
+        # Container-level securityContext we keep, since OpenShift only
+        # injects the pod-level. Drop ALL caps + read-only root for the
+        # most restrictive posture compatible with restricted-v2.
         reloader:
+          # Adds DeploymentConfig RBAC. We don't use DC anymore but the
+          # flag is the canonical "yes, this is OpenShift" signal.
+          isOpenshift: true
           deployment:
-            securityContext:
-              runAsNonRoot: true
-              seccompProfile:
-                type: RuntimeDefault
-              # Explicitly null these so the chart's defaults don't
-              # override OpenShift's namespace-assigned UID.
-              runAsUser: null
-              runAsGroup: null
-              fsGroup: null
-            podSecurityContext:
-              runAsNonRoot: true
-              runAsUser: null
-              runAsGroup: null
-              fsGroup: null
+            securityContext: null
             containerSecurityContext:
               allowPrivilegeEscalation: false
               readOnlyRootFilesystem: true
-              runAsUser: null
-              runAsGroup: null
               capabilities:
                 drop: [ALL]
           # Minimal logging — we want events for Secret-change-triggered

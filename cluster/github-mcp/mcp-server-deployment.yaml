@@ -90,12 +90,17 @@ spec:
             - name: sse
               containerPort: 8080
               protocol: TCP
+          # TCP socket probe — the binary serves MCP JSON-RPC over
+          # HTTP POST, no GET /healthz endpoint. GET / returns 405
+          # which kubelet treats as probe failure. Open TCP port is
+          # the most reliable "process is alive + listening" signal
+          # without depending on MCP protocol semantics.
           startupProbe:
-            httpGet: {path: /, port: sse}
+            tcpSocket: {port: sse}
             periodSeconds: 5
             failureThreshold: 12
           readinessProbe:
-            httpGet: {path: /, port: sse}
+            tcpSocket: {port: sse}
             periodSeconds: 10
           # No livenessProbe — token expiry shouldn't kill the pod
           # (Reloader handles the restart). The binary itself has no
