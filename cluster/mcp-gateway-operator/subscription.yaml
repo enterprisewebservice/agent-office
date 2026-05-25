@@ -1,0 +1,42 @@
+# Subscription: mcp-gateway (Tech Preview, Kuadrant)
+#
+# Installs the MCP Gateway operator that introduces three CRDs:
+#
+#   - MCPServerRegistration  — register a backend MCP server (one
+#     of our github-mcp-server Service in agent-office) so the
+#     gateway broker-router can federate it.
+#   - MCPGatewayExtension    — extend a Gateway-API Gateway with an
+#     Envoy-based broker that speaks MCP and routes to registered
+#     backends.
+#   - MCPVirtualServer       — expose a curated subset of tools from
+#     one or more registered servers behind a single virtual MCP
+#     endpoint.
+#
+# Why kuadrant-system: the existing OperatorGroup there is empty-
+# targetNamespaces (AllNamespaces), so this operator can watch CRs
+# in any namespace including agent-office (where the github-mcp
+# Service lives). No new OperatorGroup needed.
+#
+# Why channel: preview — this is the only published channel for
+# v0.6.0 (Red Hat tech-preview release). When it graduates to
+# stable, we'll bump the channel + targetCSV.
+#
+# Why redhat-operators-v420 source — the v420 catalog is the one
+# carrying mcp-gateway today; the older `redhat-operators` catalog
+# doesn't have it yet.
+#
+# Related app at cluster/mcp-gateway-operator-app.yaml; CR wiring
+# (registration + AuthPolicy) will land separately once the CRDs
+# are installed and we know the Gateway we want to attach to.
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: mcp-gateway
+  namespace: kuadrant-system
+spec:
+  channel: preview
+  name: mcp-gateway
+  source: redhat-operators-v420
+  sourceNamespace: openshift-marketplace
+  installPlanApproval: Automatic
+  startingCSV: mcp-gateway.v0.6.0

@@ -1,0 +1,32 @@
+# ArgoCD Application — reconciles cluster/mcp-gateway-operator/ into
+# the kuadrant-system namespace. Installs the mcp-gateway operator
+# (Kuadrant Tech Preview) via OLM.
+#
+# Sync-wave -1: install the operator + CRDs BEFORE any MCPServerRegistration
+# / MCPGatewayExtension / MCPVirtualServer CRs land. Those CRs will be
+# part of cluster/github-mcp/ once the CRDs are reachable, and that
+# app is sync-wave 0 (default).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: mcp-gateway-operator
+  namespace: openshift-gitops
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/enterprisewebservice/agent-office.git
+    targetRevision: main
+    path: cluster/mcp-gateway-operator
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kuadrant-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
