@@ -38,6 +38,13 @@ metadata:
     app.kubernetes.io/name: mcp-gateway
     app.kubernetes.io/component: gateway
     app.kubernetes.io/managed-by: agent-office-gitops
+  annotations:
+    # Force the gateway-controller (Istio) to use a ClusterIP Service
+    # instead of LoadBalancer. The cluster has no external LB provider
+    # configured, so a LoadBalancer Service sits with EXTERNAL-IP
+    # pending forever and the Gateway's PROGRAMMED status stays False.
+    # Our MCP traffic is cluster-internal only — ClusterIP is correct.
+    networking.istio.io/service-type: ClusterIP
 spec:
   gatewayClassName: data-science-gateway-class
   listeners:

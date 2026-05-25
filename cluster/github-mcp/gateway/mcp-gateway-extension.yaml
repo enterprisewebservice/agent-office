@@ -36,6 +36,14 @@ spec:
     name: mcp-gateway
     namespace: agent-office
     sectionName: mcp
+  # publicHost: the externally-visible hostname agents use to reach
+  # the mcp listener. For cluster-internal MVP we use the
+  # gateway-controller-generated Service DNS. (The mcp listener
+  # itself has no hostname constraint in mcp-gateway.yaml — it
+  # accepts any Host — and the operator uses publicHost to build
+  # the agent-facing URL in MCP discovery responses, baseURL on
+  # registered tools, etc.)
+  publicHost: mcp-gateway-data-science-gateway-class.agent-office.svc.cluster.local
   httpRouteManagement: Enabled
   trustedHeadersKey:
     secretName: mcp-gateway-trusted-headers
