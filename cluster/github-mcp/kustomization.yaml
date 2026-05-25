@@ -37,3 +37,15 @@ resources:
   # Server itself
   - mcp-server-deployment.yaml
   - mcp-server-service.yaml
+  # MCP Gateway wiring (federation pieces; the backend AuthPolicy in
+  # gateway/backend-auth-policy.yaml is deliberately commented OUT —
+  # Authorino CEL syntax for k8s-secret metadata lookup is fiddly;
+  # we'll iterate on it once the rest of the chain is live and we
+  # know the agent-side auth model. For now the github-mcp-server's
+  # auth requirement is satisfied by the agent sending its own
+  # Authorization header (the broker passes through).)
+  - gateway/mcp-gateway.yaml
+  - gateway/mcp-gateway-extension.yaml
+  - gateway/github-mcp-server-route.yaml
+  - gateway/github-mcp-registration.yaml
+  - gateway/broker-token-externalsecret.yaml

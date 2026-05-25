@@ -1,0 +1,66 @@
+# Backend AuthPolicy — Authorino rewrites the Authorization header on
+# every request the broker forwards to github-mcp-server.
+#
+# Why this exists: the upstream github-mcp-server requires every
+# incoming MCP request to carry an Authorization: Bearer <token>
+# header (the server validates the token AND uses it for outbound
+# GitHub calls). Agents calling the gateway don't know the App
+# installation token (rotated every 30min by ESO; agents have no
+# RBAC to read it). So the gateway has to inject it as the request
+# transits, using Authorino's response.success.headers feature.
+#
+# Authorino reads the rotated token from the github-mcp-installation-
+# token Secret at REQUEST TIME via metadata.k8s-secret lookup — so
+# the value is always current; no caching, no stale-window risk.
+# (For this to work, the Authorino instance's SA needs Secret/get
+# RBAC on github-mcp-installation-token in agent-office. See
+# authorino-rbac.yaml in the same dir.)
+#
+# Auth strategy in this AuthPolicy:
+#   - authentication: "anonymous" — accept any caller (the gateway
+#     itself is the trust boundary for MVP; in-cluster only).
+#     Tighten later by adding Kubernetes SA token validation here
+#     to ensure the request comes from openclaw/pm-agent pods only.
+#   - response.success.headers.authorization: inject Authorization
+#     header with the fresh App installation token, OVERWRITING
+#     whatever the caller sent (or filling in if nothing sent).
+#
+# The Authorization header value comes via CEL expression that
+# reads from the metadata block, prepending "Bearer ".
+apiVersion: kuadrant.io/v1
+kind: AuthPolicy
+metadata:
+  name: github-backend-token-inject
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/name: github-mcp-server
+    app.kubernetes.io/component: backend-auth-policy
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: github-mcp-server-route
+  rules:
+    authentication:
+      "anonymous":
+        anonymous: {}
+    metadata:
+      "token_secret":
+        http:
+          # Authorino reads the Secret via the Kubernetes API
+          urlExpression: "'https://kubernetes.default.svc/api/v1/namespaces/agent-office/secrets/github-mcp-installation-token'"
+          method: GET
+          headers:
+            "Authorization":
+              expression: "'Bearer ' + auth.identity.token"
+            "Accept":
+              value: "application/json"
+    response:
+      success:
+        headers:
+          "authorization":
+            plain:
+              expression: |
+                'Bearer ' +
+                base64decode(auth.metadata.token_secret.data.GITHUB_PERSONAL_ACCESS_TOKEN)

@@ -1,0 +1,56 @@
+# Gateway: mcp-gateway (Gateway API, Istio-controller)
+#
+# Dedicated Gateway for MCP traffic. We do NOT add listeners to the
+# existing data-science-gateway (it's owned by RHOAI's GatewayConfig
+# CR and any direct edits would be reverted by RHOAI's reconcile).
+#
+# Two listeners as required by the Kuadrant mcp-gateway operator:
+#
+#   mcp     — public-ish client listener that the MCPGatewayExtension
+#             attaches to via sectionName. PM Agent (openclaw) calls
+#             this listener over the cluster-internal Service.
+#             Port: 8888 (chosen to be obviously-not-default, avoids
+#             collision with other Service Mesh listeners).
+#
+#   mcps    — internal wildcard listener that backend HTTPRoutes
+#             attach to via parentRefs.sectionName=mcps. The broker
+#             reaches the backend via cluster-internal hostnames
+#             matching the wildcard (e.g. github-mcp.mcp.local).
+#             Port: 9999.
+#
+# Protocol: HTTP. This is cluster-internal traffic only — openclaw
+# pods reach the gateway via the cluster-internal Service DNS, and
+# the backend HTTPRoutes route to in-cluster Services. No external
+# exposure today (no Route, no LoadBalancer). For external clients
+# we'd add a third listener and TLS later.
+#
+# `allowedRoutes.namespaces.from: All` lets HTTPRoutes from any
+# namespace attach. We could restrict to a selector (e.g. only
+# agent-office), but for MVP All is simpler and the operator's
+# MCPServerRegistration mechanism is itself the access control
+# (only registered backends get federated).
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: mcp-gateway
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/name: mcp-gateway
+    app.kubernetes.io/component: gateway
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  gatewayClassName: data-science-gateway-class
+  listeners:
+    - name: mcp
+      protocol: HTTP
+      port: 8888
+      allowedRoutes:
+        namespaces:
+          from: All
+    - name: mcps
+      protocol: HTTP
+      port: 9999
+      hostname: "*.mcp.local"
+      allowedRoutes:
+        namespaces:
+          from: All

@@ -1,0 +1,49 @@
+# MCPServerRegistration — tells the gateway operator's broker about
+# the github backend so it can:
+#   1. On startup: connect to the backend via the credentialRef and
+#      call tools/list to discover available MCP tools.
+#   2. On each user request: forward the request to the backend's
+#      HTTPRoute (and inject the per-user trusted-header JWT for
+#      tool-allowlist enforcement, if user-based filtering is in use).
+#
+# credentialRef points at github-mcp-broker-token, NOT the
+# github-mcp-installation-token Secret directly — because:
+#   * the broker expects the Secret VALUE to be the literal
+#     `Authorization` header value (i.e. "Bearer ghs_...")
+#   * the broker expects the Secret to carry the label
+#     `mcp.kuadrant.io/secret: "true"` (it filters Secrets by label)
+# Our github-mcp-installation-token contains a raw token (no Bearer
+# prefix) and is shaped for envFrom. Mutating it would break the
+# github-mcp-server Deployment. So we project a second Secret with
+# the bearer-prefixed shape: see broker-token-externalsecret.yaml.
+#
+# toolPrefix: github_ — every tool name from this backend is prefixed
+# `github_` in the broker's aggregated tools/list, so an agent sees
+# `github_create_issue`, `github_create_project_v2`, etc. Useful when
+# we later add more backends (slack_*, jira_*, etc.).
+#
+# NOTE: per Kuadrant v0.6.0 design, credentialRef is used ONLY for
+# the broker's discovery connection. Per-user requests still need an
+# Authorization header. For our case the github-mcp-server requires
+# one too — so we additionally attach an AuthPolicy to the backend
+# HTTPRoute that rewrites Authorization with the fresh installation
+# token from the ESO secret (see backend-auth-policy.yaml).
+apiVersion: mcp.kuadrant.io/v1alpha1
+kind: MCPServerRegistration
+metadata:
+  name: github
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/name: github-mcp-server
+    app.kubernetes.io/component: registration
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  toolPrefix: github_
+  path: /mcp
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: github-mcp-server-route
+  credentialRef:
+    name: github-mcp-broker-token
+    key: AUTHORIZATION
