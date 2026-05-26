@@ -38,12 +38,19 @@ spec:
     sectionName: mcp
   # publicHost: the externally-visible hostname agents use to reach
   # the mcp listener. For cluster-internal MVP we use the
-  # gateway-controller-generated Service DNS. (The mcp listener
-  # itself has no hostname constraint in mcp-gateway.yaml — it
-  # accepts any Host — and the operator uses publicHost to build
-  # the agent-facing URL in MCP discovery responses, baseURL on
-  # registered tools, etc.)
+  # gateway-controller-generated Service DNS.
+  #
+  # privateHost: the hostname the BROKER uses internally to call
+  # backends via the gateway (the broker → gateway → backend round
+  # trip when invoking a registered server's tool). Without this,
+  # the operator defaults to `mcp-gateway-istio.<ns>.svc.cluster.local`
+  # which assumes an Istio-style Service name. Our gateway-controller
+  # is OpenShift's data-science-gateway-class — it creates Services
+  # named `mcp-gateway-data-science-gateway-class.<ns>.svc.cluster.local`.
+  # We point privateHost at the right Service DNS so the broker can
+  # actually reach the backend through the same gateway.
   publicHost: mcp-gateway-data-science-gateway-class.agent-office.svc.cluster.local
+  privateHost: mcp-gateway-data-science-gateway-class.agent-office.svc.cluster.local
   httpRouteManagement: Enabled
   trustedHeadersKey:
     secretName: mcp-gateway-trusted-headers
