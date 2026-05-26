@@ -68,13 +68,13 @@ spec:
   listeners:
     - name: mcp
       protocol: HTTP
-      port: 8888
+      port: 80
       allowedRoutes:
         namespaces:
           from: All
     - name: mcps
       protocol: HTTP
-      port: 8888
+      port: 80
       hostname: "*.mcp.local"
       allowedRoutes:
         namespaces:
