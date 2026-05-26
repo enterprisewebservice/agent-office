@@ -47,6 +47,24 @@ metadata:
     networking.istio.io/service-type: ClusterIP
 spec:
   gatewayClassName: data-science-gateway-class
+  # Both listeners share port 8888. This is REQUIRED by mcp-gateway
+  # operator v0.6.0 — `httpRouteAttachesToListener` filter at
+  # internal/controller/mcpgatewayextension.go:118-157 silently
+  # rejects HTTPRoutes whose attached listener has a different port
+  # from the MCPGatewayExtension's targetRef listener. The route
+  # is dropped from validNamespaces with no status update on the
+  # MCPServerRegistration — symptom is `servers: []` in the broker
+  # config Secret and a 404 from the broker on tools/list.
+  #
+  # Workaround: same port, different hostnames. The `mcp` listener
+  # accepts any Host (used by the broker's auto-generated front-door
+  # HTTPRoute on the operator-managed publicHost), and `mcps` accepts
+  # *.mcp.local (used by our backend HTTPRoutes). Istio routes by
+  # Host header between them.
+  #
+  # The upstream docs show separate ports (8888 + 9999) which is
+  # what made this hard to spot — the operator code doesn't match
+  # the documented topology. Bug worth filing upstream.
   listeners:
     - name: mcp
       protocol: HTTP
@@ -56,7 +74,7 @@ spec:
           from: All
     - name: mcps
       protocol: HTTP
-      port: 9999
+      port: 8888
       hostname: "*.mcp.local"
       allowedRoutes:
         namespaces:
