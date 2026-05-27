@@ -1,0 +1,85 @@
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: agentworkstation-binders-on-push
+  namespace: default-tenant
+  annotations:
+    # Trigger only when the plugin sources change on main. CEL filter
+    # avoids re-triggering on unrelated edits in this monorepo. Same
+    # pattern as source-filtered-entity-picker / codex-reauth-ui.
+    pipelinesascode.tekton.dev/on-cel-expression: 'event == "push" && target_branch == "main" && (body.head_commit.modified.exists(f, f.startsWith("rhdh-plugins/agentworkstation-binders/")) || body.head_commit.added.exists(f, f.startsWith("rhdh-plugins/agentworkstation-binders/")))'
+    pipelinesascode.tekton.dev/cancel-in-progress: "true"
+    pipelinesascode.tekton.dev/max-keep-runs: "5"
+    build.appstudio.openshift.io/repo: 'https://github.com/enterprisewebservice/agent-office?rev={{revision}}'
+    build.appstudio.redhat.com/commit_sha: '{{revision}}'
+    build.appstudio.redhat.com/target_branch: '{{target_branch}}'
+  labels:
+    appstudio.openshift.io/application: agent-office
+    appstudio.openshift.io/component: agentworkstation-binders
+    pipelines.appstudio.openshift.io/type: build
+spec:
+  params:
+    - name: git-url
+      value: '{{source_url}}'
+    - name: revision
+      value: '{{revision}}'
+    # Tag-stable strategy. install-dynamic-plugins.sh re-pulls the
+    # image on dev-hub pod restart; a bumpable :v0.0.x tag plus
+    # `oc rollout restart deploy/v1-developer-hub -n rhdh-test` is
+    # all that's needed to pick up a new build.
+    - name: output-image
+      value: 'quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/agent-office-agentworkstation-binders:v0.0.1'
+    - name: dockerfile
+      value: rhdh-plugins/agentworkstation-binders/Dockerfile
+    - name: path-context
+      value: rhdh-plugins/agentworkstation-binders
+    - name: rebuild
+      value: "true"
+    - name: skip-checks
+      value: "true"
+  pipelineRef:
+    resolver: bundles
+    params:
+      - name: bundle
+        value: 'quay.io/konflux-ci/tekton-catalog/pipeline-docker-build@sha256:1b2a544f5308a50b8ebf76e76f10f8be3e12342d6ce7233d2520aca724294a82'
+      - name: name
+        value: docker-build
+      - name: kind
+        value: pipeline
+  taskRunTemplate:
+    # Mirror other components' bad-node exclusion.
+    podTemplate:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: NotIn
+                    values:
+                      - ec-0d-9a-89-19-46
+  taskRunSpecs:
+    - pipelineTaskName: build-container
+      stepSpecs:
+        - name: build
+          # npm + Backstage tooling is memory-hungry but mostly
+          # single-threaded. Generous memory; modest CPU.
+          computeResources:
+            requests:
+              cpu: "2"
+              memory: 4Gi
+            limits:
+              cpu: "8"
+              memory: 8Gi
+  workspaces:
+    - name: workspace
+      volumeClaimTemplate:
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 2Gi
+    - name: git-auth
+      secret:
+        secretName: '{{ git_auth_secret }}'

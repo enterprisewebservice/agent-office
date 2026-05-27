@@ -1,0 +1,42 @@
+# Default dynamic-plugin configuration carried in the OCI image.
+# RHDH merges this into its app-config before the developer-hub
+# container starts. The cluster's v1-dynamic-plugins ConfigMap can
+# also override these values per-deploy.
+#
+# This plugin mounts a "Bindings" tab on the AgentWorkstation entity
+# page (Component entities annotated with agentoffice.ai/agent-kind).
+# The tab has three sub-tabs (KnowledgeBases, MemoryModules,
+# Skills) — each is an instance of the shared BindingPanel React
+# component.
+#
+# We expose a proxy endpoint `/api/proxy/agent-office-binders` so
+# the frontend can list KnowledgeBase / MemoryModule / SkillBinding
+# CRs in the agent's namespace without each user needing K8s API
+# tokens in their browser. The proxy target is the in-cluster
+# agent-office-backstage-catalog Service (operator-managed, same
+# one codex-reauth-ui uses for /codex-auth/status).
+dynamicPlugins:
+  frontend:
+    agent-office-backstage-plugin-agentworkstation-binders:
+      mountPoints:
+        # Render the Bindings card on AgentWorkstation entity pages.
+        # The discriminator (agentoffice.ai/agent-kind annotation)
+        # mirrors codex-reauth-ui — the operator writes this on
+        # every AW Component entity it registers in the catalog.
+        - mountPoint: entity.page.overview/cards
+          importName: AgentBindingsCard
+          module: PluginRoot
+          config:
+            layout:
+              gridColumnEnd:
+                lg: "span 12"
+                md: "span 12"
+                xs: "span 12"
+            if:
+              anyOf:
+                - hasAnnotation: agentoffice.ai/agent-kind
+proxy:
+  endpoints:
+    /agent-office-binders:
+      target: http://agent-office-backstage-catalog.agent-office-operator.svc.cluster.local
+      changeOrigin: true

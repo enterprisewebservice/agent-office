@@ -1,0 +1,112 @@
+# Backstage Software Template — agentworkstation-binder-save
+#
+# This template is NOT meant to be invoked from the Templates page
+# directly. It exists so the agentworkstation-binders frontend
+# plugin's "Save" button can programmatically open a PR against the
+# cluster gitops repo via scaffolderApi.scaffold({templateRef: '...'}).
+#
+# Inputs are URL-style — the plugin computes the entire new file
+# content client-side from the user's drag-drop edits, so this
+# template just has to (a) replace the file (b) open the PR.
+#
+# The template is registered in RHDH via the cluster's
+# v1-developer-hub-app-config ConfigMap's catalog.locations[] —
+# see the companion NOTES.md in this directory for how to add the
+# location entry if you're bootstrapping from scratch.
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: agentworkstation-binder-save
+  title: AgentWorkstation Binder — Save
+  description: |
+    Internal template called by the agentworkstation-binders frontend
+    plugin to commit a YAML edit against the cluster gitops repo and
+    open a PR. Not meant for manual invocation.
+  tags:
+    - internal
+    - agent-office
+spec:
+  owner: agent-office
+  type: service
+  # Plugin invocation only — never shown in the Templates page.
+  parameters:
+    - title: Plugin-supplied
+      properties:
+        awName:
+          title: AgentWorkstation name
+          type: string
+        awNamespace:
+          title: AgentWorkstation namespace
+          type: string
+        bindingType:
+          title: Binding type
+          type: string
+          enum: [kb, memory, skill]
+        targetPath:
+          title: Path in gitops repo
+          type: string
+        newContent:
+          title: New file content
+          type: string
+        branchName:
+          title: PR branch name
+          type: string
+        title:
+          title: PR title
+          type: string
+        body:
+          title: PR body
+          type: string
+      required:
+        - awName
+        - awNamespace
+        - bindingType
+        - targetPath
+        - newContent
+        - branchName
+        - title
+        - body
+  steps:
+    # Fetch the current gitops repo into the workspace so we can
+    # overwrite a single file inside it. fetch:plain copies the
+    # whole repo; we then overwrite targetPath via fetch:plain a
+    # second time pointing at our newContent inline.
+    - id: fetch-repo
+      name: Fetch gitops repo
+      action: fetch:plain
+      input:
+        url: https://github.com/enterprisewebservice/agent-office
+
+    # Write the new YAML content at the target path. The
+    # `fetch:template` action with `targetPath` writes a single
+    # rendered file; we pass `newContent` raw (no nunjucks
+    # interpolation in the body — the plugin already composed it).
+    - id: write
+      name: Write updated YAML
+      action: file:write
+      input:
+        path: ${{ parameters.targetPath }}
+        content: ${{ parameters.newContent }}
+
+    # Open the PR via the stock github action. publish:github:pull-request
+    # picks up the workspace contents and pushes them onto the
+    # named branch + opens a PR.
+    - id: publish
+      name: Open PR
+      action: publish:github:pull-request
+      input:
+        repoUrl: github.com?repo=agent-office&owner=enterprisewebservice
+        branchName: ${{ parameters.branchName }}
+        title: ${{ parameters.title }}
+        description: ${{ parameters.body }}
+        targetBranchName: main
+
+  output:
+    links:
+      - title: Open the PR
+        url: ${{ steps.publish.output.remoteUrl }}
+    text:
+      - title: PR
+        content: |
+          PR opened: ${{ steps.publish.output.remoteUrl }}
+          Branch: ${{ parameters.branchName }}
