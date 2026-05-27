@@ -1,0 +1,50 @@
+# Agent Platform Capabilities KB — what the PM Agent reads before
+# planning projects, so its kanbots-plan cards reference real
+# components (agents, KBs, Skills, templates) instead of inventing.
+#
+# Mounted at /home/node/.openclaw/wiki/agent-platform-capabilities/
+# inside the research-gateway pod. Every agent on that gateway can
+# read it (including pm-agent, redhat-ai-researcher, web-browser-researcher,
+# the autoresearch experimenters).
+#
+# Content lives in this directory, copied into the PVC after first
+# provision via `oc cp` (one-shot, see commit message). No gitMirror
+# today — bidirectional sync to a github repo is a follow-up
+# (depends on either creating a github-mcp-installation-token-shaped
+# git-token Secret for git-sync, or hooking the KB to a separate
+# write-token chain). For tonight the content is human-curated and
+# pushed-on-edit by maintainers; we'll add gitMirror in Part B
+# alongside the Backstage drag-and-drop plugin.
+apiVersion: agentoffice.ai/v1alpha1
+kind: KnowledgeBase
+metadata:
+  name: agent-platform-capabilities
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/managed-by: agent-office
+    agentoffice.ai/purpose: pm-agent-planning-reference
+spec:
+  displayName: Agent Platform Capabilities
+  description: |
+    Source of truth for what this Governed Agent Platform can do.
+    Consumed by the PM Agent before it plans projects. Documents
+    every CRD, every running agent (role/capabilities/description),
+    every KnowledgeBase, every Skill, every MemoryModule, every
+    architectural pattern (MCP Gateway federation, ESO credential
+    rotation, Konflux+Tekton+FBC release flow, autoresearch
+    flywheel), and every blueprint for the common project shapes.
+
+    Updated as the platform ships new capabilities. The PM Agent's
+    system prompt directs it to read this wiki before generating a
+    kanbots-plan, so its cards cite real components by name.
+  gatewayRef:
+    name: research-gateway
+  storage:
+    size: 1Gi
+  # No gitMirror today (see comment block above). Once a write-token
+  # chain exists for ESO-managed git push credentials, add:
+  #   gitMirror:
+  #     url: https://github.com/enterprisewebservice/agent-platform-capabilities-wiki
+  #     branch: main
+  #     cadence: "*/5 * * * *"
+  #     credentialsSecretRef: agent-platform-capabilities-git-token
