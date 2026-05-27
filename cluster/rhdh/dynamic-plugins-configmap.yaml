@@ -188,3 +188,58 @@ data:
                     layout:
                       gridColumn: "1 / -1"
                       gridRowEnd: span 2
+
+    # agentworkstation-binders — frontend plugin.
+    # Mounts an "AgentBindingsCard" on the entity overview page of any
+    # AgentWorkstation entity. Card has three tabs (Knowledge Bases /
+    # Memory Modules / Skills); each tab is a drag-drop <BindingPanel>
+    # backed by a strategy hook. Save composes the YAML diff and fires
+    # the `agentworkstation-binder-save` Scaffolder template, which
+    # opens a PR against the gitops repo (publish:github:pull-request).
+    # PR merge → ArgoCD sync → operator reconciles the new bindings.
+    #
+    # The plugin reads its source data via the in-cluster
+    # /api/proxy/agent-office-binders/binders/* endpoints (operator
+    # v1.5.3 binder-proxy), reusing the agent-office-backstage-catalog
+    # Service that codex-reauth-ui also proxies through.
+    #
+    # Skills tab is read-only until operator v1.6.0 normalizes
+    # SkillBinding into spec.skillRefs (task #51).
+    #
+    # Image is built by .tekton/agentworkstation-binders-on-push.yaml
+    # from rhdh-plugins/agentworkstation-binders/. NOTE: this entry
+    # activates as soon as Konflux pushes v0.0.1 of the image — until
+    # then RHDH will fail to install this one plugin and log it; other
+    # plugins keep working.
+    - package: "oci://quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/agent-office-agentworkstation-binders:v0.0.1!agent-office-backstage-plugin-agentworkstation-binders"
+      disabled: false
+      pluginConfig:
+        proxy:
+          endpoints:
+            /agent-office-binders:
+              target: http://agent-office-backstage-catalog.agent-office-operator.svc.cluster.local
+              changeOrigin: true
+              # In-cluster only — operator endpoints are unauthenticated,
+              # exposing only K8s metadata (KB/MM/Skill names + spec).
+              # The plugin runs in the user's browser; this proxy is the
+              # only path from browser to operator.
+        dynamicPlugins:
+          frontend:
+            agent-office-backstage-plugin-agentworkstation-binders:
+              mountPoints:
+                # Mount on any Component carrying the agent-kind
+                # annotation (autoresearch | research | pm | developer
+                # | …). Full-width card so the three tabs + drag-drop
+                # panels have room to breathe.
+                - mountPoint: entity.page.overview/cards
+                  importName: AgentBindingsCard
+                  module: PluginRoot
+                  config:
+                    if:
+                      anyOf:
+                        - hasAnnotation: agentoffice.ai/agent-kind
+                    layout:
+                      gridColumnEnd:
+                        lg: "span 12"
+                        md: "span 12"
+                        xs: "span 12"
