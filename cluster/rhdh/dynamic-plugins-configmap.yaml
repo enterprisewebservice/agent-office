@@ -223,6 +223,17 @@ data:
               # exposing only K8s metadata (KB/MM/Skill names + spec).
               # The plugin runs in the user's browser; this proxy is the
               # only path from browser to operator.
+              #
+              # pathRewrite: the plugin's useProxiedK8s hook calls paths
+              # like /namespaces/<ns>/knowledgebases (no prefix), but
+              # the operator registers its handler at /binders/ in
+              # cmd/main.go:334 (mux.Handle("/binders/", binders)).
+              # Without rewrite, /api/proxy/agent-office-binders/X
+              # arrives at the operator as /X and hits the mux 404.
+              # Rewrite adds the /binders/ prefix so the operator's
+              # path parser (parts[0]=="binders") matches.
+              pathRewrite:
+                "^/api/proxy/agent-office-binders/?": "/binders/"
         dynamicPlugins:
           frontend:
             agent-office-backstage-plugin-agentworkstation-binders:
