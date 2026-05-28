@@ -93,7 +93,7 @@ export const useMemoryModuleStrategy = ({
         if (!cancelled) {
           setErrorMessage(
             (err as Error).message +
-              ' — the agent-office-binders proxy endpoints are required (operator follow-up).',
+              ' — most commonly: this entity has no matching AgentWorkstation CR. Set the `agentoffice.ai/agentworkstation-name` annotation on the entity to point at the AW you want bindings managed for.',
           );
         }
       }

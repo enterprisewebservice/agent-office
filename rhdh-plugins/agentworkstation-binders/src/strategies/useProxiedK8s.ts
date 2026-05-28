@@ -25,29 +25,35 @@
  *     → { repoUrl, repoOwner, repoName, defaultBranch, filePath }
  *     so the plugin knows which file to patch on Save.
  */
+import { useCallback, useMemo } from 'react';
 import { useApi, discoveryApiRef, fetchApiRef } from '@backstage/core-plugin-api';
 
 export const useProxiedK8s = () => {
   const discoveryApi = useApi(discoveryApiRef);
   const fetchApi = useApi(fetchApiRef);
 
-  const base = async () =>
-    `${await discoveryApi.getBaseUrl('proxy')}/agent-office-binders`;
+  // `get` MUST be memoized — strategy hooks include it in their
+  // useEffect dep array. Without useCallback the function reference
+  // changes on every render, the effect re-fires, state updates,
+  // re-render, repeat. That was the cause of the ~2000 identical
+  // 500-error console messages in v0.0.1.
+  const get = useCallback(
+    async <T,>(path: string): Promise<T> => {
+      const url = `${await discoveryApi.getBaseUrl('proxy')}/agent-office-binders${path}`;
+      const res = await fetchApi.fetch(url, {
+        method: 'GET',
+        headers: { Accept: 'application/json' },
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(
+          `proxied K8s GET ${path} failed: HTTP ${res.status} ${text.slice(0, 200)}`,
+        );
+      }
+      return res.json() as Promise<T>;
+    },
+    [discoveryApi, fetchApi],
+  );
 
-  const get = async <T>(path: string): Promise<T> => {
-    const url = `${await base()}${path}`;
-    const res = await fetchApi.fetch(url, {
-      method: 'GET',
-      headers: { Accept: 'application/json' },
-    });
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(
-        `proxied K8s GET ${path} failed: HTTP ${res.status} ${text.slice(0, 200)}`,
-      );
-    }
-    return res.json() as Promise<T>;
-  };
-
-  return { get };
+  return useMemo(() => ({ get }), [get]);
 };

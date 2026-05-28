@@ -41,14 +41,29 @@ export const AgentBindingsCard: React.FC = () => {
   const { entity } = useEntity();
   const [activeTab, setActiveTab] = useState<TabId>('kb');
 
-  // The AW name + namespace come from the entity's metadata. The
-  // operator's catalog-info.yaml emits the AW's K8s name as the
-  // Backstage entity name and tags the namespace via
-  // metadata.annotations[agentoffice.ai/namespace].
-  const awName = entity.metadata.name;
+  // The AW name + namespace come from the entity's metadata.
+  //
+  // Default: entity.metadata.name IS the AgentWorkstation name (works
+  // for the common case where one Backstage Component entity maps 1:1
+  // to one AgentWorkstation CR — e.g. pm-agent, taskmaster,
+  // permission-probe).
+  //
+  // Override: if the entity is something OTHER than an AW (e.g. an
+  // AutoResearchProject parent entity whose actual agent lives at
+  // <project>-experimenter), the entity can declare which AW to bind
+  // against via the `agentoffice.ai/agentworkstation-name` annotation.
+  // That lets the karpathy template (and future templates) point
+  // project entities at their associated experimenter AW without
+  // changing the entity name.
+  //
+  // Namespace defaults to agent-office; overridable via
+  // `agentoffice.ai/namespace`.
+  const annotations = entity.metadata.annotations ?? {};
+  const awName =
+    annotations['agentoffice.ai/agentworkstation-name'] ??
+    entity.metadata.name;
   const awNamespace =
-    (entity.metadata.annotations ?? {})['agentoffice.ai/namespace'] ??
-    'agent-office';
+    annotations['agentoffice.ai/namespace'] ?? 'agent-office';
 
   const kb = useKnowledgeBaseStrategy({ awName, awNamespace });
   const memory = useMemoryModuleStrategy({ awName, awNamespace });
