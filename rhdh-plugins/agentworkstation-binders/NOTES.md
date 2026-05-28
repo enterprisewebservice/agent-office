@@ -95,6 +95,43 @@ Until these endpoints exist, the plugin loads fine but each tab
 shows an error banner explaining the missing endpoint. Drag-drop
 still works visually for design review.
 
+## Version-bump checklist (ALL FOUR must match, or builds break)
+
+When bumping the plugin version (e.g. v0.0.2 → v0.0.3) you must
+update the version string in FOUR places, all in lockstep. If any
+one is missing or wrong, the Konflux build tags the image wrong AND
+the dev-hub init-container loops with `manifest unknown` from
+skopeo. v0.0.2 was the lesson that established this list:
+
+1. `rhdh-plugins/agentworkstation-binders/package.json`
+   → `"version": "0.0.X"`
+2. `rhdh-plugins/agentworkstation-binders/Dockerfile`
+   → the `version` field inside the base64 in the
+     `LABEL io.backstage.dynamic-packages=...` directive.
+     Re-encode with:
+     ```
+     python3 -c "import base64,json; meta=[{...,'version':'0.0.X',...}]; \
+       print(base64.b64encode(json.dumps(meta, separators=(',',':')).encode()).decode())"
+     ```
+3. `.tekton/agentworkstation-binders-on-push.yaml`
+   → the `output-image` param `value: '...:v0.0.X'`. THIS is what
+     Konflux tags the pushed image as. (Yes, it's hardcoded; same
+     pattern as every other sibling plugin in this repo. Future
+     improvement: parameterize from package.json.)
+4. `cluster/rhdh/dynamic-plugins-configmap.yaml`
+   → the `package: "oci://...:v0.0.X!..."` for this plugin.
+
+After all four are updated, commit, push. The CEL filter on the
+Tekton pipeline triggers on any change under
+`rhdh-plugins/agentworkstation-binders/`, so the
+package.json/Dockerfile bumps will re-fire the build. The build
+tags the image v0.0.X (per #3). ArgoCD syncs the configmap (per #4).
+RHDH init container pulls the new tag. Restart dev-hub:
+
+```sh
+oc -n rhdh-test rollout restart deploy/v1-developer-hub
+```
+
 ## Architecture summary
 
 ```

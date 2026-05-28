@@ -28,7 +28,7 @@ spec:
     # `oc rollout restart deploy/v1-developer-hub -n rhdh-test` is
     # all that's needed to pick up a new build.
     - name: output-image
-      value: 'quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/agent-office-agentworkstation-binders:v0.0.1'
+      value: 'quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/agent-office-agentworkstation-binders:v0.0.3'
     - name: dockerfile
       value: rhdh-plugins/agentworkstation-binders/Dockerfile
     - name: path-context
