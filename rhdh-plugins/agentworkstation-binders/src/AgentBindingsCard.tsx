@@ -19,10 +19,19 @@
  *     fields (systemPrompt → SOUL.md, displayName → IDENTITY.md,
  *     etc.); there's no per-agent memory binding to manage in the UI.
  *
- * Deferred to v0.0.5 (slice 2 of v1.6.0 #6):
- *   - SOUL.md / IDENTITY.md / USER.md editor — friendly form for the
- *     AW spec fields that define agent uniqueness, with markdown
- *     preview + Save-via-scaffolder-PR.
+ * v0.0.5 adds:
+ *   - Identity tab — edits the AW spec fields that define agent
+ *     uniqueness (displayName, role, capabilities, emoji,
+ *     systemPrompt). Save → PR → operator re-renders SOUL.md +
+ *     IDENTITY.md into the agent's workspace.
+ *
+ * Deferred:
+ *   - USER.md editor — no AW spec field currently maps to USER.md,
+ *     so there's nothing to edit. Will add once user-prefs land on
+ *     the spec.
+ *   - Markdown preview / WYSIWYG for the system-prompt editor —
+ *     plain monospace textarea today; pull in a real markdown editor
+ *     when the friction justifies the bundle weight.
  */
 import React, { useState } from 'react';
 import {
@@ -38,12 +47,16 @@ import { useEntity } from '@backstage/plugin-catalog-react';
 import { BindingPanel } from './BindingPanel';
 import { useKnowledgeBaseStrategy } from './strategies/useKnowledgeBaseStrategy';
 import { SkillCatalogPanel } from './SkillCatalogPanel';
+import { IdentityEditorPanel } from './IdentityEditorPanel';
 
-type TabId = 'kb' | 'skill';
+type TabId = 'identity' | 'kb' | 'skill';
 
 export const AgentBindingsCard: React.FC = () => {
   const { entity } = useEntity();
-  const [activeTab, setActiveTab] = useState<TabId>('kb');
+  // Default to Identity tab — it's the most-commonly-edited surface
+  // (system prompt tweaks, displayName changes) and it loads quickly
+  // since it only reads the AW spec, not the full catalog.
+  const [activeTab, setActiveTab] = useState<TabId>('identity');
 
   // The AW name + namespace come from the entity's metadata.
   //
@@ -74,8 +87,8 @@ export const AgentBindingsCard: React.FC = () => {
   return (
     <Card>
       <CardHeader
-        title="Bindings & Skills"
-        subheader={`Attach Knowledge Bases to ${awName} (drag from LEFT to RIGHT, Save opens a PR). The Skills tab is a read-only browse of the runtime catalog — skills are no longer bound per-agent; every agent sees the full catalog and picks at runtime via progressive disclosure.`}
+        title="Identity, Bindings & Skills"
+        subheader={`Edit ${awName}'s identity + system prompt (Identity tab), attach Knowledge Bases (KB tab), or browse the runtime skill catalog (Skills tab). Edits open a PR against the gitops repo — ArgoCD syncs and the operator re-renders into the agent's workspace.`}
       />
       <Divider />
       <Tabs
@@ -84,11 +97,18 @@ export const AgentBindingsCard: React.FC = () => {
         indicatorColor="primary"
         textColor="primary"
       >
+        <Tab value="identity" label="Identity" />
         <Tab value="kb" label={`Knowledge Bases (${kb.attached.length})`} />
         <Tab value="skill" label="Skills (catalog)" />
       </Tabs>
       <CardContent>
         <Box mt={1}>
+          {activeTab === 'identity' && (
+            <IdentityEditorPanel
+              awName={awName}
+              awNamespace={awNamespace}
+            />
+          )}
           {activeTab === 'kb' && <BindingPanel {...kb} />}
           {activeTab === 'skill' && <SkillCatalogPanel />}
         </Box>

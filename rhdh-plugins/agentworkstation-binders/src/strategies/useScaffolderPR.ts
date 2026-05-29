@@ -33,7 +33,11 @@ import { scaffolderApiRef } from '@backstage/plugin-scaffolder-react';
 export interface ScaffolderPROpts {
   awName: string;
   awNamespace: string;
-  bindingType: 'kb' | 'memory' | 'skill';
+  // 'kb' / 'memory' / 'skill' are the v0.0.3 binding edits.
+  // 'identity' is the v0.0.5 SOUL+IDENTITY editor (edits the AW
+  // spec.systemPrompt + spec.displayName + spec.role + capabilities
+  // + emoji in a single PR — the fields that define agent uniqueness).
+  bindingType: 'kb' | 'memory' | 'skill' | 'identity';
   /** Path inside the gitops repo of the file to overwrite. */
   targetPath: string;
   /** Full new content of the file after the edit. */
