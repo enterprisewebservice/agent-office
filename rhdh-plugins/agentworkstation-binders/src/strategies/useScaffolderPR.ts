@@ -37,7 +37,9 @@ export interface ScaffolderPROpts {
   // 'identity' is the v0.0.5 SOUL+IDENTITY editor (edits the AW
   // spec.systemPrompt + spec.displayName + spec.role + capabilities
   // + emoji in a single PR — the fields that define agent uniqueness).
-  bindingType: 'kb' | 'memory' | 'skill' | 'identity';
+  // 'mcp' is the v0.0.6 Tools/MCP editor (edits spec.tools.mcpServers
+  // — which MCP servers the agent calls, e.g. the GitHub MCP gateway).
+  bindingType: 'kb' | 'memory' | 'skill' | 'identity' | 'mcp';
   /** Path inside the gitops repo of the file to overwrite. */
   targetPath: string;
   /** Full new content of the file after the edit. */

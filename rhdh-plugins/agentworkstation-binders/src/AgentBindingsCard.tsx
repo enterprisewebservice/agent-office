@@ -48,8 +48,9 @@ import { BindingPanel } from './BindingPanel';
 import { useKnowledgeBaseStrategy } from './strategies/useKnowledgeBaseStrategy';
 import { SkillCatalogPanel } from './SkillCatalogPanel';
 import { IdentityEditorPanel } from './IdentityEditorPanel';
+import { McpServersPanel } from './McpServersPanel';
 
-type TabId = 'identity' | 'kb' | 'skill';
+type TabId = 'identity' | 'kb' | 'skill' | 'mcp';
 
 export const AgentBindingsCard: React.FC = () => {
   const { entity } = useEntity();
@@ -100,6 +101,7 @@ export const AgentBindingsCard: React.FC = () => {
         <Tab value="identity" label="Identity" />
         <Tab value="kb" label={`Knowledge Bases (${kb.attached.length})`} />
         <Tab value="skill" label="Skills (catalog)" />
+        <Tab value="mcp" label="Tools / MCP" />
       </Tabs>
       <CardContent>
         <Box mt={1}>
@@ -111,6 +113,9 @@ export const AgentBindingsCard: React.FC = () => {
           )}
           {activeTab === 'kb' && <BindingPanel {...kb} />}
           {activeTab === 'skill' && <SkillCatalogPanel />}
+          {activeTab === 'mcp' && (
+            <McpServersPanel awName={awName} awNamespace={awNamespace} />
+          )}
         </Box>
       </CardContent>
     </Card>
