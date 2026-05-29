@@ -1,0 +1,30 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: agent-office-integration-tests
+  title: Agent Office — Integration Tests & Demo
+  description: >-
+    The wow-factor demo suite (see DEMO.md). Each Tekton task is a demo
+    beat that proves a platform capability; the suite running green IS the
+    demo. Watch runs live in the CI tab.
+  annotations:
+    # The Kubernetes + Tekton plugins key off this id: PipelineRuns
+    # labelled backstage.io/kubernetes-id=agent-office-integration-tests
+    # surface under this entity's Kubernetes + CI tabs.
+    backstage.io/kubernetes-id: agent-office-integration-tests
+    # Lights up the Tekton "CI" tab (isTektonCIAvailable).
+    janus-idp.io/tekton: agent-office-integration-tests
+    backstage.io/kubernetes-namespace: agent-office
+  tags:
+    - ai
+    - tests
+    - demo
+    - tekton
+  links:
+    - url: https://github.com/enterprisewebservice/agent-office/blob/main/integration-tests/DEMO.md
+      title: Demo storyboard (DEMO.md)
+      icon: docs
+spec:
+  type: test-suite
+  lifecycle: production
+  owner: user:default/deanpeterson
