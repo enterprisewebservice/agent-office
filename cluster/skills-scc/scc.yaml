@@ -1,0 +1,46 @@
+# Custom SCC = restricted-v2 + the `image` volume type, so agent
+# gateway pods can mount the skills image as a READ-ONLY image
+# volume (restricted-v2 forbids image volumes). Identical to
+# restricted-v2 otherwise (runAsNonRoot, no added capabilities,
+# MustRunAsRange) — image volumes are read-only fs mounts with no
+# privilege implication. Granted to the gateway SA via RBAC in
+# rbac.yaml, not via users/groups here.
+apiVersion: security.openshift.io/v1
+kind: SecurityContextConstraints
+metadata:
+  name: agent-office-imagevol
+allowHostDirVolumePlugin: false
+allowHostIPC: false
+allowHostNetwork: false
+allowHostPID: false
+allowHostPorts: false
+allowPrivilegeEscalation: false
+allowPrivilegedContainer: false
+allowedCapabilities:
+- NET_BIND_SERVICE
+defaultAddCapabilities: null
+fsGroup:
+  type: MustRunAs
+priority: 10
+readOnlyRootFilesystem: false
+requiredDropCapabilities:
+- ALL
+runAsUser:
+  type: MustRunAsRange
+seLinuxContext:
+  type: MustRunAs
+seccompProfiles:
+- runtime/default
+supplementalGroups:
+  type: RunAsAny
+userNamespaceLevel: AllowHostLevel
+volumes:
+- configMap
+- csi
+- downwardAPI
+- emptyDir
+- ephemeral
+- image
+- persistentVolumeClaim
+- projected
+- secret
