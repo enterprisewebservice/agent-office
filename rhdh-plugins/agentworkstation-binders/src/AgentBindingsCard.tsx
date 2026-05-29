@@ -2,22 +2,27 @@
  * <AgentBindingsCard>
  *
  * The entity-page card mounted by RHDH on AgentWorkstation Component
- * entities. Renders three sub-tabs, each an instance of <BindingPanel>:
+ * entities. v0.0.4 restructures the tabs around the v1.6.0 discovery
+ * architecture:
  *
  *   - Knowledge Bases  → v1.5.0 spec.knowledgeBaseRefs
- *   - Memory Modules   → existing spec.memory.modules
- *   - Skills           → sibling SkillBinding CRs
+ *                         (still bound — KBs are intentionally
+ *                         explicit per agent)
+ *   - Skills           → READ-ONLY catalog browser
+ *                         (skills are no longer bound via this plugin;
+ *                         every agent sees the full local catalog
+ *                         rendered into its workspace and picks at
+ *                         runtime via progressive disclosure)
  *
- * Each tab is wired by a strategy hook (useKBStrategy, etc.) that
- * lists the available resources via the in-cluster catalog proxy,
- * reads the current attachments from the AW spec / SkillBinding CRs,
- * and on Save composes a publish:github:pull-request scaffolder task
- * with the right YAML patch.
+ * Removed in v0.0.4:
+ *   - Memory Modules tab — memories are AAIF-rendered from AW spec
+ *     fields (systemPrompt → SOUL.md, displayName → IDENTITY.md,
+ *     etc.); there's no per-agent memory binding to manage in the UI.
  *
- * Tonight's MVP: all three tabs render and call the same strategy
- * pattern. KB + Memory tabs have working Save; Skills tab is
- * scaffolded with a tooltip explaining that the SkillBinding patch
- * model is asymmetric and ships in a follow-up.
+ * Deferred to v0.0.5 (slice 2 of v1.6.0 #6):
+ *   - SOUL.md / IDENTITY.md / USER.md editor — friendly form for the
+ *     AW spec fields that define agent uniqueness, with markdown
+ *     preview + Save-via-scaffolder-PR.
  */
 import React, { useState } from 'react';
 import {
@@ -32,10 +37,9 @@ import {
 import { useEntity } from '@backstage/plugin-catalog-react';
 import { BindingPanel } from './BindingPanel';
 import { useKnowledgeBaseStrategy } from './strategies/useKnowledgeBaseStrategy';
-import { useMemoryModuleStrategy } from './strategies/useMemoryModuleStrategy';
-import { useSkillStrategy } from './strategies/useSkillStrategy';
+import { SkillCatalogPanel } from './SkillCatalogPanel';
 
-type TabId = 'kb' | 'memory' | 'skill';
+type TabId = 'kb' | 'skill';
 
 export const AgentBindingsCard: React.FC = () => {
   const { entity } = useEntity();
@@ -66,14 +70,12 @@ export const AgentBindingsCard: React.FC = () => {
     annotations['agentoffice.ai/namespace'] ?? 'agent-office';
 
   const kb = useKnowledgeBaseStrategy({ awName, awNamespace });
-  const memory = useMemoryModuleStrategy({ awName, awNamespace });
-  const skill = useSkillStrategy({ awName, awNamespace });
 
   return (
     <Card>
       <CardHeader
-        title="Bindings"
-        subheader={`Attach Knowledge Bases, Memory Modules, and Skills to ${awName}. Drag from the LEFT panel onto the RIGHT panel. Save opens a PR against the gitops repo so changes flow through ArgoCD with full audit trail.`}
+        title="Bindings & Skills"
+        subheader={`Attach Knowledge Bases to ${awName} (drag from LEFT to RIGHT, Save opens a PR). The Skills tab is a read-only browse of the runtime catalog — skills are no longer bound per-agent; every agent sees the full catalog and picks at runtime via progressive disclosure.`}
       />
       <Divider />
       <Tabs
@@ -83,17 +85,12 @@ export const AgentBindingsCard: React.FC = () => {
         textColor="primary"
       >
         <Tab value="kb" label={`Knowledge Bases (${kb.attached.length})`} />
-        <Tab
-          value="memory"
-          label={`Memory Modules (${memory.attached.length})`}
-        />
-        <Tab value="skill" label={`Skills (${skill.attached.length})`} />
+        <Tab value="skill" label="Skills (catalog)" />
       </Tabs>
       <CardContent>
         <Box mt={1}>
           {activeTab === 'kb' && <BindingPanel {...kb} />}
-          {activeTab === 'memory' && <BindingPanel {...memory} />}
-          {activeTab === 'skill' && <BindingPanel {...skill} />}
+          {activeTab === 'skill' && <SkillCatalogPanel />}
         </Box>
       </CardContent>
     </Card>

@@ -63,7 +63,7 @@ COPY --from=builder /out/agent-office-backstage-plugin-agentworkstation-binders 
 # reads to discover plugin paths. Decoded JSON:
 #   [{"agent-office-backstage-plugin-agentworkstation-binders":{
 #     "name": "agent-office-backstage-plugin-agentworkstation-binders",
-#     "version": "0.0.3",
+#     "version": "0.0.4",
 #     "backstage": {
 #       "role": "frontend-plugin",
 #       "pluginId": "agentworkstation-binders",
@@ -72,4 +72,4 @@ COPY --from=builder /out/agent-office-backstage-plugin-agentworkstation-binders 
 #       "supported-versions": "1.45.3"
 #     }
 #   }}]
-LABEL io.backstage.dynamic-packages="W3siYWdlbnQtb2ZmaWNlLWJhY2tzdGFnZS1wbHVnaW4tYWdlbnR3b3Jrc3RhdGlvbi1iaW5kZXJzIjp7Im5hbWUiOiJhZ2VudC1vZmZpY2UtYmFja3N0YWdlLXBsdWdpbi1hZ2VudHdvcmtzdGF0aW9uLWJpbmRlcnMiLCJ2ZXJzaW9uIjoiMC4wLjMiLCJiYWNrc3RhZ2UiOnsicm9sZSI6ImZyb250ZW5kLXBsdWdpbiIsInBsdWdpbklkIjoiYWdlbnR3b3Jrc3RhdGlvbi1iaW5kZXJzIiwicGx1Z2luUGFja2FnZSI6ImFnZW50LW9mZmljZS1iYWNrc3RhZ2UtcGx1Z2luLWFnZW50d29ya3N0YXRpb24tYmluZGVycyIsInBsdWdpblBhY2thZ2VzIjpbImFnZW50LW9mZmljZS1iYWNrc3RhZ2UtcGx1Z2luLWFnZW50d29ya3N0YXRpb24tYmluZGVycyJdLCJzdXBwb3J0ZWQtdmVyc2lvbnMiOiIxLjQ1LjMifX19XQ=="
+LABEL io.backstage.dynamic-packages="W3siYWdlbnQtb2ZmaWNlLWJhY2tzdGFnZS1wbHVnaW4tYWdlbnR3b3Jrc3RhdGlvbi1iaW5kZXJzIjp7Im5hbWUiOiJhZ2VudC1vZmZpY2UtYmFja3N0YWdlLXBsdWdpbi1hZ2VudHdvcmtzdGF0aW9uLWJpbmRlcnMiLCJ2ZXJzaW9uIjoiMC4wLjQiLCJiYWNrc3RhZ2UiOnsicm9sZSI6ImZyb250ZW5kLXBsdWdpbiIsInBsdWdpbklkIjoiYWdlbnR3b3Jrc3RhdGlvbi1iaW5kZXJzIiwicGx1Z2luUGFja2FnZSI6ImFnZW50LW9mZmljZS1iYWNrc3RhZ2UtcGx1Z2luLWFnZW50d29ya3N0YXRpb24tYmluZGVycyIsInBsdWdpblBhY2thZ2VzIjpbImFnZW50LW9mZmljZS1iYWNrc3RhZ2UtcGx1Z2luLWFnZW50d29ya3N0YXRpb24tYmluZGVycyJdLCJzdXBwb3J0ZWQtdmVyc2lvbnMiOiIxLjQ1LjMifX19XQ=="
