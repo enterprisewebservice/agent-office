@@ -1,0 +1,17 @@
+# agent-office skills image — the Red Hat packaging pattern.
+#
+# Mirrors openshift/agentic-skills exactly: a plain container image
+# whose filesystem holds the SKILL.md skill folders under /skills/,
+# consumed by mounting as a Kubernetes image volume (subPath) into
+# agent pods. SKILL.md is the open Agent Skills standard
+# (agentskills.io / Claude Skills / OpenAI Skills) — fully
+# interoperable, no skillctl / skill.yaml conversion.
+#
+# OpenShift policy disallows FROM scratch, so we use a minimal base
+# (same reasoning as the upstream repo's Containerfile).
+#
+# Built in-cluster by Konflux (.tekton/skills-image-on-push.yaml).
+# The agent-office-operator mounts this image into agent gateway
+# pods so every agent discovers the full skill catalog as files.
+FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
+COPY skills /skills/

@@ -1,0 +1,129 @@
+Use this skill to file a **curated article** (synthesis, summary, or query snapshot) into the wiki. Curated articles are the long-lived memory of the team brain — they should be readable to a human picking up the wiki cold, link to related concepts, and surface in future `wiki-search` results.
+
+## When to use
+
+- The user asks for a substantial answer that's worth preserving (a comparison, a summary, a synthesis from multiple sources)
+- You finished a research task and the result will probably be referenced again
+- You realized a concept needs a canonical page (something multiple articles reference but doesn't have its own page)
+- You want to leave a query-result snapshot in `queries/`
+
+## When NOT to use
+
+- Raw URL captures → use `wiki-clip` instead
+- Trivial back-and-forth answers (a one-line factual response doesn't deserve an article)
+- Anything the user explicitly said "don't save"
+
+## Article shape
+
+Every article has YAML frontmatter at the top:
+
+```yaml
+---
+title: <human-readable title>
+kind: topic | concept | query | summary
+created: <ISO 8601 UTC timestamp>
+updated: <ISO 8601 UTC timestamp>
+author: <agent-id>
+tags: [tag1, tag2]
+sources:
+  - <url or `raw/clips/<slug>.md` for wiki-internal>
+backlinks:
+  - <wiki path>
+---
+```
+
+Body uses standard Markdown. `[[concept-name]]` syntax (Obsidian-style) for inline backlinks — a downstream linter resolves these. Standard Markdown links `[text](relative/path.md)` are also fine.
+
+## Procedure
+
+### 1. Decide the path
+
+| Article kind | Path |
+|---|---|
+| Curated topic article | `topics/<area>/<slug>.md` |
+| Canonical concept page | `concepts/<concept>.md` |
+| Query-result snapshot | `queries/<YYYY-MM-DD>-<topic>.md` |
+| Auto-generated summary | `_summaries/<source>.md` |
+
+Areas under `topics/` are free-form (`inference`, `agents`, `security`, etc). Pick one that matches existing structure (`ls /home/node/.openclaw/wiki/<kb-name>/topics/`) before inventing a new one.
+
+### 2. Write the file with `exec`
+
+```bash
+mkdir -p /home/node/.openclaw/wiki/<kb-name>/topics/<area>
+cat > /home/node/.openclaw/wiki/<kb-name>/topics/<area>/<slug>.md <<'EOF'
+---
+title: <title>
+kind: topic
+created: <iso>
+updated: <iso>
+author: <agent-id>
+tags: [...]
+sources:
+  - https://example.com/source-url
+backlinks: []
+---
+
+# <title>
+
+<body — first paragraph is the executive summary; subsequent sections detail; cite [[concepts]] inline>
+
+## Sources
+
+- [Source 1 title](source URL)
+- [`raw/clips/foo.md`](../../raw/clips/foo.md)
+
+## Related
+
+- [[other-concept-or-article]]
+EOF
+```
+
+### 3. Update `_index.md`
+
+Append an entry under the matching section:
+
+```bash
+# Read _index.md, find the appropriate section header (e.g. "## Topics → Inference"),
+# append: "- [<title>](topics/<area>/<slug>.md) — <one-line summary>"
+# Easiest: just append to a sorted-by-date list at the end and let the linter reorganize.
+```
+
+### 4. Resolve backlinks
+
+For every `[[concept]]` you wrote in the body, check if `concepts/<concept>.md` exists:
+
+```bash
+ls /home/node/.openclaw/wiki/<kb-name>/concepts/<concept>.md 2>/dev/null && echo "exists" || echo "missing"
+```
+
+- **Exists**: append YOUR new article path to that concept page's `backlinks:` frontmatter list.
+- **Missing**: leave the `[[concept]]` in place — the linter will surface it as a "concept page candidate" and propose a draft. (Don't auto-create concept pages from a single mention; the linter handles cross-cutting decisions.)
+
+### 5. Append to `log.md`
+
+The wiki's chronological activity feed. Single line, fixed prefix so the log itself stays parseable (Karpathy convention):
+
+```bash
+# Format: ## [YYYY-MM-DD] <op> | <subject>
+# Op is one of: write (curated topic), concept (canonical concept page),
+# query (queries/...md snapshot), summary (auto-summary)
+echo "## [$(date -u +%Y-%m-%d)] write | <title>" \
+  >> /home/node/.openclaw/wiki/<kb-name>/log.md
+echo "" >> /home/node/.openclaw/wiki/<kb-name>/log.md
+echo "<one-line summary of what this article covers>. Filed at \`<path>\`. By: <agent-id>. Cites: <count> sources, <count> backlinks." \
+  >> /home/node/.openclaw/wiki/<kb-name>/log.md
+echo "" >> /home/node/.openclaw/wiki/<kb-name>/log.md
+```
+
+Create `log.md` with `# Activity Log\n\n` if it doesn't exist. Always append, never rewrite — the log is immutable history.
+
+### 6. Confirm
+
+Tell the user the path you wrote (relative to the KB mount root), one-line summary, and any concepts you flagged as missing. Don't paste the body back — it's in the wiki now.
+
+## Tips
+
+- **Idempotency**: if you're updating an existing article, read it first, preserve frontmatter `created:` and any existing `backlinks:`, just bump `updated:` and rewrite the body.
+- **Be specific in titles**: "Red Hat AI Inference Server batching strategy" beats "Inference notes".
+- **Cite original sources**, not just the wiki paths you derived from. Future readers want to follow the trail.

@@ -1,11 +1,11 @@
 apiVersion: tekton.dev/v1
 kind: PipelineRun
 metadata:
-  name: skillctl-runner-on-push
+  name: skills-image-on-push
   namespace: default-tenant
   annotations:
-    # Trigger only when the runner image sources change on main.
-    pipelinesascode.tekton.dev/on-cel-expression: 'event == "push" && target_branch == "main" && (body.head_commit.modified.exists(f, f.startsWith("skillctl-runner/")) || body.head_commit.added.exists(f, f.startsWith("skillctl-runner/")))'
+    # Rebuild whenever a skill folder or the Containerfile changes.
+    pipelinesascode.tekton.dev/on-cel-expression: 'event == "push" && target_branch == "main" && (body.head_commit.modified.exists(f, f.startsWith("skills-image/")) || body.head_commit.added.exists(f, f.startsWith("skills-image/")))'
     pipelinesascode.tekton.dev/cancel-in-progress: "true"
     pipelinesascode.tekton.dev/max-keep-runs: "5"
     build.appstudio.openshift.io/repo: 'https://github.com/enterprisewebservice/agent-office?rev={{revision}}'
@@ -13,7 +13,7 @@ metadata:
     build.appstudio.redhat.com/target_branch: '{{target_branch}}'
   labels:
     appstudio.openshift.io/application: agent-office
-    appstudio.openshift.io/component: skillctl-runner
+    appstudio.openshift.io/component: skills-image
     pipelines.appstudio.openshift.io/type: build
 spec:
   params:
@@ -21,14 +21,14 @@ spec:
       value: '{{source_url}}'
     - name: revision
       value: '{{revision}}'
-    # Tag-stable: bump the :v0.0.x tag + re-run the importer pipeline
-    # (which references this image) to pick up a new build.
+    # Tag-stable: bump :v0.0.x + the operator's image-volume reference
+    # to roll a new skill catalog into agent pods.
     - name: output-image
-      value: 'quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/agent-office-skillctl-runner:v0.0.1'
+      value: 'quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/agent-office-skills:v0.0.1'
     - name: dockerfile
-      value: skillctl-runner/Containerfile
+      value: skills-image/Containerfile
     - name: path-context
-      value: skillctl-runner
+      value: skills-image
     - name: rebuild
       value: "true"
     - name: skip-checks
@@ -57,14 +57,14 @@ spec:
     - pipelineTaskName: build-container
       stepSpecs:
         - name: build
-          # Tiny image build (microdnf + a binary copy) — modest resources.
+          # Trivial image (just a COPY of markdown files) — minimal resources.
           computeResources:
             requests:
               cpu: "1"
-              memory: 2Gi
+              memory: 1Gi
             limits:
-              cpu: "4"
-              memory: 4Gi
+              cpu: "2"
+              memory: 2Gi
   workspaces:
     - name: workspace
       volumeClaimTemplate:
@@ -73,7 +73,7 @@ spec:
             - ReadWriteOnce
           resources:
             requests:
-              storage: 2Gi
+              storage: 1Gi
     - name: git-auth
       secret:
         secretName: '{{ git_auth_secret }}'
