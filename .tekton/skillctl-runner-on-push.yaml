@@ -1,0 +1,79 @@
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: skillctl-runner-on-push
+  namespace: default-tenant
+  annotations:
+    # Trigger only when the runner image sources change on main.
+    pipelinesascode.tekton.dev/on-cel-expression: 'event == "push" && target_branch == "main" && (body.head_commit.modified.exists(f, f.startsWith("skillctl-runner/")) || body.head_commit.added.exists(f, f.startsWith("skillctl-runner/")))'
+    pipelinesascode.tekton.dev/cancel-in-progress: "true"
+    pipelinesascode.tekton.dev/max-keep-runs: "5"
+    build.appstudio.openshift.io/repo: 'https://github.com/enterprisewebservice/agent-office?rev={{revision}}'
+    build.appstudio.redhat.com/commit_sha: '{{revision}}'
+    build.appstudio.redhat.com/target_branch: '{{target_branch}}'
+  labels:
+    appstudio.openshift.io/application: agent-office
+    appstudio.openshift.io/component: skillctl-runner
+    pipelines.appstudio.openshift.io/type: build
+spec:
+  params:
+    - name: git-url
+      value: '{{source_url}}'
+    - name: revision
+      value: '{{revision}}'
+    # Tag-stable: bump the :v0.0.x tag + re-run the importer pipeline
+    # (which references this image) to pick up a new build.
+    - name: output-image
+      value: 'quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/agent-office-skillctl-runner:v0.0.1'
+    - name: dockerfile
+      value: skillctl-runner/Containerfile
+    - name: path-context
+      value: skillctl-runner
+    - name: rebuild
+      value: "true"
+    - name: skip-checks
+      value: "true"
+  pipelineRef:
+    resolver: bundles
+    params:
+      - name: bundle
+        value: 'quay.io/konflux-ci/tekton-catalog/pipeline-docker-build@sha256:1b2a544f5308a50b8ebf76e76f10f8be3e12342d6ce7233d2520aca724294a82'
+      - name: name
+        value: docker-build
+      - name: kind
+        value: pipeline
+  taskRunTemplate:
+    podTemplate:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: NotIn
+                    values:
+                      - ec-0d-9a-89-19-46
+  taskRunSpecs:
+    - pipelineTaskName: build-container
+      stepSpecs:
+        - name: build
+          # Tiny image build (microdnf + a binary copy) — modest resources.
+          computeResources:
+            requests:
+              cpu: "1"
+              memory: 2Gi
+            limits:
+              cpu: "4"
+              memory: 4Gi
+  workspaces:
+    - name: workspace
+      volumeClaimTemplate:
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 2Gi
+    - name: git-auth
+      secret:
+        secretName: '{{ git_auth_secret }}'
