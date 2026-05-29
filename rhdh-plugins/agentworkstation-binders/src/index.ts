@@ -27,6 +27,28 @@
  *     Exported so other plugins can compose similar drag-drop UIs
  *     against new binding types (e.g. PromptTemplateRef when that
  *     shipping in a future operator version).
+ *
+ *   agentComposerFieldExtension  (v0.0.7)
+ *     Scaffolder field extension — the SAME binder experience inside
+ *     the create wizard. Wired via dynamic-plugins config:
+ *
+ *       agent-office-backstage-plugin-agentworkstation-binders:
+ *         scaffolderFieldExtensions:
+ *           - importName: agentComposerFieldExtension
+ *             module: PluginRoot
+ *
+ *     Then in a template:
+ *       parameters:
+ *         - title: Compose the agent
+ *           properties:
+ *             compose:
+ *               type: object
+ *               ui:field: AgentComposer
+ *
+ *   AgentComposerField
+ *     The raw component (exported for completeness / testing).
  */
 export { AgentBindingsCard } from './AgentBindingsCard';
 export { BindingPanel } from './BindingPanel';
+export { agentComposerFieldExtension } from './plugin';
+export { AgentComposerField } from './AgentComposerField';

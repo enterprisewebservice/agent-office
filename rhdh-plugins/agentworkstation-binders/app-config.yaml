@@ -18,6 +18,13 @@
 dynamicPlugins:
   frontend:
     agent-office-backstage-plugin-agentworkstation-binders:
+      # Scaffolder field extension (v0.0.7) — the same binder
+      # experience INSIDE the create wizard. Templates use it via
+      # `ui:field: AgentComposer` on an object property. Independent
+      # of the entity-page card below.
+      scaffolderFieldExtensions:
+        - importName: agentComposerFieldExtension
+          module: PluginRoot
       mountPoints:
         # Render the Bindings card on AgentWorkstation entity pages.
         # The discriminator (agentoffice.ai/agent-kind annotation)
