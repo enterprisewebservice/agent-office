@@ -1,0 +1,11 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: agent-office
+resources:
+  - cluster-update-advisor.yaml
+  - find-token.yaml
+  - kubernetes-docs.yaml
+  - mcp-builder.yaml
+  - openshift-docs.yaml
+  - product-lifecycle.yaml
+  - skill-creator.yaml

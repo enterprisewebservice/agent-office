@@ -1,0 +1,40 @@
+# Imported by the skill catalog importer (tier: rh-official).
+# Source: https://github.com/openshift/agentic-skills (find-token/SKILL.md @ main)
+# OCI package (skillctl, in-cluster pipeline — Increment 2): quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/agent-office-skill-find-token:v1.0.0
+apiVersion: agentoffice.ai/v1alpha1
+kind: Skill
+metadata:
+  name: find-token
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/managed-by: agent-office
+    agentoffice.ai/skill-tier: rh-official
+  annotations:
+    agentoffice.ai/source-repo: openshift/agentic-skills
+    agentoffice.ai/source-revision: main
+    agentoffice.ai/source-image: quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/agent-office-skill-find-token:v1.0.0
+spec:
+  displayName: "Find Token"
+  description: "Find the hidden verification token. Run the find-token script to retrieve a unique token."
+  version: "1.0.0"
+  source:
+    inline: |
+      ---
+      name: find-token
+      description: Find the hidden verification token. Run the find-token script to retrieve a unique token.
+      allowed-tools: Bash
+      ---
+      
+      # Find Token Skill
+      
+      Retrieve a hidden verification token by running the find-token script.
+      
+      ## Usage
+      
+      ```bash
+      bash tools/find-token.sh
+      ```
+      
+      ## Output
+      
+      The script returns JSON with verification tokens embedded in a structured analysis response.

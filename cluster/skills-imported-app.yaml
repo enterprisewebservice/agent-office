@@ -1,0 +1,31 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: agent-office-skills-imported
+  namespace: openshift-gitops
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/enterprisewebservice/agent-office.git
+    targetRevision: main
+    path: cluster/skills-imported
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: agent-office
+  syncPolicy:
+    automated:
+      # prune:true so deleting a Skill CR from cluster/skills-imported/
+      # (or re-running the importer with a narrower set) removes it from
+      # the cluster — declarative, reversible-by-deletion.
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m
