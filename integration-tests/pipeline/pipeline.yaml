@@ -1,0 +1,38 @@
+# Governed Agent Platform — integration-test / demo Pipeline.
+#
+# Each task is a DEMO BEAT (see integration-tests/DEMO.md). The DAG
+# lighting up green in Dev Hub's CI tab IS the narrated demo. A
+# `finally` teardown always runs so a run leaves no orphans.
+#
+# Extensible by design: add a beat = add a Task under tasks/ and one
+# entry here. Beats are ordered into the 4-act arc as they land:
+#   Act 1  beat-compose, beat-materialize
+#   Act 2  beat-guardrails, beat-skills
+#   Act 3  beat-mcp, beat-autoresearch
+#   Act 4  beat-audit  (+ finally: teardown)
+# Phase 1 ships the first, namespace-independent beat (endpoints).
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: agent-office-integration-tests
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/part-of: agent-office-integration-tests
+spec:
+  description: >-
+    The wow-factor demo suite. Each task proves one demo beat; the
+    suite running green is the demo working. See integration-tests/DEMO.md.
+  tasks:
+    # ---- Act 1/4: plugin-facing surfaces (cheapest, namespace-free) ----
+    - name: beat-endpoints
+      displayName: "HTTP endpoints (wizard + card data sources)"
+      taskRef:
+        name: aoit-beat-endpoints
+  finally:
+    - name: teardown
+      displayName: "Teardown (delete ephemeral resources)"
+      taskRef:
+        name: aoit-teardown
+      params:
+        - name: test-namespace
+          value: ""   # Phase 1 creates no ephemeral namespace

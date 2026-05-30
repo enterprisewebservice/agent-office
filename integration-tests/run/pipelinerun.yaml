@@ -1,0 +1,25 @@
+# On-demand run of the demo suite. Create a FRESH run with:
+#
+#   oc create -f integration-tests/run/pipelinerun.yaml
+#
+# (generateName → a new PipelineRun each time; nothing on your laptop.)
+#
+# The backstage.io/kubernetes-id label is what makes this run appear
+# under the agent-office-integration-tests Component's CI tab in Dev
+# Hub. Watch it there, or in OpenShift Console → Pipelines.
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  generateName: agent-office-it-
+  namespace: agent-office
+  labels:
+    backstage.io/kubernetes-id: agent-office-integration-tests
+    tekton.dev/pipeline: agent-office-integration-tests
+    app.kubernetes.io/part-of: agent-office-integration-tests
+spec:
+  pipelineRef:
+    name: agent-office-integration-tests
+  taskRunTemplate:
+    serviceAccountName: aoit-runner
+  timeouts:
+    pipeline: "30m"

@@ -1,0 +1,11 @@
+# Declarative bundle for the integration-test Pipeline + tasks + RBAC.
+# Apply with `oc apply -k integration-tests/pipeline/` or wire into an
+# ArgoCD Application. The PipelineRun (run/) is the on-demand trigger
+# and is intentionally NOT included here (it's created per-run).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - rbac.yaml
+  - tasks/beat-endpoints.yaml
+  - tasks/teardown.yaml
+  - pipeline.yaml

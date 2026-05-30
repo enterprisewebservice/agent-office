@@ -1,0 +1,59 @@
+# Beat (HTTP endpoints) — Act 1/4 plugin-facing surfaces.
+#
+# Asserts the operator HTTP endpoints the create-wizard binder
+# (AgentComposer) and the entity-page card depend on:
+#   GET /catalog/skills                              (skill discovery)
+#   GET /binders/namespaces/<ns>/knowledgebases      (KB picker)
+# Pure stdlib python (urllib) — no curl/jq dependency. Namespace-
+# independent, so it needs no ephemeral setup; it's the cheapest,
+# safest beat and the first to go green.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: aoit-beat-endpoints
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/part-of: agent-office-integration-tests
+spec:
+  description: >-
+    Beat: assert the operator's /catalog/skills and /binders KB
+    endpoints (the wizard + card data sources) respond with sane JSON.
+  steps:
+    - name: assert-endpoints
+      image: registry.access.redhat.com/ubi9/python-311:latest
+      script: |
+        #!/usr/bin/env python3
+        import urllib.request, json
+        BASE = "http://agent-office-backstage-catalog.agent-office-operator.svc.cluster.local"
+
+        def get(path):
+            req = urllib.request.Request(BASE + path, headers={"Accept": "application/json"})
+            with urllib.request.urlopen(req, timeout=20) as r:
+                return r.status, json.loads(r.read().decode())
+
+        print("BEAT 'HTTP endpoints' — surfaces the wizard binder + entity card depend on\n")
+        failures = []
+
+        try:
+            st, body = get("/catalog/skills")
+            items = body.get("items", [])
+            print(f"  GET /catalog/skills             -> HTTP {st}, {len(items)} skills")
+            assert st == 200 and isinstance(items, list) and len(items) >= 1, "expected >=1 skill"
+        except Exception as e:
+            failures.append(f"/catalog/skills: {e}")
+
+        try:
+            st, body = get("/binders/namespaces/agent-office/knowledgebases")
+            kbs = body.get("items", [])
+            print(f"  GET /binders .../knowledgebases -> HTTP {st}, {len(kbs)} KBs")
+            assert st == 200 and isinstance(kbs, list), "expected items[] list"
+        except Exception as e:
+            failures.append(f"/binders knowledgebases: {e}")
+
+        print()
+        if failures:
+            print("FAIL:")
+            for f in failures:
+                print("  -", f)
+            raise SystemExit(1)
+        print("PASS — wizard/card endpoints healthy")

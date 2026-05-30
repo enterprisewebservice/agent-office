@@ -1,0 +1,53 @@
+# Teardown — the Pipeline's `finally` task. Always runs, pass or fail.
+#
+# Deletes the per-run ephemeral namespace (which cascades all test
+# AgentWorkstations / KnowledgeBases / gateway pods created in it) and
+# logs anything that can't be auto-cleaned. Phase 1 has no ephemeral
+# namespace yet, so passing an empty `test-namespace` makes this a
+# clear no-op — the structure is in place for Phase 2+.
+#
+# oc CONVENTION (all oc-needing beats): we do NOT use a pre-baked CLI
+# image (registry.redhat.io/openshift4/ose-cli is terms-gated; the
+# community origin-cli is upstream). Instead we run on a plain UBI9
+# base and fetch the CLUSTER'S OWN matching oc binary at runtime from
+# the in-cluster console downloads service. Version always matches the
+# cluster, nothing external, fully declarative.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: aoit-teardown
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/part-of: agent-office-integration-tests
+spec:
+  description: Delete the ephemeral test namespace + report any un-cleanable externals.
+  params:
+    - name: test-namespace
+      type: string
+      default: ""
+      description: Ephemeral namespace to delete (empty = nothing to tear down).
+    - name: oc-download-url
+      type: string
+      default: "http://downloads.openshift-console.svc.cluster.local:80/amd64/linux/oc.tar"
+      description: In-cluster console downloads service serving the cluster's own oc.
+  steps:
+    - name: teardown
+      image: registry.access.redhat.com/ubi9/ubi:latest
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+
+        # Fetch the cluster's own oc (matches cluster version; nothing external).
+        curl -sL "$(params.oc-download-url)" -o /tmp/oc.tar
+        tar -x -C /tmp -f /tmp/oc.tar oc
+        OC=/tmp/oc
+        $OC version --client | head -1
+
+        NS="$(params.test-namespace)"
+        if [ -z "$NS" ]; then
+          echo "TEARDOWN: no ephemeral namespace for this run — nothing to delete."
+          exit 0
+        fi
+        echo "TEARDOWN: deleting ephemeral namespace $NS (cascades agents/gateways/KBs)…"
+        $OC delete namespace "$NS" --ignore-not-found --wait=false
+        echo "TEARDOWN: requested deletion of $NS."

@@ -1,0 +1,53 @@
+# ServiceAccount + RBAC the integration-test Pipeline runs under.
+#
+# Read-mostly today (endpoints beat needs no cluster access; later
+# beats read pods/deployments + exec into gateway pods to assert
+# workspace contents). Phase 2 expands this with namespace + CR
+# create/delete + rolebinding-create (to grant the image-volume SCC
+# in the ephemeral test namespace). Kept scoped to a dedicated SA in
+# agent-office — never cluster-admin.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: aoit-runner
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/part-of: agent-office-integration-tests
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: aoit-runner
+  labels:
+    app.kubernetes.io/part-of: agent-office-integration-tests
+rules:
+  - apiGroups: [""]
+    resources: [namespaces, pods, services, configmaps, persistentvolumeclaims, events]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [pods/exec]
+    verbs: [create]
+  - apiGroups: [""]
+    resources: [pods/log]
+    verbs: [get]
+  - apiGroups: [apps]
+    resources: [deployments, replicasets]
+    verbs: [get, list, watch]
+  - apiGroups: [agentoffice.ai]
+    resources: ["*"]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: aoit-runner
+  labels:
+    app.kubernetes.io/part-of: agent-office-integration-tests
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: aoit-runner
+subjects:
+  - kind: ServiceAccount
+    name: aoit-runner
+    namespace: agent-office
