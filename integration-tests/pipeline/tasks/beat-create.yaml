@@ -1,15 +1,13 @@
 # Beat (Act 1) — Compose + Materialize, the REAL way.
 #
 # Drives the actual openclaw-agent SCAFFOLDER TEMPLATE via the RHDH
-# scaffolder API — exactly what the Dev Hub wizard's Submit does. That
-# runs the real steps: fetch:template → publish:github (real gitops
-# repo) → argocd:create-resources (real Argo Application) →
-# catalog:register (real catalog entity) → operator reconciles the AW.
-# This exercises the whole creation pipeline, not a synthetic CR.
-#
-# Asserts the chain materialized, and writes the artifact names to
-# results so teardown can remove every one of them (repo, Argo app,
-# catalog location, AW) — zero residue.
+# scaffolder API (the wizard's Submit): fetch:template → publish:github
+# (real gitops repo, incl. the argocd/applicationset-managed marker) →
+# catalog:register. Then the agent-office-agents ArgoCD ApplicationSet
+# discovers the repo (marker) and creates the Application in the shared
+# agent-office project; ArgoCD syncs the AgentWorkstation; the operator
+# reconciles it onto the shared research-gateway. This beat asserts that
+# whole real chain materialized — no synthetic CRs, no roadie race.
 apiVersion: tekton.dev/v1
 kind: Task
 metadata:
@@ -18,11 +16,10 @@ metadata:
   labels:
     app.kubernetes.io/part-of: agent-office-integration-tests
 spec:
-  description: Drive the real openclaw-agent scaffolder template end-to-end; assert it materialized.
+  description: Drive the real openclaw-agent template; assert ApplicationSet + operator materialize it.
   params:
     - name: agent-name
       type: string
-      description: Unique agent/repo name for this run (e.g. the PipelineRun name).
     - name: gh-owner
       type: string
       default: enterprisewebservice
@@ -32,13 +29,6 @@ spec:
     - name: oc-download-url
       type: string
       default: "http://downloads.openshift-console.svc.cluster.local:80/amd64/linux/oc.tar"
-  results:
-    - name: repo
-      description: "<owner>/<name>-agent-gitops created by publish:github."
-    - name: argocd-app
-      description: ArgoCD Application name created by the template.
-    - name: aw-name
-      description: AgentWorkstation name reconciled by the operator.
   steps:
     - name: scaffold
       image: registry.access.redhat.com/ubi9/ubi:latest
@@ -47,11 +37,7 @@ spec:
         set -euo pipefail
         curl -sL "$(params.oc-download-url)" -o /tmp/oc.tar && tar -x -C /tmp -f /tmp/oc.tar oc
         OC=/tmp/oc
-        NAME="$(params.agent-name)"
-        OWNER="$(params.gh-owner)"
-        NS="$(params.target-namespace)"
-
-        # RHDH scaffolder API + service token (read cross-ns via runner RBAC).
+        NAME="$(params.agent-name)"; OWNER="$(params.gh-owner)"; NS="$(params.target-namespace)"
         RHDH="http://v1-developer-hub.rhdh-test.svc.cluster.local:7007"
         TOKEN=$($OC get secret -n rhdh-test agent-office-rhdh-token -o jsonpath='{.data.token}' | base64 -d)
 
@@ -60,61 +46,53 @@ spec:
         {
           "templateRef": "template:default/openclaw-agent",
           "values": {
-            "name": "$NAME",
-            "displayName": "IT E2E Agent",
-            "emoji": "🧪",
+            "name": "$NAME", "displayName": "IT E2E Agent", "emoji": "🧪",
             "description": "Ephemeral integration-test agent (auto-removed).",
-            "owner": "user:default/deanpeterson",
-            "role": "assistant",
+            "owner": "user:default/deanpeterson", "role": "assistant",
             "capabilities": [],
             "systemPrompt": "Ephemeral e2e test agent created by the integration suite. Safe to delete.",
             "provider": "openai-codex",
             "compose": { "knowledgeBaseRefs": [], "mcpServers": [
               { "name": "github", "url": "http://mcp-gateway-data-science-gateway-class.$NS.svc.cluster.local/mcp", "type": "http", "authHeaderValue": "Bearer \${GITHUB_PERSONAL_ACCESS_TOKEN}", "envFromSecret": "github-mcp-installation-token" }
             ] },
-            "createNewKnowledgeBase": false,
-            "namespace": "$NS",
-            "gatewayRef": "research-gateway",
-            "ghOwner": "$OWNER"
+            "createNewKnowledgeBase": false, "namespace": "$NS",
+            "gatewayRef": "research-gateway", "ghOwner": "$OWNER"
           }
         }
         EOF
-
-        TID=$(curl -s -X POST "$RHDH/api/scaffolder/v2/tasks" \
-          -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-          --data @/tmp/body.json | python3 -c 'import sys,json;print(json.load(sys.stdin).get("id",""))')
-        [ -n "$TID" ] || { echo "FAIL: scaffolder did not return a task id"; exit 1; }
+        TID=$(curl -s -X POST "$RHDH/api/scaffolder/v2/tasks" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" --data @/tmp/body.json | python3 -c 'import sys,json;print(json.load(sys.stdin).get("id",""))')
+        [ -n "$TID" ] || { echo "FAIL: no scaffolder task id"; exit 1; }
         echo "  scaffolder task: $TID"
-
-        echo "=== wait for the scaffolder task to complete all real steps ==="
         st=""
-        for i in $(seq 1 40); do
-          st=$(curl -s "$RHDH/api/scaffolder/v2/tasks/$TID" -H "Authorization: Bearer $TOKEN" \
-               | python3 -c 'import sys,json;print(json.load(sys.stdin).get("status",""))')
-          echo "  [$i] task status: $st"
-          case "$st" in completed) break ;; failed|cancelled) echo "FAIL: scaffolder task $st"; exit 1 ;; esac
+        for i in $(seq 1 30); do
+          st=$(curl -s "$RHDH/api/scaffolder/v2/tasks/$TID" -H "Authorization: Bearer $TOKEN" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("status",""))')
+          echo "  [$i] scaffolder: $st"
+          case "$st" in completed) break ;; failed|cancelled) echo "FAIL: scaffolder $st"; exit 1 ;; esac
           sleep 6
         done
-        [ "$st" = "completed" ] || { echo "FAIL: scaffolder task did not complete"; exit 1; }
+        [ "$st" = "completed" ] || { echo "FAIL: scaffolder did not complete"; exit 1; }
 
-        REPO="$OWNER/$NAME-agent-gitops"
         APP="$NAME-agent"
         echo
-        echo "=== assert the real artifacts exist ==="
-        echo "  - ArgoCD Application $APP:"
-        $OC get applications.argoproj.io "$APP" -n openshift-gitops -o jsonpath='{.metadata.name}{"  sync="}{.status.sync.status}{"\n"}' || { echo "FAIL: no Argo app"; exit 1; }
-        echo "  - operator reconciled AgentWorkstation $NAME in $NS:"
-        ok=""
+        echo "=== assert MATERIALIZE: ApplicationSet creates $APP (shared project), operator reconciles AW ==="
+        appok=""
         for i in $(seq 1 20); do
-          if $OC get agentworkstation "$NAME" -n "$NS" >/dev/null 2>&1; then ok=1; break; fi
-          sleep 6
+          if $OC get applications.argoproj.io "$APP" -n openshift-gitops >/dev/null 2>&1; then
+            $OC get applications.argoproj.io "$APP" -n openshift-gitops -o jsonpath='  app='"$APP"' project={.spec.project} sync={.status.sync.status}{"\n"}'
+            proj=$($OC get applications.argoproj.io "$APP" -n openshift-gitops -o jsonpath='{.spec.project}')
+            [ "$proj" = "agent-office" ] || { echo "FAIL: app not in shared agent-office project (got $proj)"; exit 1; }
+            appok=1; break
+          fi
+          echo "  [$i] waiting for ApplicationSet to create $APP…"; sleep 9
         done
-        [ -n "$ok" ] || { echo "FAIL: AgentWorkstation $NAME not created by Argo/operator within timeout"; exit 1; }
-        $OC get agentworkstation "$NAME" -n "$NS" -o jsonpath='{.metadata.name}{"  mcp="}{.spec.tools.mcpServers[0].name}{"\n"}'
+        [ -n "$appok" ] || { echo "FAIL: ApplicationSet did not create $APP within timeout"; exit 1; }
 
-        # Record artifact names for teardown.
-        printf '%s' "$REPO" | tee "$(results.repo.path)"; echo
-        printf '%s' "$APP"  | tee "$(results.argocd-app.path)"; echo
-        printf '%s' "$NAME" | tee "$(results.aw-name.path)"; echo
+        awok=""
+        for i in $(seq 1 20); do
+          $OC get agentworkstation "$NAME" -n "$NS" >/dev/null 2>&1 && { awok=1; break; }
+          echo "  [$i] waiting for ArgoCD sync + operator to reconcile AW $NAME…"; sleep 9
+        done
+        [ -n "$awok" ] || { echo "FAIL: AgentWorkstation $NAME not reconciled within timeout"; exit 1; }
+        $OC get agentworkstation "$NAME" -n "$NS" -o jsonpath='  AW='"$NAME"' mcp={.spec.tools.mcpServers[0].name}{"\n"}'
         echo
-        echo "PASS — real scaffolder template ran end-to-end: repo + Argo app + catalog + reconciled AW"
+        echo "PASS — real scaffolder → ApplicationSet (shared project) → ArgoCD → operator: agent materialized"

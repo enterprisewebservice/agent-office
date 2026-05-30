@@ -1,0 +1,64 @@
+# ApplicationSet — the declarative, race-free replacement for the
+# scaffolder's roadie argocd:create-resources step.
+#
+# A GitHub SCM-provider generator scans enterprisewebservice for agent
+# gitops repos and creates one ArgoCD Application per repo, all in the
+# shared agent-office AppProject. This:
+#   - eliminates the roadie race ("app not allowed in project") and the
+#     "Duplicate project" failure (no per-app project is ever created),
+#   - auto-discovers new agents (publish a repo → app appears),
+#   - prunes automatically when a repo is deleted (teardown just deletes
+#     the repo).
+#
+# SCOPING: the `pathsExist` filter means ONLY repos that contain the
+# marker file `argocd/applicationset-managed` are adopted. New agents
+# (the updated templates add the marker) are managed here; EXISTING
+# agents (no marker, still on their per-app roadie apps) are left
+# untouched until deliberately migrated.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: agent-office-agents
+  namespace: openshift-gitops
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - scmProvider:
+        github:
+          organization: enterprisewebservice
+          appSecretName: agent-office-github-app-scm
+        cloneProtocol: https
+        # Re-scan quickly so newly-published agent repos get an app
+        # within ~1 min (default is 30 min).
+        requeueAfterSeconds: 60
+        filters:
+          - repositoryMatch: '.*-(agent|autoresearch)-gitops$'
+            pathsExist: ['argocd/applicationset-managed']
+  template:
+    metadata:
+      # repo <name>-agent-gitops → app <name>-agent (matches the name
+      # the catalog entity + teardown expect).
+      name: '{{ trimSuffix "-gitops" .repository }}'
+      labels:
+        app.kubernetes.io/managed-by: agent-office-applicationset
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+    spec:
+      project: agent-office
+      source:
+        repoURL: '{{ .url }}'
+        targetRevision: '{{ .branch }}'
+        path: overlays/development
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: agent-office
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
