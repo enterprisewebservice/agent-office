@@ -59,6 +59,9 @@ spec:
             -p '{"metadata":{"finalizers":["resources-finalizer.argocd.argoproj.io"]}}' 2>/dev/null || true
           $OC delete applications.argoproj.io "$APP" -n openshift-gitops --ignore-not-found --wait=false
         else echo "  (no Argo app)"; fi
+        # The roadie argocd:create-resources action also creates a PER-APP
+        # AppProject named <app> — delete it too (else it leaks).
+        $OC delete appproject "$APP" -n openshift-gitops --ignore-not-found --wait=false 2>/dev/null || true
 
         echo "=== 2. delete AgentWorkstation $NAME directly (operator finalizer de-registers from shared gateway) ==="
         $OC delete agentworkstation "$NAME" -n "$NS" --ignore-not-found --wait=false 2>/dev/null || true
@@ -101,6 +104,7 @@ spec:
         rcode=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: token $apptok" "https://api.github.com/repos/$OWNER/$REPO")
         [ "$rcode" = "404" ] && echo "  ✓ repo gone (404)" || { echo "  ✗ repo still $rcode"; rc=1; }
         $OC get applications.argoproj.io "$APP" -n openshift-gitops >/dev/null 2>&1 && { echo "  ✗ Argo app still present"; rc=1; } || echo "  ✓ Argo app gone"
+        $OC get appproject "$APP" -n openshift-gitops >/dev/null 2>&1 && { echo "  ✗ AppProject still present"; rc=1; } || echo "  ✓ AppProject gone"
         $OC get agentworkstation "$NAME" -n "$NS" >/dev/null 2>&1 && echo "  … AW still terminating (finalizer)" || echo "  ✓ AW gone"
         [ "$rc" = "0" ] && echo "TEARDOWN: clean." || echo "TEARDOWN: residue detected (see above)."
         exit $rc
