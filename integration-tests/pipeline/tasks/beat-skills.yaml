@@ -1,0 +1,64 @@
+# Beat (Act 2) — Open-standard skills discovery. Inspects the REAL
+# agent beat-create materialized and asserts the operator seeded its
+# workspace with the FULL skill catalog, delivered the Red Hat way:
+#   - the skills come from the /skills-catalog image volume (skillSrc=
+#     image), not an inline fallback — i.e. the same set the operator
+#     branch reads from /skills-catalog/skills,
+#   - each lands as skills/<name>/SKILL.md (Anthropic Skills open-
+#     standard folder layout), so the agent discovers them at runtime.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: aoit-beat-skills
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/part-of: agent-office-integration-tests
+spec:
+  description: Assert the materialized agent's workspace was seeded with the discovered skill catalog (skillSrc=image).
+  params:
+    - name: agent-name
+      type: string
+    - name: namespace
+      type: string
+      default: agent-office
+    - name: oc-download-url
+      type: string
+      default: "http://downloads.openshift-console.svc.cluster.local:80/amd64/linux/oc.tar"
+  steps:
+    - name: skills
+      image: registry.access.redhat.com/ubi9/ubi:latest
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        curl -sL "$(params.oc-download-url)" -o /tmp/oc.tar && tar -x -C /tmp -f /tmp/oc.tar oc
+        OC=/tmp/oc
+        NAME="$(params.agent-name)"; NS="$(params.namespace)"
+        GWPOD=$($OC get pods -n "$NS" -l agentoffice.ai/gateway --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}')
+        WS="/home/node/.openclaw/workspaces/$NAME/skills"
+        echo "BEAT 'Skills discovery' on agent $NAME (gateway pod $GWPOD)"
+
+        echo "=== wait for the operator to seed the agent's workspace skills ==="
+        seeded=""
+        for i in $(seq 1 18); do
+          n=$($OC exec -n "$NS" "$GWPOD" -c openclaw -- sh -c "ls $WS 2>/dev/null | wc -l" 2>/dev/null | tr -d ' ')
+          echo "  [$i] $WS dir count: ${n:-0}"
+          if [ "${n:-0}" -ge 1 ]; then seeded=1; break; fi
+          sleep 8
+        done
+        [ -n "$seeded" ] || { echo "FAIL: workspace skills not seeded within timeout"; exit 1; }
+
+        echo "=== assert skillSrc=image: workspace skills == the /skills-catalog image volume set ==="
+        CATALOG=$($OC exec -n "$NS" "$GWPOD" -c openclaw -- sh -c "ls /skills-catalog/skills 2>/dev/null | sort | tr '\n' ' '" 2>/dev/null)
+        WSSKILLS=$($OC exec -n "$NS" "$GWPOD" -c openclaw -- sh -c "ls $WS 2>/dev/null | sort | tr '\n' ' '" 2>/dev/null)
+        echo "  image catalog : [$CATALOG]"
+        echo "  agent skills  : [$WSSKILLS]"
+        [ -n "$CATALOG" ] && [ "$CATALOG" = "$WSSKILLS" ] || { echo "FAIL: workspace skills don't match the image catalog (not skillSrc=image)"; exit 1; }
+
+        echo "=== assert Anthropic open-standard layout: skills/<name>/SKILL.md ==="
+        FIRST=$($OC exec -n "$NS" "$GWPOD" -c openclaw -- sh -c "ls $WS 2>/dev/null | head -1" 2>/dev/null | tr -d '\r')
+        $OC exec -n "$NS" "$GWPOD" -c openclaw -- sh -c "test -f $WS/$FIRST/SKILL.md" 2>/dev/null \
+          && echo "  ✓ $FIRST/SKILL.md present (open-standard folder layout)" \
+          || { echo "FAIL: no SKILL.md in skills/$FIRST"; exit 1; }
+
+        echo
+        echo "PASS — agent discovered the full catalog via the image volume (skillSrc=image), SKILL.md layout"

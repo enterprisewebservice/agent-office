@@ -49,6 +49,24 @@ spec:
         - name: gh-owner
           value: $(params.gh-owner)
 
+    # Act 2 — inspect the REAL materialized agent (before teardown).
+    - name: beat-guardrails
+      displayName: "Guardrails (no standing creds, ESO secret, constrained SCC)"
+      runAfter: [beat-create]
+      taskRef:
+        name: aoit-beat-guardrails
+      params:
+        - name: agent-name
+          value: $(context.pipelineRun.name)
+    - name: beat-skills
+      displayName: "Skills discovery (skillSrc=image, SKILL.md layout)"
+      runAfter: [beat-create]
+      taskRef:
+        name: aoit-beat-skills
+      params:
+        - name: agent-name
+          value: $(context.pipelineRun.name)
+
   finally:
     # Removes EVERY artifact the run created; asserts zero residue.
     - name: teardown

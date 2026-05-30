@@ -13,5 +13,7 @@ resources:
   - tasks/setup.yaml
   - tasks/beat-endpoints.yaml
   - tasks/beat-create.yaml
+  - tasks/beat-guardrails.yaml
+  - tasks/beat-skills.yaml
   - tasks/teardown.yaml
   - pipeline.yaml

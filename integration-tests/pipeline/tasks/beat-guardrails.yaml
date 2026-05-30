@@ -1,0 +1,65 @@
+# Beat (Act 2) — The guardrails. Inspects the REAL agent that
+# beat-create materialized and asserts the governance properties that
+# make it enterprise-safe:
+#   1. Zero standing credentials — the AW spec carries no inline API
+#      key, and its MCP tool authenticates via an envFromSecret +
+#      ${ENV} header reference, never a literal token.
+#   2. That credential secret is ESO-managed (owned by an
+#      ExternalSecret → rotated from Vault, not a static paste).
+#   3. The gateway pod runs under the constrained agent-office-imagevol
+#      SCC (restricted-v2 + read-only image volume), not anything wider.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: aoit-beat-guardrails
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/part-of: agent-office-integration-tests
+spec:
+  description: Assert the materialized agent is governed (no standing creds, ESO secret, constrained SCC).
+  params:
+    - name: agent-name
+      type: string
+    - name: gateway-ref
+      type: string
+      default: research-gateway
+    - name: namespace
+      type: string
+      default: agent-office
+    - name: oc-download-url
+      type: string
+      default: "http://downloads.openshift-console.svc.cluster.local:80/amd64/linux/oc.tar"
+  steps:
+    - name: guardrails
+      image: registry.access.redhat.com/ubi9/ubi:latest
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        curl -sL "$(params.oc-download-url)" -o /tmp/oc.tar && tar -x -C /tmp -f /tmp/oc.tar oc
+        OC=/tmp/oc
+        NAME="$(params.agent-name)"; NS="$(params.namespace)"; GWREF="$(params.gateway-ref)"
+        echo "BEAT 'Guardrails' on agent $NAME"
+        fail=0
+
+        echo "=== 1. zero standing credentials in the AW spec ==="
+        APIKEY=$($OC get agentworkstation "$NAME" -n "$NS" -o jsonpath='{.spec.model.apiKey}' 2>/dev/null || true)
+        if [ -z "$APIKEY" ]; then echo "  ✓ no inline model.apiKey"; else echo "  ✗ inline apiKey present"; fail=1; fi
+        SECREF=$($OC get agentworkstation "$NAME" -n "$NS" -o jsonpath='{.spec.tools.mcpServers[0].envFromSecret}' 2>/dev/null || true)
+        AUTH=$($OC get agentworkstation "$NAME" -n "$NS" -o jsonpath='{.spec.tools.mcpServers[0].headers.Authorization}' 2>/dev/null || true)
+        echo "  mcp envFromSecret='$SECREF'  authHeader='$AUTH'"
+        [ "$SECREF" = "github-mcp-installation-token" ] && echo "  ✓ tool cred via secret reference" || { echo "  ✗ expected envFromSecret"; fail=1; }
+        case "$AUTH" in *'${'*) echo "  ✓ auth header is an env reference, not a literal token" ;; *) echo "  ✗ auth header looks literal"; fail=1 ;; esac
+
+        echo "=== 2. that credential secret is ESO-managed (rotated from Vault) ==="
+        OWNER=$($OC get secret github-mcp-installation-token -n "$NS" -o jsonpath='{.metadata.ownerReferences[0].kind}' 2>/dev/null || true)
+        echo "  secret owner kind: '$OWNER'"
+        [ "$OWNER" = "ExternalSecret" ] && echo "  ✓ credential is ESO-managed (no static paste)" || { echo "  ✗ not ESO-owned"; fail=1; }
+
+        echo "=== 3. gateway pod runs under the constrained image-volume SCC ==="
+        GWPOD=$($OC get pods -n "$NS" -l agentoffice.ai/gateway --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+        SCC=$($OC get pod "$GWPOD" -n "$NS" -o jsonpath='{.metadata.annotations.openshift\.io/scc}' 2>/dev/null || true)
+        echo "  gateway $GWPOD scc='$SCC'"
+        [ "$SCC" = "agent-office-imagevol" ] && echo "  ✓ constrained SCC (restricted-v2 + read-only image volume)" || { echo "  ✗ unexpected SCC"; fail=1; }
+
+        echo
+        [ "$fail" = "0" ] && echo "PASS — agent is governed: no standing creds, ESO secret, constrained SCC" || { echo "FAIL — guardrail violation(s) above"; exit 1; }
