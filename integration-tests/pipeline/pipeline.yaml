@@ -40,12 +40,28 @@ spec:
     # Act 1 — the REAL create path: drive the openclaw-agent scaffolder
     # template (publish:github → argocd → catalog:register → operator).
     - name: beat-create
-      displayName: "Create an agent the real way (scaffolder template e2e)"
+      displayName: "Create a SHARED agent the real way (scaffolder e2e)"
       taskRef:
         name: aoit-beat-create
       params:
         - name: agent-name
           value: $(context.pipelineRun.name)
+        - name: runtime-mode
+          value: shared
+        - name: gh-owner
+          value: $(params.gh-owner)
+
+    # Same real path, runtime: dedicated — operator builds the agent its
+    # OWN gateway (different reconcile branch). Runs in parallel.
+    - name: beat-create-dedicated
+      displayName: "Create a DEDICATED agent (own gateway pod)"
+      taskRef:
+        name: aoit-beat-create
+      params:
+        - name: agent-name
+          value: $(context.pipelineRun.name)-ded
+        - name: runtime-mode
+          value: dedicated
         - name: gh-owner
           value: $(params.gh-owner)
 

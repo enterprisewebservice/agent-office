@@ -1,20 +1,15 @@
 # Teardown — the Pipeline's `finally` task. ALWAYS runs (pass or fail)
-# and removes EVERY artifact a run can create, so the suite is fully
-# idempotent and leaves zero residue. Derives all names from the run
-# name, so it cleans up even if a beat failed half-way.
+# and removes EVERY artifact a run can create, for BOTH agents the suite
+# creates (the shared <run> and the dedicated <run>-ded), so the suite is
+# fully idempotent and leaves zero residue. Derives all names from the
+# run name, so it cleans up even if a beat failed half-way.
 #
-# Order matters with the ApplicationSet:
-#   1. Delete the GitHub repo FIRST (App token) — so the ApplicationSet's
-#      next SCM scan no longer generates this app and won't recreate it.
-#   2. Let the ApplicationSet prune the Application (cascade via its
-#      resources-finalizer → deletes the AW → the operator's finalizer
-#      de-registers the agent from the shared gateway). Fall back to
-#      deleting the app directly if the AppSet is slow.
-#   3. Belt-and-suspenders: delete the AW directly if still present.
-#   4. Delete the catalog Location.
-#   5. Delete the ephemeral namespace (if a beat created one).
-# Then ASSERT the repo + app + AW are gone. The SHARED agent-office
-# project is intentionally left in place.
+# Per agent, in order: delete the GitHub repo FIRST (so the ApplicationSet
+# stops generating its app + won't recreate it) → let the ApplicationSet
+# prune the Application (cascade → AW → operator de-registers shared
+# agents / cascades dedicated children) → delete the AW directly →
+# delete the catalog Location. The SHARED agent-office project is left in
+# place. Then ASSERT every repo/app/AW is gone.
 apiVersion: tekton.dev/v1
 kind: Task
 metadata:
@@ -23,7 +18,7 @@ metadata:
   labels:
     app.kubernetes.io/part-of: agent-office-integration-tests
 spec:
-  description: Remove every artifact the run created (GitHub repo, ApplicationSet app, AW, catalog, ns).
+  description: Remove every artifact both agents created (repos, apps, AWs, catalog, ns).
   params:
     - name: run-name
       type: string
@@ -41,12 +36,12 @@ spec:
       image: registry.access.redhat.com/ubi9/ubi:latest
       script: |
         #!/usr/bin/env bash
-        set -uo pipefail   # NOT -e: push through partial failures
+        set -uo pipefail
         curl -sL "$(params.oc-download-url)" -o /tmp/oc.tar && tar -x -C /tmp -f /tmp/oc.tar oc
         OC=/tmp/oc
         NAME="$(params.run-name)"; OWNER="$(params.gh-owner)"; NS="$(params.target-namespace)"
-        APP="$NAME-agent"; REPO="$NAME-agent-gitops"
-        echo "TEARDOWN for run $NAME"
+        AGENTS="$NAME ${NAME}-ded"   # shared + dedicated agents the suite creates
+        echo "TEARDOWN for run $NAME (agents: $AGENTS)"
 
         echo "=== mint short-lived GitHub App token ==="
         appId=$($OC get secret -n agent-office agent-office-github-app -o jsonpath='{.data.appId}' | base64 -d)
@@ -59,45 +54,40 @@ spec:
         ss=$(printf '%s.%s' "$hh" "$pp" | openssl dgst -sha256 -sign /tmp/ghapp.pem -binary | b64url)
         apptok=$(curl -s -X POST -H "Authorization: Bearer $hh.$pp.$ss" -H "Accept: application/vnd.github+json" "https://api.github.com/app/installations/$instId/access_tokens" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("token",""))')
         rm -f /tmp/ghapp.pem
-
-        echo "=== 1. delete GitHub repo(s) FIRST (so the ApplicationSet stops generating the app) ==="
-        for r in "$REPO" "$NAME-wiki"; do
-          code=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE -H "Authorization: token $apptok" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/$OWNER/$r")
-          echo "  DELETE repo $OWNER/$r -> $code"
-        done
-
-        echo "=== 2. let the ApplicationSet prune $APP (else delete it; repo is gone so it won't recreate) ==="
-        gone=""
-        for i in $(seq 1 14); do
-          if ! $OC get applications.argoproj.io "$APP" -n openshift-gitops >/dev/null 2>&1; then gone=1; echo "  app pruned"; break; fi
-          $OC patch applications.argoproj.io "$APP" -n openshift-gitops --type merge -p '{"metadata":{"finalizers":["resources-finalizer.argocd.argoproj.io"]}}' 2>/dev/null || true
-          $OC delete applications.argoproj.io "$APP" -n openshift-gitops --ignore-not-found --wait=false 2>/dev/null || true
-          sleep 10
-        done
-        [ -n "$gone" ] || echo "  (app still terminating)"
-
-        echo "=== 3. delete AgentWorkstation $NAME directly (operator de-registers from shared gateway) ==="
-        $OC delete agentworkstation "$NAME" -n "$NS" --ignore-not-found --wait=false 2>/dev/null || true
-
-        echo "=== 4. delete catalog Location referencing the test repo ==="
         RHDH="http://v1-developer-hub.rhdh-test.svc.cluster.local:7007"
         TOKEN=$($OC get secret -n rhdh-test agent-office-rhdh-token -o jsonpath='{.data.token}' | base64 -d)
-        LID=$(curl -s "$RHDH/api/catalog/locations" -H "Authorization: Bearer $TOKEN" | python3 -c "import sys,json; d=json.load(sys.stdin); print(next(((x.get('data') or x).get('id','') for x in d if '$REPO' in str((x.get('data') or x).get('target',''))), ''))" 2>/dev/null)
-        if [ -n "${LID:-}" ]; then
-          curl -s -o /dev/null -w "  DELETE location $LID -> %{http_code}\n" -X DELETE "$RHDH/api/catalog/locations/$LID" -H "Authorization: Bearer $TOKEN"
-        else echo "  (no catalog location referencing $REPO)"; fi
 
-        echo "=== 5. delete ephemeral namespace $NAME if a beat created one ==="
+        for A in $AGENTS; do
+          APP="$A-agent"; REPO="$A-agent-gitops"
+          echo "=== cleaning agent $A ==="
+          for r in "$REPO" "$A-wiki"; do
+            code=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE -H "Authorization: token $apptok" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/$OWNER/$r")
+            echo "  DELETE repo $OWNER/$r -> $code"
+          done
+          for i in $(seq 1 14); do
+            $OC get applications.argoproj.io "$APP" -n openshift-gitops >/dev/null 2>&1 || { echo "  app $APP pruned"; break; }
+            $OC patch applications.argoproj.io "$APP" -n openshift-gitops --type merge -p '{"metadata":{"finalizers":["resources-finalizer.argocd.argoproj.io"]}}' 2>/dev/null || true
+            $OC delete applications.argoproj.io "$APP" -n openshift-gitops --ignore-not-found --wait=false 2>/dev/null || true
+            sleep 10
+          done
+          $OC delete agentworkstation "$A" -n "$NS" --ignore-not-found --wait=false 2>/dev/null || true
+          LID=$(curl -s "$RHDH/api/catalog/locations" -H "Authorization: Bearer $TOKEN" | python3 -c "import sys,json; d=json.load(sys.stdin); print(next(((x.get('data') or x).get('id','') for x in d if '$REPO' in str((x.get('data') or x).get('target',''))), ''))" 2>/dev/null)
+          [ -n "${LID:-}" ] && curl -s -o /dev/null -w "  DELETE location $LID -> %{http_code}\n" -X DELETE "$RHDH/api/catalog/locations/$LID" -H "Authorization: Bearer $TOKEN" || echo "  (no catalog location for $REPO)"
+        done
+
+        echo "=== delete ephemeral namespace $NAME if a beat created one ==="
         $OC delete namespace "$NAME" --ignore-not-found --wait=false 2>/dev/null || true
 
         echo
-        echo "=== ASSERT zero residue ==="
+        echo "=== ASSERT zero residue (both agents) ==="
         sleep 8
         rc=0
-        rcode=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: token $apptok" "https://api.github.com/repos/$OWNER/$REPO")
-        [ "$rcode" = "404" ] && echo "  ✓ repo gone (404)" || { echo "  ✗ repo still $rcode"; rc=1; }
-        $OC get applications.argoproj.io "$APP" -n openshift-gitops >/dev/null 2>&1 && { echo "  ✗ Argo app still present"; rc=1; } || echo "  ✓ Argo app gone"
-        $OC get agentworkstation "$NAME" -n "$NS" >/dev/null 2>&1 && echo "  … AW still terminating (finalizer)" || echo "  ✓ AW gone"
+        for A in $AGENTS; do
+          rcode=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: token $apptok" "https://api.github.com/repos/$OWNER/$A-agent-gitops")
+          [ "$rcode" = "404" ] && echo "  ✓ $A repo gone (404)" || { echo "  ✗ $A repo still $rcode"; rc=1; }
+          $OC get applications.argoproj.io "$A-agent" -n openshift-gitops >/dev/null 2>&1 && { echo "  ✗ $A Argo app present"; rc=1; } || echo "  ✓ $A Argo app gone"
+          $OC get agentworkstation "$A" -n "$NS" >/dev/null 2>&1 && echo "  … $A AW terminating (finalizer)" || echo "  ✓ $A AW gone"
+        done
         $OC get appproject agent-office -n openshift-gitops >/dev/null 2>&1 && echo "  ✓ shared project intact" || echo "  ✗ shared project missing!"
         [ "$rc" = "0" ] && echo "TEARDOWN: clean." || echo "TEARDOWN: residue detected."
         exit $rc
