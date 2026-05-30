@@ -46,6 +46,9 @@ rules:
   - apiGroups: [argoproj.io]
     resources: [applications]
     verbs: [get, list, watch, patch, delete]
+  - apiGroups: [argoproj.io]
+    resources: [appprojects]
+    verbs: [get, list, watch]
   # Grant the image-volume SCC to the ephemeral namespace's default SA
   # (a RoleBinding inside that namespace → cascades on teardown).
   - apiGroups: [rbac.authorization.k8s.io]
