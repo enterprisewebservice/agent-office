@@ -1,0 +1,45 @@
+# Shared, scoped ArgoCD AppProject for ALL Governed Agent Platform agents.
+#
+# Replaces the per-app AppProjects the scaffolder's roadie
+# argocd:create-resources action used to create on the fly — which
+# (a) raced: project + Application created back-to-back, and ArgoCD
+# intermittently rejected the app because the project hadn't propagated
+# ("app is not allowed in project …"), and (b) leaked: teardown deleted
+# the Application but not the per-app project.
+#
+# Pre-creating ONE project here (declarative, gitops) means the
+# templates reference an already-propagated project (projectName:
+# agent-office) — no creation, no race, nothing per-app to leak.
+#
+# Governance is preserved by the two guardrails that matter:
+#   - sourceRepos: agents may ONLY deploy their own *-agent-gitops /
+#     *-autoresearch-gitops repos under the org.
+#   - destinations: agents may ONLY deploy into the agent-office
+#     namespace on the local cluster.
+# (Per-AGENT ArgoCD RBAC isolation is intentionally NOT a goal here —
+# all agents are platform-owned OpenClaw personas in agent-office.)
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: agent-office
+  namespace: openshift-gitops
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  description: Shared scoped project for all Governed Agent Platform agents.
+  sourceRepos:
+    - 'https://github.com/enterprisewebservice/*-agent-gitops.git'
+    - 'https://github.com/enterprisewebservice/*-autoresearch-gitops.git'
+  destinations:
+    - namespace: agent-office
+      server: https://kubernetes.default.svc
+  # The meaningful guardrails are sourceRepos + destinations above.
+  # Resource whitelists are left permissive so existing agent repos
+  # (AgentWorkstation, KnowledgeBase, AutoResearchProject, DSP pipelines,
+  # etc.) sync unchanged; tighten later if desired.
+  clusterResourceWhitelist:
+    - group: '*'
+      kind: '*'
+  namespaceResourceWhitelist:
+    - group: '*'
+      kind: '*'
