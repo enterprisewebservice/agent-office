@@ -88,7 +88,16 @@ the table above. The CI tab picks it up automatically on the next run.
 
 ## Status
 
-- [ ] Phase 0 — enable K8s + Tekton plugins; CI tab visible
-- [ ] Phase 1 — Pipeline + SA/RBAC + first green beat (HTTP endpoints)
-- [ ] Phase 2 — Act 1+2 beats
-- [ ] Phase 3 — Act 3+4 beats
+- [x] Phase 0 — K8s + Tekton plugins enabled; CI tab live
+- [x] Phase 1 — Pipeline + SA/RBAC + HTTP-endpoints beat (green)
+- [x] Phase 2 — Act 1 (compose/materialize, real scaffolder → ApplicationSet →
+      operator) + Act 2 (guardrails, skills) — all green, zero residue
+- [ ] Phase 3 — Act 3 (MCP real GitHub work, autoresearch) + Act 4 (audit)
+
+### Platform fixes the suite drove out
+- Operator **v1.6.3** — AW deletion finalizer de-registers shared agents from
+  the gateway (was orphaning agents.list / allowProfiles / workspace forever).
+- **ApplicationSet** (shared `agent-office` project) replaced the roadie
+  `argocd:create-resources` step (raced on per-app projects, couldn't share one).
+- Credential model proven: scaffolder publishes via OAuth, teardown deletes via
+  the auto-rotated GitHub App — no PAT, no standing test credential.
