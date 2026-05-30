@@ -2,15 +2,18 @@
 #
 # Each task is a DEMO BEAT (see integration-tests/DEMO.md). The DAG
 # lighting up green in Dev Hub's CI tab IS the narrated demo. A
-# `finally` teardown always runs so a run leaves no orphans.
+# `finally` teardown ALWAYS runs and removes EVERY artifact the run
+# created (Argo app → AW → shared-gateway de-registration, GitHub
+# repo, catalog Location, ephemeral ns), so a run is fully idempotent
+# and leaves zero residue.
 #
-# Extensible by design: add a beat = add a Task under tasks/ and one
-# entry here. Beats are ordered into the 4-act arc as they land:
-#   Act 1  beat-compose, beat-materialize
-#   Act 2  beat-guardrails, beat-skills
-#   Act 3  beat-mcp, beat-autoresearch
-#   Act 4  beat-audit  (+ finally: teardown)
-# Phase 1 ships the first, namespace-independent beat (endpoints).
+# Beats exercise the REAL creation path (the scaffolder template the
+# Dev Hub wizard drives), never synthetic CRs. Extensible: add a beat
+# = add a Task under tasks/ + an entry here.
+#   Act 1  beat-create (real scaffolder template e2e)
+#   Act 2  beat-guardrails, beat-skills                [Phase 2b]
+#   Act 3  beat-mcp, beat-autoresearch                 [Phase 3]
+#   Act 4  beat-audit  (+ finally: teardown)           [Phase 3]
 apiVersion: tekton.dev/v1
 kind: Pipeline
 metadata:
@@ -20,19 +23,40 @@ metadata:
     app.kubernetes.io/part-of: agent-office-integration-tests
 spec:
   description: >-
-    The wow-factor demo suite. Each task proves one demo beat; the
-    suite running green is the demo working. See integration-tests/DEMO.md.
+    The wow-factor demo suite. Each task proves one demo beat against
+    the REAL creation path; the suite running green is the demo working.
+    See integration-tests/DEMO.md.
+  params:
+    - name: gh-owner
+      type: string
+      default: enterprisewebservice
   tasks:
-    # ---- Act 1/4: plugin-facing surfaces (cheapest, namespace-free) ----
+    # Act 1 — plugin-facing surfaces (namespace-free, runs in parallel).
     - name: beat-endpoints
       displayName: "HTTP endpoints (wizard + card data sources)"
       taskRef:
         name: aoit-beat-endpoints
+
+    # Act 1 — the REAL create path: drive the openclaw-agent scaffolder
+    # template (publish:github → argocd → catalog:register → operator).
+    - name: beat-create
+      displayName: "Create an agent the real way (scaffolder template e2e)"
+      taskRef:
+        name: aoit-beat-create
+      params:
+        - name: agent-name
+          value: $(context.pipelineRun.name)
+        - name: gh-owner
+          value: $(params.gh-owner)
+
   finally:
+    # Removes EVERY artifact the run created; asserts zero residue.
     - name: teardown
-      displayName: "Teardown (delete ephemeral resources)"
+      displayName: "Teardown (remove repo, Argo app, AW, catalog, ns)"
       taskRef:
         name: aoit-teardown
       params:
-        - name: test-namespace
-          value: ""   # Phase 1 creates no ephemeral namespace
+        - name: run-name
+          value: $(context.pipelineRun.name)
+        - name: gh-owner
+          value: $(params.gh-owner)

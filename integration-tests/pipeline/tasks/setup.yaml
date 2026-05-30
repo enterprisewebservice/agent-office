@@ -1,0 +1,73 @@
+# Setup — first task of every run. Creates the per-run EPHEMERAL
+# namespace (named after the PipelineRun, so it's unique + obviously
+# owned) and grants the image-volume SCC to that namespace's default
+# SA (a RoleBinding INSIDE the namespace → cascades on teardown).
+#
+# Idempotency / crash-safety: before creating, it GCs any stale
+# ephemeral test namespace (labelled, older than 2h) left behind by a
+# killed run. A normal run completes in minutes, so the 2h threshold
+# never touches a concurrent run. Net effect: re-running the suite is
+# always a clean slate and never leaks namespaces.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: aoit-setup
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/part-of: agent-office-integration-tests
+spec:
+  description: Create the per-run ephemeral namespace + image-volume SCC grant; GC stale ones.
+  params:
+    - name: oc-download-url
+      type: string
+      default: "http://downloads.openshift-console.svc.cluster.local:80/amd64/linux/oc.tar"
+  results:
+    - name: namespace
+      description: The ephemeral namespace created for this run.
+  steps:
+    - name: setup
+      image: registry.access.redhat.com/ubi9/ubi:latest
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        curl -sL "$(params.oc-download-url)" -o /tmp/oc.tar
+        tar -x -C /tmp -f /tmp/oc.tar oc
+        OC=/tmp/oc
+
+        NS="$(context.pipelineRun.name)"
+        LABEL="app.kubernetes.io/part-of=agent-office-integration-tests-ephemeral"
+
+        echo "=== GC stale ephemeral test namespaces (>2h, from crashed runs) ==="
+        NOW=$(date -u +%s)
+        $OC get ns -l "$LABEL" \
+          -o jsonpath='{range .items[*]}{.metadata.name}{"|"}{.metadata.creationTimestamp}{"\n"}{end}' 2>/dev/null \
+        | while IFS='|' read -r name ts; do
+            [ -z "$name" ] && continue
+            [ "$name" = "$NS" ] && continue
+            age=$(( NOW - $(date -u -d "$ts" +%s) ))
+            if [ "$age" -gt 7200 ]; then
+              echo "  GC stale namespace $name (age ${age}s)"
+              $OC delete ns "$name" --ignore-not-found --wait=false || true
+            fi
+          done
+
+        echo "=== create ephemeral namespace $NS ==="
+        cat <<EOF | $OC apply -f -
+        apiVersion: v1
+        kind: Namespace
+        metadata:
+          name: $NS
+          labels:
+            app.kubernetes.io/part-of: agent-office-integration-tests-ephemeral
+            agentoffice.ai/integration-test-run: "$NS"
+        EOF
+
+        echo "=== grant image-volume SCC to $NS/default (cascades on teardown) ==="
+        $OC -n "$NS" create rolebinding aoit-imagevol \
+          --clusterrole=use-agent-office-imagevol-scc \
+          --serviceaccount="$NS:default" \
+          --dry-run=client -o yaml | $OC apply -f -
+
+        printf '%s' "$NS" | tee "$(results.namespace.path)"
+        echo
+        echo "SETUP: ephemeral namespace $NS ready."

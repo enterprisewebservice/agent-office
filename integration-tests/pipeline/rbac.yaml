@@ -1,11 +1,11 @@
 # ServiceAccount + RBAC the integration-test Pipeline runs under.
 #
-# Read-mostly today (endpoints beat needs no cluster access; later
-# beats read pods/deployments + exec into gateway pods to assert
-# workspace contents). Phase 2 expands this with namespace + CR
-# create/delete + rolebinding-create (to grant the image-volume SCC
-# in the ephemeral test namespace). Kept scoped to a dedicated SA in
-# agent-office — never cluster-admin.
+# Scoped to a dedicated SA in agent-office — never cluster-admin. The
+# Pipeline creates a per-run EPHEMERAL namespace (named after the
+# PipelineRun) and all test AgentWorkstations / KnowledgeBases /
+# gateway pods live inside it, so teardown is a single cascade delete.
+# This SA can therefore create/delete namespaces + agentoffice.ai CRs,
+# and bind the image-volume SCC into the ephemeral namespace.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -21,8 +21,12 @@ metadata:
   labels:
     app.kubernetes.io/part-of: agent-office-integration-tests
 rules:
+  # Ephemeral namespace lifecycle + reading what the operator builds.
   - apiGroups: [""]
-    resources: [namespaces, pods, services, configmaps, persistentvolumeclaims, events]
+    resources: [namespaces]
+    verbs: [get, list, watch, create, delete]
+  - apiGroups: [""]
+    resources: [pods, services, configmaps, persistentvolumeclaims, events, serviceaccounts, secrets]
     verbs: [get, list, watch]
   - apiGroups: [""]
     resources: [pods/exec]
@@ -33,9 +37,26 @@ rules:
   - apiGroups: [apps]
     resources: [deployments, replicasets]
     verbs: [get, list, watch]
+  # The agents/KBs/skills the beats create + clean up.
   - apiGroups: [agentoffice.ai]
     resources: ["*"]
-    verbs: [get, list, watch]
+    verbs: [get, list, watch, create, update, patch, delete]
+  # Teardown deletes the ArgoCD Application the real create-flow made
+  # (cascade → removes the AW it manages).
+  - apiGroups: [argoproj.io]
+    resources: [applications]
+    verbs: [get, list, watch, patch, delete]
+  # Grant the image-volume SCC to the ephemeral namespace's default SA
+  # (a RoleBinding inside that namespace → cascades on teardown).
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [rolebindings]
+    verbs: [get, list, create, delete]
+  # RBAC escalation guard: to create a RoleBinding referencing this
+  # ClusterRole, the runner must hold `bind` on it (resourceName-scoped).
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [clusterroles]
+    verbs: [bind]
+    resourceNames: [use-agent-office-imagevol-scc]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
