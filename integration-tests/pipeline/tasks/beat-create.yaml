@@ -106,12 +106,7 @@ spec:
           echo "=== assert DEDICATED: operator built a per-agent gateway (own Deployment), NOT joined to research-gateway ==="
           depok=""
           for i in $(seq 1 20); do
-            OWNED=$($OC get deploy -n "$NS" -o json 2>/dev/null | python3 -c "
-import sys,json
-d=json.load(sys.stdin)
-ns=[x['metadata']['name'] for x in d.get('items',[]) if any(o.get('kind')=='AgentWorkstation' and o.get('name')=='$NAME' for o in (x['metadata'].get('ownerReferences') or []))]
-print(' '.join(ns))
-" 2>/dev/null)
+            OWNED=$($OC get deploy -n "$NS" -o json 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(' '.join(x['metadata']['name'] for x in d.get('items',[]) if any(o.get('kind')=='AgentWorkstation' and o.get('name')=='$NAME' for o in (x['metadata'].get('ownerReferences') or []))))" 2>/dev/null)
             if [ -n "$OWNED" ]; then echo "  dedicated gateway Deployment(s) owned by $NAME: $OWNED"; depok=1; break; fi
             echo "  [$i] waiting for operator to build the dedicated gateway…"; sleep 9
           done
