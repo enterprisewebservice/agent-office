@@ -1,17 +1,21 @@
-# Teardown — the Pipeline's `finally` task. Always runs, pass or fail.
+# Teardown — the Pipeline's `finally` task. ALWAYS runs (pass or fail)
+# and removes EVERY artifact a run can create, so the suite is fully
+# idempotent and leaves zero residue. It derives all names from the
+# run name (not from upstream results), so it cleans up even if a beat
+# failed half-way.
 #
-# Deletes the per-run ephemeral namespace (which cascades all test
-# AgentWorkstations / KnowledgeBases / gateway pods created in it) and
-# logs anything that can't be auto-cleaned. Phase 1 has no ephemeral
-# namespace yet, so passing an empty `test-namespace` makes this a
-# clear no-op — the structure is in place for Phase 2+.
-#
-# oc CONVENTION (all oc-needing beats): we do NOT use a pre-baked CLI
-# image (registry.redhat.io/openshift4/ose-cli is terms-gated; the
-# community origin-cli is upstream). Instead we run on a plain UBI9
-# base and fetch the CLUSTER'S OWN matching oc binary at runtime from
-# the in-cluster console downloads service. Version always matches the
-# cluster, nothing external, fully declarative.
+# Removal order (matters):
+#   1. ArgoCD Application (cascade) → deletes the AW it manages → the
+#      operator's finalizer de-registers the agent from the shared
+#      research-gateway (so no test residue lingers there either).
+#   2. Belt-and-suspenders: delete the AW directly if still present.
+#   3. GitHub repo(s) — via a short-lived App installation token
+#      (agent-office-github-app: appId/installationId/privateKey →
+#      JWT → token). DELETE /repos. Proven 201-create / 204-delete.
+#   4. Catalog Location entity (so the catalog stops pointing at the
+#      now-deleted repo) — via the RHDH catalog API.
+#   5. Ephemeral namespace (if a beat created one) — cascade delete.
+# Finally it ASSERTS the repo + Argo app + AW are gone.
 apiVersion: tekton.dev/v1
 kind: Task
 metadata:
@@ -20,34 +24,83 @@ metadata:
   labels:
     app.kubernetes.io/part-of: agent-office-integration-tests
 spec:
-  description: Delete the ephemeral test namespace + report any un-cleanable externals.
+  description: Remove every artifact the run created (Argo app, AW, GitHub repo, catalog location, namespace).
   params:
-    - name: test-namespace
+    - name: run-name
       type: string
-      default: ""
-      description: Ephemeral namespace to delete (empty = nothing to tear down).
+      description: The PipelineRun name == agent name == ephemeral namespace name.
+    - name: gh-owner
+      type: string
+      default: enterprisewebservice
+    - name: target-namespace
+      type: string
+      default: agent-office
     - name: oc-download-url
       type: string
       default: "http://downloads.openshift-console.svc.cluster.local:80/amd64/linux/oc.tar"
-      description: In-cluster console downloads service serving the cluster's own oc.
   steps:
     - name: teardown
       image: registry.access.redhat.com/ubi9/ubi:latest
       script: |
         #!/usr/bin/env bash
-        set -euo pipefail
-
-        # Fetch the cluster's own oc (matches cluster version; nothing external).
-        curl -sL "$(params.oc-download-url)" -o /tmp/oc.tar
-        tar -x -C /tmp -f /tmp/oc.tar oc
+        set -uo pipefail   # NOT -e: teardown must push through partial failures
+        curl -sL "$(params.oc-download-url)" -o /tmp/oc.tar && tar -x -C /tmp -f /tmp/oc.tar oc
         OC=/tmp/oc
-        $OC version --client | head -1
+        NAME="$(params.run-name)"
+        OWNER="$(params.gh-owner)"
+        NS="$(params.target-namespace)"
+        APP="$NAME-agent"
+        REPO="$NAME-agent-gitops"
+        echo "TEARDOWN for run $NAME"
 
-        NS="$(params.test-namespace)"
-        if [ -z "$NS" ]; then
-          echo "TEARDOWN: no ephemeral namespace for this run — nothing to delete."
-          exit 0
-        fi
-        echo "TEARDOWN: deleting ephemeral namespace $NS (cascades agents/gateways/KBs)…"
-        $OC delete namespace "$NS" --ignore-not-found --wait=false
-        echo "TEARDOWN: requested deletion of $NS."
+        echo "=== 1. delete ArgoCD Application $APP (cascade → removes the AW) ==="
+        if $OC get applications.argoproj.io "$APP" -n openshift-gitops >/dev/null 2>&1; then
+          $OC patch applications.argoproj.io "$APP" -n openshift-gitops --type merge \
+            -p '{"metadata":{"finalizers":["resources-finalizer.argocd.argoproj.io"]}}' 2>/dev/null || true
+          $OC delete applications.argoproj.io "$APP" -n openshift-gitops --ignore-not-found --wait=false
+        else echo "  (no Argo app)"; fi
+
+        echo "=== 2. delete AgentWorkstation $NAME directly (operator finalizer de-registers from shared gateway) ==="
+        $OC delete agentworkstation "$NAME" -n "$NS" --ignore-not-found --wait=false 2>/dev/null || true
+
+        echo "=== 3. delete GitHub repo(s) via short-lived App token ==="
+        appId=$($OC get secret -n agent-office agent-office-github-app -o jsonpath='{.data.appId}' | base64 -d)
+        instId=$($OC get secret -n agent-office agent-office-github-app -o jsonpath='{.data.installationId}' | base64 -d)
+        $OC get secret -n agent-office agent-office-github-app -o jsonpath='{.data.privateKey}' | base64 -d > /tmp/ghapp.pem
+        b64url(){ openssl base64 -A | tr '+/' '-_' | tr -d '='; }
+        now=$(date +%s)
+        hh=$(printf '{"alg":"RS256","typ":"JWT"}' | b64url)
+        pp=$(printf '{"iat":%d,"exp":%d,"iss":"%s"}' $((now-60)) $((now+540)) "$appId" | b64url)
+        ss=$(printf '%s.%s' "$hh" "$pp" | openssl dgst -sha256 -sign /tmp/ghapp.pem -binary | b64url)
+        jwt="$hh.$pp.$ss"
+        apptok=$(curl -s -X POST -H "Authorization: Bearer $jwt" -H "Accept: application/vnd.github+json" \
+          "https://api.github.com/app/installations/$instId/access_tokens" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("token",""))')
+        rm -f /tmp/ghapp.pem
+        for r in "$REPO" "$NAME-wiki"; do
+          code=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE -H "Authorization: token $apptok" \
+            -H "Accept: application/vnd.github+json" "https://api.github.com/repos/$OWNER/$r")
+          echo "  DELETE repo $OWNER/$r -> $code  (204=deleted, 404=already gone)"
+        done
+
+        echo "=== 4. delete catalog Location pointing at the test repo ==="
+        RHDH="http://v1-developer-hub.rhdh-test.svc.cluster.local:7007"
+        TOKEN=$($OC get secret -n rhdh-test agent-office-rhdh-token -o jsonpath='{.data.token}' | base64 -d)
+        LID=$(curl -s "$RHDH/api/catalog/locations" -H "Authorization: Bearer $TOKEN" | python3 -c "import sys,json; d=json.load(sys.stdin); print(next(((x.get('data') or x).get('id','') for x in d if '$REPO' in str((x.get('data') or x).get('target',''))), ''))" 2>/dev/null)
+        if [ -n "${LID:-}" ]; then
+          curl -s -o /dev/null -w "  DELETE location $LID -> %{http_code}\n" \
+            -X DELETE "$RHDH/api/catalog/locations/$LID" -H "Authorization: Bearer $TOKEN"
+        else echo "  (no catalog location referencing $REPO)"; fi
+
+        echo "=== 5. delete ephemeral namespace $NAME if a beat created one ==="
+        $OC delete namespace "$NAME" --ignore-not-found --wait=false 2>/dev/null || true
+
+        echo
+        echo "=== ASSERT zero residue ==="
+        sleep 5
+        rc=0
+        rcode=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: token $apptok" "https://api.github.com/repos/$OWNER/$REPO")
+        [ "$rcode" = "404" ] && echo "  ✓ repo gone (404)" || { echo "  ✗ repo still $rcode"; rc=1; }
+        $OC get applications.argoproj.io "$APP" -n openshift-gitops >/dev/null 2>&1 && { echo "  ✗ Argo app still present"; rc=1; } || echo "  ✓ Argo app gone"
+        $OC get agentworkstation "$NAME" -n "$NS" >/dev/null 2>&1 && echo "  … AW still terminating (finalizer)" || echo "  ✓ AW gone"
+        [ "$rc" = "0" ] && echo "TEARDOWN: clean." || echo "TEARDOWN: residue detected (see above)."
+        exit $rc
