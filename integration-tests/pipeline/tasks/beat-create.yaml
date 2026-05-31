@@ -103,27 +103,32 @@ spec:
         $OC get agentworkstation "$NAME" -n "$NS" -o jsonpath='  AW='"$NAME"' mcp={.spec.tools.mcpServers[0].name}{"\n"}'
 
         if [ "$RTMODE" = "dedicated" ]; then
-          # UNIFIED MODEL (operator v1.6.4+): a dedicated agent is just an
-          # AgentGateway running one agent. The operator MINTS an
-          # AgentGateway named after the AW, OWNED by the AW (so it cascades
-          # on delete), then registers the agent on it via the SAME shared
-          # machinery. So the cascade chain is AW → AgentGateway → Deployment
-          # (the Deployment is owned by the gateway, NOT directly by the AW).
-          echo "=== assert DEDICATED (unified): operator MINTED an AgentGateway named after the AW, owned by it ==="
+          # TRUE-UNIFY MODEL (operator v1.6.6+): the operator has NO dedicated
+          # code path. "Dedicated" means the agent's OWN gitops repo declares
+          # an AgentGateway/<name> sibling, and the AW's gatewayRef points at
+          # it. So the gateway is a first-class DECLARATIVE resource ArgoCD
+          # applied from the repo — NOT minted or owned by the operator. The
+          # AW registers on it via the exact same path a shared agent uses.
+          echo "=== assert DEDICATED (true-unify): the repo's OWN AgentGateway/<name> was applied, with NO operator/AW owner-ref ==="
           gwok=""
           for i in $(seq 1 20); do
             if $OC get agentgateway "$NAME" -n "$NS" >/dev/null 2>&1; then
-              OK=$($OC get agentgateway "$NAME" -n "$NS" -o jsonpath='{.metadata.ownerReferences[0].kind}')
-              ON=$($OC get agentgateway "$NAME" -n "$NS" -o jsonpath='{.metadata.ownerReferences[0].name}')
-              [ "$OK" = "AgentWorkstation" ] && [ "$ON" = "$NAME" ] || { echo "FAIL: minted gateway $NAME not owned by AgentWorkstation $NAME (got $OK/$ON)"; exit 1; }
-              echo "  ✓ AgentGateway/$NAME minted, owner=AgentWorkstation/$NAME (cascades on delete)"
+              # KEY: a declarative gateway has NO ownerReferences (lifecycle is
+              # git/ArgoCD). If the operator were still minting+owning it, this
+              # would be AgentWorkstation — which is exactly what we removed.
+              ORC=$($OC get agentgateway "$NAME" -n "$NS" -o jsonpath='{.metadata.ownerReferences}')
+              [ -z "$ORC" ] || { echo "FAIL: AgentGateway $NAME has ownerReferences ($ORC) — expected NONE (declarative, not operator-owned)"; exit 1; }
+              # And the AW must actually point at it.
+              GR=$($OC get agentworkstation "$NAME" -n "$NS" -o jsonpath='{.spec.runtime.shared.gatewayRef}')
+              [ "$GR" = "$NAME" ] || { echo "FAIL: AW $NAME gatewayRef is '$GR', expected '$NAME' (self)"; exit 1; }
+              echo "  ✓ AgentGateway/$NAME applied from the repo, ownerReferences=none; AW gatewayRef=$NAME (self)"
               gwok=1; break
             fi
-            echo "  [$i] waiting for operator to mint the dedicated gateway…"; sleep 9
+            echo "  [$i] waiting for ArgoCD to apply the repo's AgentGateway…"; sleep 9
           done
-          [ -n "$gwok" ] || { echo "FAIL: operator did not mint AgentGateway $NAME (dedicated path)"; exit 1; }
+          [ -n "$gwok" ] || { echo "FAIL: AgentGateway $NAME not applied from the gitops repo (true-unify dedicated path)"; exit 1; }
 
-          echo "=== assert DEDICATED: the minted gateway materialized its OWN Deployment (codex + skills pod, same as shared gateways) ==="
+          echo "=== assert DEDICATED: the declarative gateway materialized its OWN Deployment (codex + skills pod, same as shared gateways) ==="
           depok=""
           for i in $(seq 1 20); do
             if $OC get deploy "$NAME" -n "$NS" >/dev/null 2>&1; then
