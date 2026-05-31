@@ -33,9 +33,15 @@ spec:
         curl -sL "$(params.oc-download-url)" -o /tmp/oc.tar && tar -x -C /tmp -f /tmp/oc.tar oc
         OC=/tmp/oc
         NAME="$(params.agent-name)"; NS="$(params.namespace)"
-        GWPOD=$($OC get pods -n "$NS" -l agentoffice.ai/gateway --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}')
+        # Discover the gateway pod the SAME way the operator does — via the
+        # agent's gatewayRef — NOT "any gateway pod". With shared + dedicated
+        # agents running in parallel there are multiple gateway pods, so a
+        # bare `-l agentoffice.ai/gateway` + items[0] could grab the wrong one.
+        GWREF=$($OC get agentworkstation "$NAME" -n "$NS" -o jsonpath='{.spec.runtime.shared.gatewayRef}')
+        [ -n "$GWREF" ] || { echo "FAIL: AW $NAME has no runtime.shared.gatewayRef"; exit 1; }
+        GWPOD=$($OC get pods -n "$NS" -l agentoffice.ai/gateway="$GWREF" --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}')
         WS="/home/node/.openclaw/workspaces/$NAME/skills"
-        echo "BEAT 'Skills discovery' on agent $NAME (gateway pod $GWPOD)"
+        echo "BEAT 'Skills discovery' on agent $NAME (gatewayRef=$GWREF, pod $GWPOD)"
 
         echo "=== wait for the operator to seed the agent's workspace skills ==="
         seeded=""

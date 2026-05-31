@@ -56,7 +56,10 @@ spec:
         [ "$OWNER" = "ExternalSecret" ] && echo "  ✓ credential is ESO-managed (no static paste)" || { echo "  ✗ not ESO-owned"; fail=1; }
 
         echo "=== 3. gateway pod runs under the constrained image-volume SCC ==="
-        GWPOD=$($OC get pods -n "$NS" -l agentoffice.ai/gateway --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+        # Target THIS agent's gateway (via its gatewayRef), not "any gateway
+        # pod" — shared + dedicated runs have multiple gateway pods.
+        GWREF=$($OC get agentworkstation "$NAME" -n "$NS" -o jsonpath='{.spec.runtime.shared.gatewayRef}' 2>/dev/null || true)
+        GWPOD=$($OC get pods -n "$NS" -l agentoffice.ai/gateway="$GWREF" --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
         SCC=$($OC get pod "$GWPOD" -n "$NS" -o jsonpath='{.metadata.annotations.openshift\.io/scc}' 2>/dev/null || true)
         echo "  gateway $GWPOD scc='$SCC'"
         [ "$SCC" = "agent-office-imagevol" ] && echo "  ✓ constrained SCC (restricted-v2 + read-only image volume)" || { echo "  ✗ unexpected SCC"; fail=1; }

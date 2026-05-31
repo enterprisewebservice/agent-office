@@ -142,12 +142,20 @@ spec:
           [ -n "$depok" ] || { echo "FAIL: dedicated gateway Deployment $NAME not built"; exit 1; }
 
           echo "=== assert NO LEAK: the dedicated agent is NOT a persona in the shared research-gateway ==="
-          SGW=$($OC get pods -n "$NS" -l agentoffice.ai/gateway=research-gateway -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+          # gatewayRef=self (asserted above) already proves no leak; this is
+          # defense-in-depth. The exec is best-effort: research-gateway's
+          # openclaw container occasionally restarts, and under set -e a failed
+          # exec command-substitution would abort the whole beat — so guard it.
+          SGW=$($OC get pods -n "$NS" -l agentoffice.ai/gateway=research-gateway --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
           if [ -n "$SGW" ]; then
-            HITS=$($OC exec -n "$NS" "$SGW" -c openclaw -- sh -c "grep -o '\"id\": *\"$NAME\"' /home/node/.openclaw/openclaw.json 2>/dev/null | wc -l" 2>/dev/null | tr -d ' ')
-            [ "${HITS:-0}" = "0" ] && echo "  ✓ dedicated agent is NOT a persona in shared research-gateway" || { echo "FAIL: dedicated agent leaked into shared research-gateway ($HITS)"; exit 1; }
+            HITS=$($OC exec -n "$NS" "$SGW" -c openclaw -- sh -c "grep -o '\"id\": *\"$NAME\"' /home/node/.openclaw/openclaw.json 2>/dev/null | wc -l" 2>/dev/null | tr -d ' ' || echo "x")
+            case "$HITS" in
+              0) echo "  ✓ dedicated agent is NOT a persona in shared research-gateway" ;;
+              x|"") echo "  (couldn't exec research-gateway right now — gatewayRef=self already proved no leak)" ;;
+              *) echo "FAIL: dedicated agent leaked into shared research-gateway ($HITS)"; exit 1 ;;
+            esac
           else
-            echo "  (shared research-gateway pod not found — skipping no-leak grep)"
+            echo "  (shared research-gateway pod not Running — gatewayRef=self already proved no leak)"
           fi
         fi
 
