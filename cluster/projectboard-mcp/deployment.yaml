@@ -1,0 +1,66 @@
+# projectboard-mcp Deployment — the governed Projects-v2 create/delete
+# MCP server that fills the gap in the upstream github-mcp-server.
+#
+# Same credential chain as github-mcp-server: it reads the ESO-synced
+# installation token from envFrom (github-mcp-installation-token →
+# GITHUB_PERSONAL_ACCESS_TOKEN) and calls the GitHub GraphQL API
+# (createProjectV2 / deleteProjectV2). Reloader bounces the pod when the
+# token rotates (every 30 min). No K8s API access, no in-pod token
+# minting — it just reads the env var and serves MCP over /mcp:8080.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: projectboard-mcp
+  labels:
+    app.kubernetes.io/name: projectboard-mcp
+    app.kubernetes.io/component: mcp-server
+    app.kubernetes.io/managed-by: agent-office-gitops
+  annotations:
+    secret.reloader.stakater.com/reload: "github-mcp-installation-token"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: projectboard-mcp
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: projectboard-mcp
+        app.kubernetes.io/component: mcp-server
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: mcp-server
+          image: quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/projectboard-mcp:v0.0.1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: mcp
+              containerPort: 8080
+              protocol: TCP
+          # Same ESO-synced App installation token the github-mcp-server
+          # uses — the server signs GraphQL with it. (envFrom: the Secret
+          # carries GITHUB_PERSONAL_ACCESS_TOKEN.)
+          envFrom:
+            - secretRef:
+                name: github-mcp-installation-token
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: ["ALL"]
+          readinessProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 10m
+              memory: 64Mi
+            limits:
+              memory: 256Mi

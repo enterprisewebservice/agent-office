@@ -1,0 +1,30 @@
+# Backend HTTPRoute — attaches projectboard-mcp to the MCP Gateway's
+# `mcps` listener, exactly like github-mcp-server-route. The broker
+# routes per-tool MCP calls here; hostname matches the listener's
+# *.mcp.local wildcard.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: projectboard-mcp-server-route
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/name: projectboard-mcp
+    app.kubernetes.io/component: backend-route
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: mcp-gateway
+      namespace: agent-office
+      sectionName: mcps
+  hostnames:
+    - projectboard-mcp.mcp.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /mcp
+      backendRefs:
+        - name: projectboard-mcp
+          port: 8080

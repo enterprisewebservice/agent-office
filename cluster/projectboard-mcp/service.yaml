@@ -1,0 +1,18 @@
+# ClusterIP Service for projectboard-mcp — reached only via the MCP
+# gateway's HTTPRoute (projectboard-mcp.mcp.local), never directly.
+apiVersion: v1
+kind: Service
+metadata:
+  name: projectboard-mcp
+  labels:
+    app.kubernetes.io/name: projectboard-mcp
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: projectboard-mcp
+  ports:
+    - name: mcp
+      port: 8080
+      targetPort: mcp
+      protocol: TCP

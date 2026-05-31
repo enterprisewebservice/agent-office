@@ -1,0 +1,12 @@
+# projectboard-mcp — governed Projects-v2 create/delete MCP server.
+# Deployed alongside cluster/github-mcp/. Source + Dockerfile live in
+# mcp-servers/projectboard-mcp/; the image is built in-cluster via
+# build/pipelinerun.yaml (Tekton buildah) and pushed to the cluster Quay.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: agent-office
+resources:
+  - deployment.yaml
+  - service.yaml
+  - httproute.yaml
+  - registration.yaml

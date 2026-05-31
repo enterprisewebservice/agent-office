@@ -1,0 +1,29 @@
+# MCPServerRegistration — registers projectboard-mcp on the same MCP
+# gateway as github-mcp-server, so its tools appear in the aggregated
+# tools/list as projectboard_create_project_board /
+# projectboard_delete_project_board. Agents reach them through the same
+# governed /mcp endpoint with the same per-user auth.
+#
+# credentialRef is the broker's discovery connection (reuses the
+# bearer-shaped github-mcp-broker-token). Unlike github-mcp-server, this
+# backend needs NO backend AuthPolicy: it reads the App token from its
+# own envFrom for GraphQL and ignores the request's Authorization header.
+apiVersion: mcp.kuadrant.io/v1alpha1
+kind: MCPServerRegistration
+metadata:
+  name: projectboard
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/name: projectboard-mcp
+    app.kubernetes.io/component: registration
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  toolPrefix: projectboard_
+  path: /mcp
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: projectboard-mcp-server-route
+  credentialRef:
+    name: github-mcp-broker-token
+    key: AUTHORIZATION
