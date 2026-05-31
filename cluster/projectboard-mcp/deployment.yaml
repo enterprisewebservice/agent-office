@@ -30,6 +30,9 @@ spec:
         app.kubernetes.io/name: projectboard-mcp
         app.kubernetes.io/component: mcp-server
     spec:
+      # The image lives in the private cluster Quay (built by Konflux).
+      imagePullSecrets:
+        - name: quay-pull-secret
       securityContext:
         runAsNonRoot: true
         seccompProfile:
