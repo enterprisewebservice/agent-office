@@ -51,8 +51,9 @@ spec:
         - name: gh-owner
           value: $(params.gh-owner)
 
-    # Same real path, runtime: dedicated — operator builds the agent its
-    # OWN gateway (different reconcile branch). Runs in parallel.
+    # Same real path, runtime: dedicated — operator MINTS the agent its
+    # OWN AgentGateway (owned by the AW), then registers it via the SAME
+    # machinery shared agents use (unified path, v1.6.4+). Runs in parallel.
     - name: beat-create-dedicated
       displayName: "Create a DEDICATED agent (own gateway pod)"
       taskRef:

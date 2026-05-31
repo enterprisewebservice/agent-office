@@ -103,17 +103,47 @@ spec:
         $OC get agentworkstation "$NAME" -n "$NS" -o jsonpath='  AW='"$NAME"' mcp={.spec.tools.mcpServers[0].name}{"\n"}'
 
         if [ "$RTMODE" = "dedicated" ]; then
-          echo "=== assert DEDICATED: operator built a per-agent gateway (own Deployment), NOT joined to research-gateway ==="
+          # UNIFIED MODEL (operator v1.6.4+): a dedicated agent is just an
+          # AgentGateway running one agent. The operator MINTS an
+          # AgentGateway named after the AW, OWNED by the AW (so it cascades
+          # on delete), then registers the agent on it via the SAME shared
+          # machinery. So the cascade chain is AW → AgentGateway → Deployment
+          # (the Deployment is owned by the gateway, NOT directly by the AW).
+          echo "=== assert DEDICATED (unified): operator MINTED an AgentGateway named after the AW, owned by it ==="
+          gwok=""
+          for i in $(seq 1 20); do
+            if $OC get agentgateway "$NAME" -n "$NS" >/dev/null 2>&1; then
+              OK=$($OC get agentgateway "$NAME" -n "$NS" -o jsonpath='{.metadata.ownerReferences[0].kind}')
+              ON=$($OC get agentgateway "$NAME" -n "$NS" -o jsonpath='{.metadata.ownerReferences[0].name}')
+              [ "$OK" = "AgentWorkstation" ] && [ "$ON" = "$NAME" ] || { echo "FAIL: minted gateway $NAME not owned by AgentWorkstation $NAME (got $OK/$ON)"; exit 1; }
+              echo "  ✓ AgentGateway/$NAME minted, owner=AgentWorkstation/$NAME (cascades on delete)"
+              gwok=1; break
+            fi
+            echo "  [$i] waiting for operator to mint the dedicated gateway…"; sleep 9
+          done
+          [ -n "$gwok" ] || { echo "FAIL: operator did not mint AgentGateway $NAME (dedicated path)"; exit 1; }
+
+          echo "=== assert DEDICATED: the minted gateway materialized its OWN Deployment (codex + skills pod, same as shared gateways) ==="
           depok=""
           for i in $(seq 1 20); do
-            OWNED=$($OC get deploy -n "$NS" -o json 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(' '.join(x['metadata']['name'] for x in d.get('items',[]) if any(o.get('kind')=='AgentWorkstation' and o.get('name')=='$NAME' for o in (x['metadata'].get('ownerReferences') or []))))" 2>/dev/null)
-            if [ -n "$OWNED" ]; then echo "  dedicated gateway Deployment(s) owned by $NAME: $OWNED"; depok=1; break; fi
-            echo "  [$i] waiting for operator to build the dedicated gateway…"; sleep 9
+            if $OC get deploy "$NAME" -n "$NS" >/dev/null 2>&1; then
+              GOK=$($OC get deploy "$NAME" -n "$NS" -o jsonpath='{.metadata.ownerReferences[0].kind}')
+              [ "$GOK" = "AgentGateway" ] || { echo "FAIL: Deployment $NAME not owned by its AgentGateway (got $GOK)"; exit 1; }
+              echo "  ✓ Deployment/$NAME owned by AgentGateway/$NAME (AW → gateway → deploy cascade)"
+              depok=1; break
+            fi
+            echo "  [$i] waiting for the dedicated gateway Deployment…"; sleep 9
           done
-          [ -n "$depok" ] || { echo "FAIL: no Deployment owned by AgentWorkstation $NAME (dedicated gateway not built)"; exit 1; }
-          SGW=$($OC get pods -n "$NS" -l agentoffice.ai/gateway -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
-          HITS=$($OC exec -n "$NS" "$SGW" -c openclaw -- sh -c "grep -o '\"id\": *\"$NAME\"' /home/node/.openclaw/openclaw.json 2>/dev/null | wc -l" 2>/dev/null | tr -d ' ')
-          [ "${HITS:-0}" = "0" ] && echo "  ✓ dedicated agent is NOT a persona in the shared research-gateway" || { echo "  ✗ dedicated agent leaked into shared gateway ($HITS)"; exit 1; }
+          [ -n "$depok" ] || { echo "FAIL: dedicated gateway Deployment $NAME not built"; exit 1; }
+
+          echo "=== assert NO LEAK: the dedicated agent is NOT a persona in the shared research-gateway ==="
+          SGW=$($OC get pods -n "$NS" -l agentoffice.ai/gateway=research-gateway -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+          if [ -n "$SGW" ]; then
+            HITS=$($OC exec -n "$NS" "$SGW" -c openclaw -- sh -c "grep -o '\"id\": *\"$NAME\"' /home/node/.openclaw/openclaw.json 2>/dev/null | wc -l" 2>/dev/null | tr -d ' ')
+            [ "${HITS:-0}" = "0" ] && echo "  ✓ dedicated agent is NOT a persona in shared research-gateway" || { echo "FAIL: dedicated agent leaked into shared research-gateway ($HITS)"; exit 1; }
+          else
+            echo "  (shared research-gateway pod not found — skipping no-leak grep)"
+          fi
         fi
 
         echo

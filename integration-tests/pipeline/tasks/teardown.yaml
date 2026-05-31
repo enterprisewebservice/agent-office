@@ -80,14 +80,38 @@ spec:
 
         echo
         echo "=== ASSERT zero residue (both agents) ==="
-        sleep 8
         rc=0
         for A in $AGENTS; do
           rcode=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: token $apptok" "https://api.github.com/repos/$OWNER/$A-agent-gitops")
           [ "$rcode" = "404" ] && echo "  ✓ $A repo gone (404)" || { echo "  ✗ $A repo still $rcode"; rc=1; }
           $OC get applications.argoproj.io "$A-agent" -n openshift-gitops >/dev/null 2>&1 && { echo "  ✗ $A Argo app present"; rc=1; } || echo "  ✓ $A Argo app gone"
-          $OC get agentworkstation "$A" -n "$NS" >/dev/null 2>&1 && echo "  … $A AW terminating (finalizer)" || echo "  ✓ $A AW gone"
+
+          # Bounded-wait for the AW AND its minted gateway (dedicated only)
+          # to FULLY delete — don't accept "still terminating" as clean. A
+          # dedicated agent's gateway is owner-ref'd to the AW, so this
+          # proves the AW → AgentGateway → pod/PVC/Svc/Route/CM cascade
+          # actually completed (a broken owner-ref would orphan the gateway).
+          gone=""
+          for i in $(seq 1 15); do
+            RES="$($OC get agentworkstation "$A" -n "$NS" 2>/dev/null; $OC get agentgateway "$A" -n "$NS" 2>/dev/null)"
+            [ -z "$RES" ] && { gone=1; break; }
+            sleep 8
+          done
+          if [ -n "$gone" ]; then
+            echo "  ✓ $A AW + minted gateway fully gone (cascade complete)"
+          else
+            $OC get agentworkstation "$A" -n "$NS" >/dev/null 2>&1 && { echo "  ✗ $A AW still present after wait"; rc=1; }
+            $OC get agentgateway "$A" -n "$NS" >/dev/null 2>&1 && { echo "  ✗ $A gateway ORPHANED (owner-ref/cascade failed)"; rc=1; }
+          fi
+          # Belt-and-suspenders: no orphaned gateway workload children left.
+          for kv in "deploy/$A" "pvc/$A-workspace" "svc/$A" "route/$A" "cm/$A-config"; do
+            K="${kv%/*}"; V="${kv#*/}"
+            $OC get "$K" "$V" -n "$NS" >/dev/null 2>&1 && { echo "  ✗ $A residue: $K/$V"; rc=1; } || true
+          done
         done
         $OC get appproject agent-office -n openshift-gitops >/dev/null 2>&1 && echo "  ✓ shared project intact" || echo "  ✗ shared project missing!"
-        [ "$rc" = "0" ] && echo "TEARDOWN: clean." || echo "TEARDOWN: residue detected."
+        # Production agents must be untouched by the run.
+        PROD=$($OC get agentworkstation -n "$NS" --no-headers 2>/dev/null | grep -vE "^$NAME(-ded)? " | wc -l | tr -d ' ')
+        echo "  ✓ $PROD production agent(s) intact"
+        [ "$rc" = "0" ] && echo "TEARDOWN: clean — zero residue." || echo "TEARDOWN: residue detected."
         exit $rc
