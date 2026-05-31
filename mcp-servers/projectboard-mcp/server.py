@@ -113,3 +113,5 @@ if __name__ == "__main__":
     # Standard streamable-HTTP MCP transport, mounted at /mcp — the same
     # shape the Kuadrant MCP gateway proxies for github-mcp-server.
     mcp.run(transport="streamable-http")
+
+# build: projectboard-mcp v0.0.1
