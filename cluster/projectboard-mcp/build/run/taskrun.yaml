@@ -1,0 +1,20 @@
+# One-shot build run. Trigger with:
+#   oc create -f cluster/projectboard-mcp/build/run/taskrun.yaml
+# Uses the OpenShift Pipelines `pipeline` SA (has the buildah SCC) and
+# the existing quay-push-secret.
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  generateName: projectboard-mcp-build-
+  namespace: agent-office
+spec:
+  taskRef:
+    name: projectboard-mcp-build
+  serviceAccountName: pipeline
+  workspaces:
+    - name: dockerconfig
+      secret:
+        secretName: quay-push-secret
+        items:
+          - key: .dockerconfigjson
+            path: .dockerconfigjson

@@ -1,0 +1,53 @@
+# In-cluster Tekton build for the projectboard-mcp image. Single buildah
+# step using a GIT BUILD CONTEXT (buildah clones the repo itself), so
+# there's no separate clone step needing root/dnf under the restricted
+# pipelines-scc. Pushes to the cluster Quay using quay-push-secret.
+#
+# Per the platform's build principle: in-cluster Tekton + the cluster's
+# own Quay — no laptop podman, no localhost helpers.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: projectboard-mcp-build
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/name: projectboard-mcp
+spec:
+  params:
+    - name: git-url
+      type: string
+      default: https://github.com/enterprisewebservice/agent-office.git
+    - name: git-revision
+      type: string
+      default: main
+    - name: image
+      type: string
+      default: quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/projectboard-mcp:v0.0.1
+    - name: context
+      type: string
+      default: mcp-servers/projectboard-mcp
+  workspaces:
+    - name: dockerconfig
+      description: quay-push-secret (kubernetes.io/dockerconfigjson)
+  steps:
+    - name: build-and-push
+      image: quay.io/buildah/stable:latest
+      # No added capabilities: pipelines-scc runs buildah rootless.
+      env:
+        # chroot isolation = no user namespace / no uid_map, which the
+        # restricted pipelines-scc forbids. Required for rootless buildah here.
+        - name: BUILDAH_ISOLATION
+          value: chroot
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        AUTH="$(workspaces.dockerconfig.path)/.dockerconfigjson"
+        # Plain local clone (the buildah image ships git) — do NOT use a
+        # buildah git-context: that forks a user namespace to clone, which
+        # the restricted pipelines-scc forbids (uid_map: not permitted).
+        git clone --depth 1 --branch "$(params.git-revision)" "$(params.git-url)" /tmp/src
+        cd "/tmp/src/$(params.context)"
+        echo "building $(params.image) from local context $(pwd)"
+        buildah --storage-driver=vfs bud --isolation chroot -f Dockerfile -t "$(params.image)" .
+        buildah --storage-driver=vfs push --authfile "$AUTH" "$(params.image)"
+        echo "pushed $(params.image)"
