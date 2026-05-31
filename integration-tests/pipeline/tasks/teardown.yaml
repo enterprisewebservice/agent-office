@@ -40,7 +40,7 @@ spec:
         curl -sL "$(params.oc-download-url)" -o /tmp/oc.tar && tar -x -C /tmp -f /tmp/oc.tar oc
         OC=/tmp/oc
         NAME="$(params.run-name)"; OWNER="$(params.gh-owner)"; NS="$(params.target-namespace)"
-        AGENTS="$NAME ${NAME}-ded"   # shared + dedicated agents the suite creates
+        AGENTS="$NAME ${NAME}-ded ${NAME}-kb"   # shared + dedicated + KB agents the suite creates
         echo "TEARDOWN for run $NAME (agents: $AGENTS)"
 
         echo "=== mint short-lived GitHub App token ==="
@@ -108,10 +108,14 @@ spec:
             K="${kv%/*}"; V="${kv#*/}"
             $OC get "$K" "$V" -n "$NS" >/dev/null 2>&1 && { echo "  ✗ $A residue: $K/$V"; rc=1; } || true
           done
+          # KB agents also create a KnowledgeBase <A>-wiki + its PVC <A>-wiki-wiki
+          # (both pruned with the repo). NotFound for non-KB agents = clean.
+          $OC get knowledgebase "$A-wiki" -n "$NS" >/dev/null 2>&1 && { echo "  ✗ $A KnowledgeBase $A-wiki residue"; rc=1; } || true
+          $OC get pvc "$A-wiki-wiki" -n "$NS" >/dev/null 2>&1 && { echo "  ✗ $A KB PVC $A-wiki-wiki residue"; rc=1; } || true
         done
         $OC get appproject agent-office -n openshift-gitops >/dev/null 2>&1 && echo "  ✓ shared project intact" || echo "  ✗ shared project missing!"
         # Production agents must be untouched by the run.
-        PROD=$($OC get agentworkstation -n "$NS" --no-headers 2>/dev/null | grep -vE "^$NAME(-ded)? " | wc -l | tr -d ' ')
+        PROD=$($OC get agentworkstation -n "$NS" --no-headers 2>/dev/null | grep -vE "^$NAME(-ded|-kb)? " | wc -l | tr -d ' ')
         echo "  ✓ $PROD production agent(s) intact"
         [ "$rc" = "0" ] && echo "TEARDOWN: clean — zero residue." || echo "TEARDOWN: residue detected."
         exit $rc

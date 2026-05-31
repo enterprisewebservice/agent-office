@@ -66,6 +66,20 @@ spec:
         - name: gh-owner
           value: $(params.gh-owner)
 
+    # Act 2 — create a NEW KnowledgeBase the real way (createNewKnowledgeBase)
+    # and attach it to a DEDICATED agent (a KB attach mutates the gateway
+    # Deployment's volumes = pod restart, so never attach a transient test
+    # KB to the shared research-gateway). Runs in parallel.
+    - name: beat-knowledgebase
+      displayName: "Create + attach a KnowledgeBase (new wiki, real template)"
+      taskRef:
+        name: aoit-beat-knowledgebase
+      params:
+        - name: agent-name
+          value: $(context.pipelineRun.name)-kb
+        - name: gh-owner
+          value: $(params.gh-owner)
+
     # Act 2 — inspect the REAL materialized agent (before teardown).
     - name: beat-guardrails
       displayName: "Guardrails (no standing creds, ESO secret, constrained SCC)"
