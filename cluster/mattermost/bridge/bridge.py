@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """
-openclaw <-> Mattermost bridge — in-cluster, multi-agent.
+openclaw <-> Mattermost bridge + auto-provisioner — in-cluster, multi-agent.
 
-Discovers every provisioned agent (a Mattermost bot whose username matches an
-AgentWorkstation), and for each one watches its channel #<agent> + the
-admin<->bot DM. For each new human message it drives the REAL openclaw agent
-(on that agent's gateway) and posts the reply back AS the bot, under the
-agent's own name. Re-discovers periodically, so a newly-provisioned agent
-becomes chat-reachable automatically.
+On a periodic cycle it AUTO-PROVISIONS every AgentWorkstation: ensures each
+one has a Mattermost bot @<agent> (its own name) + a #<agent> channel + a DM,
+and tears that presence down when the AW is deleted (only ever touching bots
+it provisioned). Then it watches each agent's channel + DM and, for every new
+human message, drives the REAL openclaw agent (on that agent's gateway) and
+posts the reply back AS the bot. So every agent is chat-reachable the moment
+it exists — create an AgentWorkstation, message #<agent>, it answers as itself.
 
 Env:
   MM_URL           Mattermost base (in-cluster service)
@@ -56,6 +57,60 @@ def aw_gateway(agent):
     return gw or None
 
 
+def list_aws():
+    """{name: displayName} for every AgentWorkstation, or None on a read error
+    (so we never tear down on a transient failure)."""
+    out = oc("get", "agentworkstations", "-n", GW_NS, "-o", "json")
+    if not out:
+        return None
+    try:
+        items = json.loads(out).get("items", [])
+        return {i["metadata"]["name"]:
+                (i.get("spec", {}).get("displayName") or i["metadata"]["name"])
+                for i in items}
+    except Exception:
+        return None
+
+
+def ensure_presence(agent, display, team_id, admin_id):
+    """find-or-create the agent's bot + channel + DM; return its bridge record."""
+    bot = find_bot(agent)
+    if not bot:
+        st, bot = api("POST", "/api/v4/bots", {"username": agent, "display_name": display,
+                      "description": f"{display} — talk to me in #{agent} or DM me."})
+        if st != 201:
+            print(f"[bridge] provision {agent} FAILED: {bot}", file=sys.stderr, flush=True)
+            return None
+        print(f"[bridge] provisioned bot @{agent}", file=sys.stderr, flush=True)
+    else:
+        api("POST", f"/api/v4/bots/{bot['user_id']}/enable")
+    bot_id = bot["user_id"]
+    _, tok = api("POST", f"/api/v4/users/{bot_id}/tokens", {"description": "bridge"})
+    api("POST", f"/api/v4/teams/{team_id}/members", {"team_id": team_id, "user_id": bot_id})
+    st, ch = api("GET", f"/api/v4/teams/{team_id}/channels/name/{agent}")
+    if st != 200:
+        st, ch = api("POST", "/api/v4/channels", {"team_id": team_id, "name": agent,
+                     "display_name": display, "type": "O"})
+        print(f"[bridge] provisioned channel #{agent}", file=sys.stderr, flush=True)
+    chan = ch["id"]
+    api("POST", f"/api/v4/channels/{chan}/members", {"user_id": bot_id})
+    api("POST", f"/api/v4/channels/{chan}/members", {"user_id": admin_id})
+    _, dm = api("POST", "/api/v4/channels/direct", [admin_id, bot_id])
+    chans = [chan] + ([dm["id"]] if dm.get("id") else [])
+    return {"bot_id": bot_id, "token": tok.get("token", ""),
+            "gw": aw_gateway(agent), "channels": chans}
+
+
+def teardown_presence(agent, team_id):
+    st, c = api("GET", f"/api/v4/teams/{team_id}/channels/name/{agent}")
+    if st == 200:
+        api("DELETE", f"/api/v4/channels/{c['id']}")
+    b = find_bot(agent)
+    if b:
+        api("POST", f"/api/v4/bots/{b['user_id']}/disable")
+    print(f"[bridge] torn down @{agent} (AW deleted)", file=sys.stderr, flush=True)
+
+
 def gw_pod(gw):
     return oc("get", "pods", "-n", GW_NS, "-l", f"agentoffice.ai/gateway={gw}",
               "--field-selector=status.phase=Running",
@@ -75,23 +130,32 @@ def drive(agent, gw, text):
     return ANSI.sub("", out.stdout).strip() or "(no reply)"
 
 
+def find_bot(agent):
+    st, bots = api("GET", "/api/v4/bots?per_page=200&include_deleted=true")
+    return next((b for b in (bots or []) if b["username"] == agent), None) if st == 200 else None
+
+
+# agents this bridge has provisioned — so teardown only ever touches our own.
+PROVISIONED = set()
+
+
 def discover(admin_id, team_id):
-    """Return {agent: {bot_id, token, gw, channels:[...]}} for bots that are AWs."""
-    st, bots = api("GET", "/api/v4/bots?per_page=200")
+    """AUTO-PROVISION: every AgentWorkstation gets a bot + channel + DM; an AW
+    that disappears has its (bridge-provisioned) presence torn down. Returns the
+    live {agent: record} map, or None on a cluster read error (keep the old map)."""
+    aws = list_aws()
+    if aws is None:
+        return None
     agents = {}
-    for b in (bots or []):
-        if b.get("delete_at"):
-            continue
-        agent = b["username"]
-        gw = aw_gateway(agent)
-        if not gw:
-            continue  # only bridge bots that are real AgentWorkstations
-        _, tok = api("POST", f"/api/v4/users/{b['user_id']}/tokens", {"description": "bridge"})
-        _, ch = api("GET", f"/api/v4/teams/{team_id}/channels/name/{agent}")
-        _, dm = api("POST", "/api/v4/channels/direct", [admin_id, b["user_id"]])
-        chans = [c["id"] for c in (ch, dm) if c and c.get("id")]
-        agents[agent] = {"bot_id": b["user_id"], "token": tok.get("token", ""),
-                         "gw": gw, "channels": chans}
+    for agent, display in aws.items():
+        rec = ensure_presence(agent, display, team_id, admin_id)
+        if rec:
+            agents[agent] = rec
+            PROVISIONED.add(agent)
+    for agent in list(PROVISIONED):
+        if agent not in aws:
+            teardown_presence(agent, team_id)
+            PROVISIONED.discard(agent)
     return agents
 
 
@@ -107,17 +171,19 @@ def main():
     while True:
         now = time.time()
         if now - last_disc > REDISCOVER:
-            agents = discover(admin_id, team_id)
             last_disc = now
-            print(f"[bridge] agents: {sorted(agents)}", file=sys.stderr, flush=True)
-            if not started:
-                # on first discovery, mark existing posts as seen (answer only NEW msgs)
-                for a in agents.values():
-                    for ch in a["channels"]:
-                        _, ps = api("GET", f"/api/v4/channels/{ch}/posts?per_page=50")
-                        seen.update((ps or {}).get("order", []))
-                started = True
-                print("[bridge] ready.", file=sys.stderr, flush=True)
+            new = discover(admin_id, team_id)
+            if new is not None:  # None == cluster read error → keep the old map
+                agents = new
+                print(f"[bridge] agents: {sorted(agents)}", file=sys.stderr, flush=True)
+                if not started:
+                    # on first discovery, mark existing posts seen (answer only NEW msgs)
+                    for a in agents.values():
+                        for ch in a["channels"]:
+                            _, ps = api("GET", f"/api/v4/channels/{ch}/posts?per_page=50")
+                            seen.update((ps or {}).get("order", []))
+                    started = True
+                    print("[bridge] ready.", file=sys.stderr, flush=True)
 
         for agent, a in agents.items():
             for ch in a["channels"]:

@@ -51,9 +51,13 @@ For each agent it ensures: a **bot** `@<agent>` (its own name) + **bot token**
       agent's channel + DM, drives the real openclaw agent, posts the reply AS the
       bot. PROVEN (genesis-pm answers in `#genesis-pm`). Prototype runs locally;
       productionize as an in-cluster Deployment next.
-- [ ] **Operator auto-provision** — on AgentWorkstation reconcile, mint bot + channel + DM
-- [ ] Bridge as an in-cluster Deployment (per gateway), drive openclaw via its API not `oc exec`
-- [ ] Bootstrap Job + Vault/ESO for the DB + admin secrets
+- [x] **In-cluster bridge** — `cluster/mattermost/bridge/` Deployment (mm-bridge), durable
+- [x] **Auto-provision** — the bridge watches AgentWorkstations and mints a bot + channel
+      + DM for EVERY agent (tearing it down when the AW is deleted; only touches bots it
+      provisioned). So every agent is chat-reachable the moment it exists. PROVEN.
+- [ ] Name sanitization for agents whose name exceeds Mattermost's 22-char username limit
+- [ ] Fold auto-provision into the main operator's reconcile + finalizer (native, with status)
+- [ ] Drive openclaw via its API instead of `oc exec`; bootstrap Job + Vault/ESO for secrets
 
 Supersedes the Discord approach in `docs/design/discord-per-agent-channels.md`
 (kept for history; Discord is unusable for automated bot creation).
