@@ -23,7 +23,7 @@ spec:
       value: '{{revision}}'
     # Tag-stable: bump :v0.0.x + the Deployment image ref to roll.
     - name: output-image
-      value: 'quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/projectboard-mcp:v0.0.1'
+      value: 'quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/projectboard-mcp:v0.0.2'
     - name: dockerfile
       value: mcp-servers/projectboard-mcp/Dockerfile
     - name: path-context

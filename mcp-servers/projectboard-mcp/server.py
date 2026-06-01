@@ -58,8 +58,26 @@ def _gql(query: str, variables: dict) -> dict:
     return payload["data"]
 
 
+# The board-layout TEMPLATE this server copies for every new board.
+#
+# WHY a template: GitHub's GraphQL API has NO mutation to create or change
+# a project VIEW or its layout — board/table/roadmap views can only be
+# authored in the web UI. The ONLY API way to obtain a project that ALREADY
+# has a board (kanban) view is copyProjectV2, which copies an existing
+# project including its views. So the platform keeps ONE protected template
+# project that has a board-layout view, and create_project_board COPIES it.
+# This is the same mechanism GitHub's own "project templates" feature uses.
+#
+# The template is resolved by TITLE (not a brittle hardcoded node id) under
+# the SAME owner the board is created for. If it is missing, we fall back to
+# a plain createProjectV2 (table view) so board creation never hard-fails.
+BOARD_TEMPLATE_TITLE = os.environ.get(
+    "BOARD_TEMPLATE_TITLE", "Kanban Template — DO NOT DELETE"
+)
+
+
 def _owner_node_id(owner: str, owner_type: str) -> str:
-    """Resolve an org/user login to the node ID createProjectV2 needs."""
+    """Resolve an org/user login to the node ID the mutations need."""
     if owner_type == "user":
         q = "query($l:String!){ user(login:$l){ id } }"
         return _gql(q, {"l": owner})["user"]["id"]
@@ -67,13 +85,37 @@ def _owner_node_id(owner: str, owner_type: str) -> str:
     return _gql(q, {"l": owner})["organization"]["id"]
 
 
+def _find_board_template(owner: str, owner_type: str) -> str | None:
+    """Return the node id of the board-layout template under `owner`, or None.
+
+    Matches BOARD_TEMPLATE_TITLE exactly among the owner's first 100
+    projects. Returns None when no such project exists (caller falls back).
+    """
+    field = "user" if owner_type == "user" else "organization"
+    q = (
+        "query($l:String!){ %s(login:$l){ "
+        "projectsV2(first:100){ nodes{ id title } } } }" % field
+    )
+    nodes = (_gql(q, {"l": owner})[field]["projectsV2"]["nodes"]) or []
+    for n in nodes:
+        if n.get("title") == BOARD_TEMPLATE_TITLE:
+            return n["id"]
+    return None
+
+
 @mcp.tool()
 def create_project_board(owner: str, title: str, owner_type: str = "org") -> dict:
     """Create a new GitHub Projects v2 board (kanban) owned by an org or user.
 
-    The new board ships with the default single-select "Status" field
-    (Todo / In Progress / Done) — the kanban columns agents move tasks
-    across via the github_projects_write `update_project_item` tool.
+    The board is created by COPYING the platform's board-layout template
+    project ("Kanban Template — DO NOT DELETE") so it opens as a real kanban
+    BOARD view with Status columns — not a flat table. (GitHub's API cannot
+    author a board view directly; copying a template is the only supported
+    path, and is how GitHub's own project-template feature works.) Agents
+    move cards across columns with github_projects_write `update_project_item`.
+
+    If the template is missing, this degrades gracefully to a plain board
+    (table view) and flags `template_used: false` in the result.
 
     Args:
         owner: The org or user login that will own the board (e.g. "enterprisewebservice").
@@ -81,17 +123,32 @@ def create_project_board(owner: str, title: str, owner_type: str = "org") -> dic
         owner_type: "org" (default) or "user".
 
     Returns:
-        {id, number, title, url} of the created board. `number` is what the
-        github_projects_* tools take as `project_number`; `id` is the node
-        ID needed to delete it.
+        {id, number, title, url, template_used} of the created board.
+        `number` is what the github_projects_* tools take as `project_number`;
+        `id` is the node ID needed to delete it.
     """
     owner_id = _owner_node_id(owner, owner_type)
+    template_id = _find_board_template(owner, owner_type)
+    if template_id:
+        q = (
+            "mutation($p:ID!,$o:ID!,$t:String!){"
+            " copyProjectV2(input:{projectId:$p,ownerId:$o,title:$t,includeDraftIssues:false}){"
+            " projectV2{ id number title url } } }"
+        )
+        board = _gql(q, {"p": template_id, "o": owner_id, "t": title})[
+            "copyProjectV2"
+        ]["projectV2"]
+        board["template_used"] = True
+        return board
+    # Fallback: no template found — plain board (table view).
     q = (
         "mutation($o:ID!,$t:String!){"
         " createProjectV2(input:{ownerId:$o,title:$t}){"
         " projectV2{ id number title url } } }"
     )
-    return _gql(q, {"o": owner_id, "t": title})["createProjectV2"]["projectV2"]
+    board = _gql(q, {"o": owner_id, "t": title})["createProjectV2"]["projectV2"]
+    board["template_used"] = False
+    return board
 
 
 @mcp.tool()
@@ -114,4 +171,4 @@ if __name__ == "__main__":
     # shape the Kuadrant MCP gateway proxies for github-mcp-server.
     mcp.run(transport="streamable-http")
 
-# build: projectboard-mcp v0.0.1
+# build: projectboard-mcp v0.0.2 — copy board-layout template (kanban) instead of plain createProjectV2

@@ -22,7 +22,7 @@ spec:
       default: main
     - name: image
       type: string
-      default: quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/projectboard-mcp:v0.0.1
+      default: quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/projectboard-mcp:v0.0.2
     - name: context
       type: string
       default: mcp-servers/projectboard-mcp
