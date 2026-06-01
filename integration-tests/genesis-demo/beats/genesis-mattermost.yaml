@@ -45,18 +45,21 @@ spec:
         AGENT="$(params.agent-name)"; MM="$(params.mm-url)"; TEAM="$(params.mm-team)"
         TOK=$($OC get secret mattermost-admin-token -n agent-office -o jsonpath='{.data.token}' | base64 -d)
         [ -n "$TOK" ] || { echo "FAIL: no mattermost-admin-token in agent-office"; exit 1; }
+        # SLUG: the Mattermost handle the operator provisioned under (== AGENT
+        # for names <= 22 chars). MUST match mmSlug()/mm_slug() in operator+bridge.
+        SLUG=$(python3 -c "import sys,hashlib; n=sys.argv[1]; print(n if len(n)<=22 else n[:13].rstrip('-._')+'-'+hashlib.sha256(n.encode()).hexdigest()[:8])" "$AGENT")
         h(){ curl -s -H "Authorization: Bearer $TOK" -H "Content-Type: application/json" "$@"; }
         jget(){ python3 -c "import sys,json;d=json.load(sys.stdin);print(d.get('$1','') if isinstance(d,dict) else '')"; }
 
-        echo "=== resolve the OPERATOR-provisioned user @$AGENT + channel #$AGENT ==="
+        echo "=== resolve the OPERATOR-provisioned user @$SLUG + channel #$SLUG (agent $AGENT) ==="
         TEAM_ID=$(h "$MM/api/v4/teams/name/$TEAM" | jget id)
         [ -n "$TEAM_ID" ] || { echo "FAIL: team '$TEAM' missing — operator hasn't provisioned yet"; exit 1; }
-        UID_=$(h "$MM/api/v4/users/username/$AGENT" | jget id)
-        [ -n "$UID_" ] || { echo "FAIL: user @$AGENT not found — is the operator (>= v1.7.0) running + an AgentWorkstation named $AGENT present?"; exit 1; }
-        echo "  user @$AGENT id=$UID_"
-        CH=$(h "$MM/api/v4/teams/$TEAM_ID/channels/name/$AGENT" | jget id)
-        [ -n "$CH" ] || { echo "FAIL: channel #$AGENT not found — operator hasn't provisioned the channel"; exit 1; }
-        echo "  channel #$AGENT id=$CH"
+        UID_=$(h "$MM/api/v4/users/username/$SLUG" | jget id)
+        [ -n "$UID_" ] || { echo "FAIL: user @$SLUG not found — is the operator (>= v1.7.1) running + an AgentWorkstation named $AGENT present?"; exit 1; }
+        echo "  user @$SLUG id=$UID_"
+        CH=$(h "$MM/api/v4/teams/$TEAM_ID/channels/name/$SLUG" | jget id)
+        [ -n "$CH" ] || { echo "FAIL: channel #$SLUG not found — operator hasn't provisioned the channel"; exit 1; }
+        echo "  channel #$SLUG id=$CH"
         # make sure the admin (this token) can post into the channel
         h -X POST "$MM/api/v4/channels/$CH/members" -d "{\"user_id\":\"$(h "$MM/api/v4/users/me" | jget id)\"}" >/dev/null 2>&1 || true
 

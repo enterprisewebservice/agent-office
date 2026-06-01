@@ -49,14 +49,19 @@ spec:
         MM="$(params.mm-url)"; TEAM="$(params.mm-team)"
         TOK=$($OC get secret mattermost-admin-token -n agent-office -o jsonpath='{.data.token}' | base64 -d)
         [ -n "$TOK" ] || { echo "FAIL: no mattermost-admin-token"; exit 1; }
+        # SLUG: the Mattermost handle the operator provisions under (== AGENT for
+        # names <= 22 chars; shortened to <first 13>-<sha256[:8]> otherwise).
+        # MUST match mmSlug() (operator) + mm_slug() (bridge).
+        SLUG=$(python3 -c "import sys,hashlib; n=sys.argv[1]; print(n if len(n)<=22 else n[:13].rstrip('-._')+'-'+hashlib.sha256(n.encode()).hexdigest()[:8])" "$AGENT")
+        echo "  agent=$AGENT  mattermost-handle=$SLUG"
         h(){ curl -s -H "Authorization: Bearer $TOK" "$@"; }
         teamid(){ h "$MM/api/v4/teams/name/$TEAM" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("id",""))'; }
-        userfield(){ h "$MM/api/v4/users/username/$AGENT" | python3 -c "import sys,json;d=json.load(sys.stdin);print(d.get('$1',''))"; }
+        userfield(){ h "$MM/api/v4/users/username/$SLUG" | python3 -c "import sys,json;d=json.load(sys.stdin);print(d.get('$1',''))"; }
         # chanfield: ACTIVE channel only (the by-name endpoint hides archived
         # channels) — used to assert provisioning created a *live* channel.
-        chanfield(){ h "$MM/api/v4/teams/$(teamid)/channels/name/$AGENT" | python3 -c "import sys,json;d=json.load(sys.stdin);print(d.get('$1',''))"; }
+        chanfield(){ h "$MM/api/v4/teams/$(teamid)/channels/name/$SLUG" | python3 -c "import sys,json;d=json.load(sys.stdin);print(d.get('$1',''))"; }
         # chandel: archived delete_at via include_deleted=true — used to assert teardown.
-        chandel(){ h "$MM/api/v4/teams/$(teamid)/channels/name/$AGENT?include_deleted=true" | python3 -c "import sys,json;d=json.load(sys.stdin);print(d.get('delete_at',''))"; }
+        chandel(){ h "$MM/api/v4/teams/$(teamid)/channels/name/$SLUG?include_deleted=true" | python3 -c "import sys,json;d=json.load(sys.stdin);print(d.get('delete_at',''))"; }
 
         echo "=== pre-clean any prior test AW ==="
         $OC delete agentworkstation "$AGENT" -n "$NS" --ignore-not-found --wait=false 2>/dev/null || true

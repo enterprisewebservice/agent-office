@@ -21,7 +21,7 @@ Env:
 Drives openclaw with `oc exec` using the pod's ServiceAccount (needs
 pods/exec + agentworkstations get).
 """
-import json, os, re, secrets, ssl, subprocess, sys, time, urllib.error, urllib.request
+import hashlib, json, os, re, ssl, subprocess, sys, time, urllib.error, urllib.request
 
 MM = os.environ["MM_URL"]
 ADMIN = os.environ["MM_ADMIN_TOKEN"]
@@ -146,19 +146,31 @@ def list_aws():
         return None
 
 
+def mm_slug(name):
+    """Mattermost handle (username + channel name) for an agent. Mattermost caps
+    usernames at 22 chars, so longer names are shortened to "<first 13>-<sha256[:8]>".
+    MUST stay byte-for-byte identical to mmSlug() in the operator
+    (agentworkstation_mattermost.go) + slug() in the beats."""
+    if len(name) <= 22:
+        return name
+    h = hashlib.sha256(name.encode()).hexdigest()[:8]
+    return name[:13].rstrip("-._") + "-" + h
+
+
 def ensure_presence(agent, display, team_id, admin_id):
     """Find the agent's USER + channel (provisioned by the OPERATOR's reconcile)
     and set up the chat record (token + DM + presence WS). Does NOT create —
     the operator owns provisioning; we just bridge what it made. Returns None
     until the operator has provisioned this agent."""
-    u = get_user(agent)
+    slug = mm_slug(agent)  # the handle the operator provisioned under
+    u = get_user(slug)
     if not u or u.get("is_bot"):
         return None  # operator hasn't provisioned this agent (yet)
     uid = u["id"]
     set_online(uid)  # keep the green dot lit
     _, tok = api("POST", f"/api/v4/users/{uid}/tokens", {"description": "bridge"})
     api("POST", f"/api/v4/teams/{team_id}/members", {"team_id": team_id, "user_id": uid})
-    st, ch = api("GET", f"/api/v4/teams/{team_id}/channels/name/{agent}")
+    st, ch = api("GET", f"/api/v4/teams/{team_id}/channels/name/{slug}")
     if st != 200:
         return None  # operator hasn't made the channel yet
     chan = ch["id"]
