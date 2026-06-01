@@ -1,0 +1,7 @@
+# Genesis demo beats — apply with: oc apply -k integration-tests/genesis-demo/beats
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - genesis-board.yaml
+  - genesis-work.yaml
+  - genesis-teardown.yaml

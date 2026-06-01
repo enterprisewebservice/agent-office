@@ -1,0 +1,109 @@
+# Genesis demo — TEARDOWN (independent, on-demand, NEVER automatic).
+#
+# This is a standalone Task you invoke deliberately when you want the demo
+# torn down. It is intentionally NOT part of any pipeline that runs the
+# board/work beats — the demo is persistent until you choose otherwise.
+#
+# Default (safe + reversible):
+#   - delete the "Genesis Model" board (reversible: genesis-board recreates it)
+#   - close every open issue in the tracker repo (reversible: reopen)
+# It does NOT delete the tracker repo and does NOT touch any agent — the
+# board/work beats reuse the SHARED production agents (pm-agent, the
+# researcher), so teardown must never delete them.
+#
+# Opt-in (delete-repo=true): hard-delete the tracker repo for a fully
+# clean slate. Off by default because it permanently removes data; flip it
+# only when you deliberately want the repo gone.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: genesis-teardown
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/part-of: agent-office-genesis-demo
+spec:
+  description: On-demand teardown — delete the Genesis board + close issues (repo deletion opt-in).
+  params:
+    - name: gh-owner
+      type: string
+      default: enterprisewebservice
+    - name: gh-repo
+      type: string
+      default: genesis-tracker
+    - name: board-title
+      type: string
+      default: "Genesis Model"
+    - name: delete-repo
+      type: string
+      default: "false"
+    - name: oc-download-url
+      type: string
+      default: "http://downloads.openshift-console.svc.cluster.local:80/amd64/linux/oc.tar"
+  steps:
+    - name: teardown
+      image: registry.access.redhat.com/ubi9/ubi:latest
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        curl -sL "$(params.oc-download-url)" -o /tmp/oc.tar && tar -x -C /tmp -f /tmp/oc.tar oc
+        OC=/tmp/oc
+        OWNER="$(params.gh-owner)"; REPO="$(params.gh-repo)"; TITLE="$(params.board-title)"
+        DELREPO="$(params.delete-repo)"
+
+        echo "=== mint a GitHub App installation token ==="
+        appId=$($OC get secret -n agent-office agent-office-github-app -o jsonpath='{.data.appId}' | base64 -d)
+        instId=$($OC get secret -n agent-office agent-office-github-app -o jsonpath='{.data.installationId}' | base64 -d)
+        $OC get secret -n agent-office agent-office-github-app -o jsonpath='{.data.privateKey}' | base64 -d > /tmp/ghapp.pem
+        b64url(){ openssl base64 -A | tr '+/' '-_' | tr -d '='; }
+        now=$(date +%s)
+        hh=$(printf '{"alg":"RS256","typ":"JWT"}' | b64url)
+        pp=$(printf '{"iat":%d,"exp":%d,"iss":"%s"}' $((now-60)) $((now+540)) "$appId" | b64url)
+        ss=$(printf '%s.%s' "$hh" "$pp" | openssl dgst -sha256 -sign /tmp/ghapp.pem -binary | b64url)
+        TOK=$(curl -s -X POST -H "Authorization: Bearer $hh.$pp.$ss" -H "Accept: application/vnd.github+json" "https://api.github.com/app/installations/$instId/access_tokens" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("token",""))')
+        rm -f /tmp/ghapp.pem
+        [ -n "$TOK" ] || { echo "FAIL: could not mint GitHub App token"; exit 1; }
+
+        echo "=== delete the \"$TITLE\" board(s) ==="
+        curl -s -H "Authorization: Bearer $TOK" -X POST https://api.github.com/graphql \
+          -d '{"query":"query{organization(login:\"'"$OWNER"'\"){projectsV2(first:50){nodes{id number title}}}}"}' > /tmp/b.json
+        IDS=$(TITLE="$TITLE" python3 -c 'import json,os;d=json.load(open("/tmp/b.json"));t=os.environ["TITLE"];print(" ".join(n["id"] for n in d["data"]["organization"]["projectsV2"]["nodes"] if n["title"]==t))')
+        if [ -z "$IDS" ]; then
+          echo "  (no board titled \"$TITLE\" — already gone)"
+        else
+          for pid in $IDS; do
+            curl -s -H "Authorization: Bearer $TOK" -X POST https://api.github.com/graphql \
+              -d "{\"query\":\"mutation{deleteProjectV2(input:{projectId:\\\"$pid\\\"}){projectV2{id}}}\"}" > /tmp/del.json
+            python3 -c 'import json;d=json.load(open("/tmp/del.json"));print("  ✓ deleted board" if d.get("data",{}).get("deleteProjectV2") else "  delete err: "+json.dumps(d.get("errors")))'
+          done
+        fi
+
+        echo "=== close every open issue in $OWNER/$REPO ==="
+        code=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TOK" "https://api.github.com/repos/$OWNER/$REPO")
+        if [ "$code" = "404" ]; then
+          echo "  (repo $OWNER/$REPO does not exist — nothing to close)"
+        else
+          curl -s -H "Authorization: Bearer $TOK" "https://api.github.com/repos/$OWNER/$REPO/issues?state=open&per_page=100" > /tmp/iss.json
+          NUMS=$(python3 -c 'import json;d=json.load(open("/tmp/iss.json"));print(" ".join(str(i["number"]) for i in d if isinstance(i,dict) and "pull_request" not in i))')
+          if [ -z "$NUMS" ]; then echo "  (no open issues)"; else
+            for n in $NUMS; do
+              curl -s -X PATCH -H "Authorization: Bearer $TOK" "https://api.github.com/repos/$OWNER/$REPO/issues/$n" -d '{"state":"closed"}' >/dev/null
+              echo "  ✓ closed issue #$n"
+            done
+          fi
+        fi
+
+        echo "=== tracker repo handling (delete-repo=$DELREPO) ==="
+        if [ "$DELREPO" = "true" ]; then
+          if [ "$code" = "404" ]; then
+            echo "  (repo already absent)"
+          else
+            hc=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE -H "Authorization: Bearer $TOK" "https://api.github.com/repos/$OWNER/$REPO")
+            [ "$hc" = "204" ] && echo "  ✓ deleted repo $OWNER/$REPO" || echo "  (repo delete http=$hc — the App may lack delete_repo scope; remove it manually)"
+          fi
+        else
+          echo "  repo $OWNER/$REPO LEFT IN PLACE (auditable record; closed issues + deliverables kept)."
+          echo "  To remove it: re-run with -p delete-repo=true, or delete it in the GitHub UI."
+        fi
+
+        echo
+        echo "DONE — Genesis demo torn down: board deleted, issues closed. Agents untouched (shared/production). Re-run genesis-board to rebuild."

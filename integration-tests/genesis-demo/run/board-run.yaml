@@ -1,0 +1,15 @@
+# Run BEAT 2 — PM agent plans the board. Incremental, persistent.
+#   oc create -f integration-tests/genesis-demo/run/board-run.yaml
+#   tkn taskrun logs -L -f -n agent-office
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  generateName: genesis-board-
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/part-of: agent-office-genesis-demo
+spec:
+  serviceAccountName: aoit-runner
+  taskRef:
+    name: genesis-board
+  timeout: "20m"

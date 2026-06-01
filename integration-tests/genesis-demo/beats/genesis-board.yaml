@@ -1,0 +1,116 @@
+# Genesis demo — BEAT 2 (genesis-board): the PM agent plans the project.
+#
+# Drives the REAL pm-agent (openclaw, governed MCP tools) to:
+#   1. create a GitHub Projects v2 board titled "Genesis Model" (org),
+#   2. decompose the goal into 6 first-principles tasks as issues in the
+#      tracker repo,
+#   3. add every issue to the board.
+# Then asserts the board exists with 6 items and the repo has 6 issues.
+#
+# IDEMPOTENT + PERSISTENT: if the board already exists with >=6 items the
+# beat reuses it (no duplicate board, no re-drive) and passes. Nothing is
+# torn down here — teardown is the separate, on-demand genesis-teardown.
+#
+# This is an LLM beat: it exercises the agent's real planning + tool use,
+# so the exact issue titles are the agent's, not ours. We assert the
+# SHAPE (board + 6 issues + 6 board items), which is the contract.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: genesis-board
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/part-of: agent-office-genesis-demo
+spec:
+  description: PM agent creates the "Genesis Model" board + 6 first-principles task issues (idempotent).
+  params:
+    - name: gh-owner
+      type: string
+      default: enterprisewebservice
+    - name: gh-repo
+      type: string
+      default: genesis-tracker
+    - name: board-title
+      type: string
+      default: "Genesis Model"
+    - name: pm-agent
+      type: string
+      default: pm-agent
+    - name: gateway
+      type: string
+      default: research-gateway
+    - name: target-namespace
+      type: string
+      default: agent-office
+    - name: oc-download-url
+      type: string
+      default: "http://downloads.openshift-console.svc.cluster.local:80/amd64/linux/oc.tar"
+  steps:
+    - name: plan
+      image: registry.access.redhat.com/ubi9/ubi:latest
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        curl -sL "$(params.oc-download-url)" -o /tmp/oc.tar && tar -x -C /tmp -f /tmp/oc.tar oc
+        OC=/tmp/oc
+        OWNER="$(params.gh-owner)"; REPO="$(params.gh-repo)"; TITLE="$(params.board-title)"
+        AGENT="$(params.pm-agent)"; GW="$(params.gateway)"; NS="$(params.target-namespace)"
+
+        echo "=== mint a GitHub App installation token ==="
+        appId=$($OC get secret -n agent-office agent-office-github-app -o jsonpath='{.data.appId}' | base64 -d)
+        instId=$($OC get secret -n agent-office agent-office-github-app -o jsonpath='{.data.installationId}' | base64 -d)
+        $OC get secret -n agent-office agent-office-github-app -o jsonpath='{.data.privateKey}' | base64 -d > /tmp/ghapp.pem
+        b64url(){ openssl base64 -A | tr '+/' '-_' | tr -d '='; }
+        now=$(date +%s)
+        hh=$(printf '{"alg":"RS256","typ":"JWT"}' | b64url)
+        pp=$(printf '{"iat":%d,"exp":%d,"iss":"%s"}' $((now-60)) $((now+540)) "$appId" | b64url)
+        ss=$(printf '%s.%s' "$hh" "$pp" | openssl dgst -sha256 -sign /tmp/ghapp.pem -binary | b64url)
+        TOK=$(curl -s -X POST -H "Authorization: Bearer $hh.$pp.$ss" -H "Accept: application/vnd.github+json" "https://api.github.com/app/installations/$instId/access_tokens" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("token",""))')
+        rm -f /tmp/ghapp.pem
+        [ -n "$TOK" ] || { echo "FAIL: could not mint GitHub App token"; exit 1; }
+
+        echo "=== ensure tracker repo $OWNER/$REPO exists ==="
+        code=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TOK" "https://api.github.com/repos/$OWNER/$REPO")
+        if [ "$code" = "404" ]; then
+          curl -s -X POST -H "Authorization: Bearer $TOK" -H "Accept: application/vnd.github+json" "https://api.github.com/orgs/$OWNER/repos" \
+            -d "{\"name\":\"$REPO\",\"description\":\"Genesis Model — first-principles model creation tracker.\",\"private\":false,\"has_issues\":true,\"auto_init\":true}" >/dev/null
+          echo "  created $OWNER/$REPO"
+        else
+          echo "  repo exists (http=$code)"
+        fi
+
+        boardquery(){
+          curl -s -H "Authorization: Bearer $TOK" -X POST https://api.github.com/graphql \
+            -d '{"query":"query{organization(login:\"'"$OWNER"'\"){projectsV2(first:50){nodes{number title url items{totalCount}}}}}"}'
+        }
+        echo "=== idempotency: does the board \"$TITLE\" already exist with >=6 items? ==="
+        boardquery > /tmp/b.json
+        ITEMS=$(TITLE="$TITLE" python3 -c 'import sys,json,os;d=json.load(open("/tmp/b.json"));t=os.environ["TITLE"];print(next((n["items"]["totalCount"] for n in d["data"]["organization"]["projectsV2"]["nodes"] if n["title"]==t),-1))')
+        if [ "${ITEMS:-0}" -ge 6 ] 2>/dev/null; then
+          echo "  ✓ board already planned (items=$ITEMS) — reusing, skipping PM drive (idempotent)"
+        else
+          echo "=== drive the REAL $AGENT to plan the board (this makes ~13 governed tool calls) ==="
+          GWPOD=$($OC get pods -n "$NS" -l agentoffice.ai/gateway="$GW" --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}')
+          [ -n "$GWPOD" ] || { echo "FAIL: no Running pod for gateway $GW"; exit 1; }
+          MSG="You are the PM agent for the Genesis Model project. PROJECT GOAL: build the smallest, most concrete first-principles predictive model — trained on OpenShift AI — that a learner can build on to truly understand how models are created from first principles (data -> hypothesis -> loss -> gradient descent -> evaluation -> iteration). Using your governed MCP tools, do these steps IN ORDER: 1. Create a GitHub project board titled \"$TITLE\" owned by org $OWNER. Use projectboard_create_project_board with owner_type \"org\". 2. Decompose the goal into exactly 6 concrete, sequenced first-principles tasks. For EACH task create a GitHub issue in repo $OWNER/$REPO using github_issue_write, with a clear imperative title and a 1-2 sentence body stating the concrete deliverable AND the first-principles concept it teaches. 3. Add each issue you created to the \"$TITLE\" board using github_projects_write (add_project_item). Finally report the board URL and the issue numbers + titles you created."
+          $OC exec -n "$NS" "$GWPOD" -c openclaw -- openclaw agent --agent "$AGENT" --message "$MSG" --json --timeout 540 >/tmp/pm.json 2>&1 || true
+          echo "  pm-agent run finished (stopReason: $(grep -o '"stopReason":"[a-z]*"' /tmp/pm.json | tail -1))"
+        fi
+
+        echo "=== assert: board \"$TITLE\" exists with >=6 items ==="
+        ok=""
+        for i in $(seq 1 10); do
+          boardquery > /tmp/b.json
+          read -r BNUM BURL BITEMS < <(TITLE="$TITLE" python3 -c 'import sys,json,os;d=json.load(open("/tmp/b.json"));t=os.environ["TITLE"];n=next((x for x in d["data"]["organization"]["projectsV2"]["nodes"] if x["title"]==t),None);print((str(n["number"]),n["url"],str(n["items"]["totalCount"])) if n else ("","","0"))' | tr -d "()'," | sed "s/  */ /g")
+          if [ -n "${BNUM:-}" ] && [ "${BITEMS:-0}" -ge 6 ] 2>/dev/null; then ok=1; break; fi
+          echo "  [$i] board not ready (num=${BNUM:-none} items=${BITEMS:-0})…"; sleep 6
+        done
+        [ -n "$ok" ] || { echo "FAIL: board \"$TITLE\" missing or has <6 items"; exit 1; }
+        echo "  ✓ board #$BNUM \"$TITLE\" has $BITEMS items — $BURL"
+
+        echo "=== assert: tracker repo has >=6 issues ==="
+        ICOUNT=$(curl -s -H "Authorization: Bearer $TOK" "https://api.github.com/repos/$OWNER/$REPO/issues?state=all&per_page=50" | python3 -c 'import sys,json;d=json.load(sys.stdin);print(sum(1 for i in d if isinstance(i,dict) and "pull_request" not in i))')
+        [ "${ICOUNT:-0}" -ge 6 ] 2>/dev/null && echo "  ✓ $OWNER/$REPO has $ICOUNT issues" || { echo "FAIL: expected >=6 issues, found ${ICOUNT:-0}"; exit 1; }
+
+        echo
+        echo "PASS — PM agent planned \"$TITLE\": board #$BNUM with $BITEMS first-principles task cards, $ICOUNT issues in $OWNER/$REPO. Persistent (no teardown)."

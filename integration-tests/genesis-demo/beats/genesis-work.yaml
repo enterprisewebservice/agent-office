@@ -1,0 +1,116 @@
+# Genesis demo — BEAT 3 (genesis-work): a worker agent does a task.
+#
+# Drives a REAL worker agent (distinct from the PM — role separation) to
+# pick up one task off the "Genesis Model" board and complete it end to
+# end with governed MCP tools:
+#   1. read the issue,
+#   2. author a concrete first-principles deliverable + push it to the
+#      tracker repo (docs/task-<N>.md),
+#   3. comment on the issue,
+#   4. close the issue,
+#   5. move the issue's board card to Done.
+# Then asserts: the deliverable file exists, the issue is closed, and the
+# card's Status is Done.
+#
+# IDEMPOTENT + PERSISTENT: re-running on an already-Done task is a no-op
+# pass (the worker sees it closed). Run it once per task-number to walk
+# the board across runs. No teardown here.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: genesis-work
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/part-of: agent-office-genesis-demo
+spec:
+  description: A worker agent completes one Genesis task (deliverable + close + card to Done).
+  params:
+    - name: task-number
+      type: string
+      default: "1"
+    - name: worker-agent
+      type: string
+      default: redhat-ai-researcher
+    - name: gh-owner
+      type: string
+      default: enterprisewebservice
+    - name: gh-repo
+      type: string
+      default: genesis-tracker
+    - name: board-title
+      type: string
+      default: "Genesis Model"
+    - name: gateway
+      type: string
+      default: research-gateway
+    - name: target-namespace
+      type: string
+      default: agent-office
+    - name: oc-download-url
+      type: string
+      default: "http://downloads.openshift-console.svc.cluster.local:80/amd64/linux/oc.tar"
+  steps:
+    - name: work
+      image: registry.access.redhat.com/ubi9/ubi:latest
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        curl -sL "$(params.oc-download-url)" -o /tmp/oc.tar && tar -x -C /tmp -f /tmp/oc.tar oc
+        OC=/tmp/oc
+        N="$(params.task-number)"; AGENT="$(params.worker-agent)"
+        OWNER="$(params.gh-owner)"; REPO="$(params.gh-repo)"; TITLE="$(params.board-title)"
+        GW="$(params.gateway)"; NS="$(params.target-namespace)"
+
+        echo "=== mint a GitHub App installation token ==="
+        appId=$($OC get secret -n agent-office agent-office-github-app -o jsonpath='{.data.appId}' | base64 -d)
+        instId=$($OC get secret -n agent-office agent-office-github-app -o jsonpath='{.data.installationId}' | base64 -d)
+        $OC get secret -n agent-office agent-office-github-app -o jsonpath='{.data.privateKey}' | base64 -d > /tmp/ghapp.pem
+        b64url(){ openssl base64 -A | tr '+/' '-_' | tr -d '='; }
+        now=$(date +%s)
+        hh=$(printf '{"alg":"RS256","typ":"JWT"}' | b64url)
+        pp=$(printf '{"iat":%d,"exp":%d,"iss":"%s"}' $((now-60)) $((now+540)) "$appId" | b64url)
+        ss=$(printf '%s.%s' "$hh" "$pp" | openssl dgst -sha256 -sign /tmp/ghapp.pem -binary | b64url)
+        TOK=$(curl -s -X POST -H "Authorization: Bearer $hh.$pp.$ss" -H "Accept: application/vnd.github+json" "https://api.github.com/app/installations/$instId/access_tokens" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("token",""))')
+        rm -f /tmp/ghapp.pem
+        [ -n "$TOK" ] || { echo "FAIL: could not mint GitHub App token"; exit 1; }
+
+        echo "=== discover board number for \"$TITLE\" ==="
+        curl -s -H "Authorization: Bearer $TOK" -X POST https://api.github.com/graphql \
+          -d '{"query":"query{organization(login:\"'"$OWNER"'\"){projectsV2(first:50){nodes{number title}}}}"}' > /tmp/b.json
+        BNUM=$(TITLE="$TITLE" python3 -c 'import json,os;d=json.load(open("/tmp/b.json"));t=os.environ["TITLE"];print(next((str(n["number"]) for n in d["data"]["organization"]["projectsV2"]["nodes"] if n["title"]==t),""))')
+        [ -n "$BNUM" ] || { echo "FAIL: board \"$TITLE\" not found — run genesis-board first"; exit 1; }
+        echo "  board #$BNUM"
+
+        echo "=== drive the REAL worker $AGENT on task #$N ==="
+        GWPOD=$($OC get pods -n "$NS" -l agentoffice.ai/gateway="$GW" --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}')
+        [ -n "$GWPOD" ] || { echo "FAIL: no Running pod for gateway $GW"; exit 1; }
+        MSG="You are a worker engineer on the \"$TITLE\" project (org $OWNER, board number $BNUM, tracker repo $OWNER/$REPO). Complete TASK #$N end to end. 1. Read issue #$N in $OWNER/$REPO (github_issue_read) to understand the task. If it is already closed, report that and stop. 2. DO THE WORK: author a concrete, correct first-principles deliverable specific to THIS task and push it to branch main at path docs/task-$N.md using github_push_files (about 25 lines, specific and technically correct for the Genesis Model where the data law is y = 2x + 1 + noise). 3. Add a comment on issue #$N summarizing the deliverable and its path. 4. Close issue #$N (github_issue_write, state closed). 5. Move the issue's card on board number $BNUM to Done: use github_projects_list/github_projects_read to find the board's Status field id, its Done option id, and the item id for issue #$N, then github_projects_write update_project_item to set Status = Done. Report what you pushed, that the issue is closed, and that the card is Done."
+        $OC exec -n "$NS" "$GWPOD" -c openclaw -- openclaw agent --agent "$AGENT" --message "$MSG" --json --timeout 540 >/tmp/w.json 2>&1 || true
+        echo "  worker run finished (stopReason: $(grep -o '"stopReason":"[a-z]*"' /tmp/w.json | tail -1))"
+
+        echo "=== assert: deliverable docs/task-$N.md pushed ==="
+        fok=""
+        for i in $(seq 1 6); do
+          code=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TOK" "https://api.github.com/repos/$OWNER/$REPO/contents/docs/task-$N.md")
+          if [ "$code" = "200" ]; then fok=1; break; fi
+          echo "  [$i] docs/task-$N.md not present yet (http=$code)…"; sleep 5
+        done
+        [ -n "$fok" ] && echo "  ✓ docs/task-$N.md present" || { echo "FAIL: deliverable docs/task-$N.md not pushed"; exit 1; }
+
+        echo "=== assert: issue #$N is closed ==="
+        STATE=$(curl -s -H "Authorization: Bearer $TOK" "https://api.github.com/repos/$OWNER/$REPO/issues/$N" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("state",""))')
+        [ "$STATE" = "closed" ] && echo "  ✓ issue #$N closed" || { echo "FAIL: issue #$N state=$STATE (expected closed)"; exit 1; }
+
+        echo "=== assert: board card for issue #$N is Done ==="
+        sok=""
+        for i in $(seq 1 6); do
+          curl -s -H "Authorization: Bearer $TOK" -X POST https://api.github.com/graphql \
+            -d '{"query":"query{organization(login:\"'"$OWNER"'\"){projectV2(number:'"$BNUM"'){items(first:30){nodes{content{... on Issue{number}} fieldValues(first:20){nodes{... on ProjectV2ItemFieldSingleSelectValue{name field{... on ProjectV2SingleSelectField{name}}}}}}}}}}"}' > /tmp/items.json
+          ST=$(N="$N" python3 -c 'import json,os;d=json.load(open("/tmp/items.json"));n=int(os.environ["N"]);print(next((fv.get("name") for it in d["data"]["organization"]["projectV2"]["items"]["nodes"] if (it.get("content") or {}).get("number")==n for fv in it["fieldValues"]["nodes"] if fv and (fv.get("field") or {}).get("name")=="Status"),""))')
+          if [ "$ST" = "Done" ]; then sok=1; break; fi
+          echo "  [$i] card #$N status=${ST:-none}…"; sleep 5
+        done
+        [ -n "$sok" ] && echo "  ✓ card #$N Status=Done" || { echo "FAIL: card #$N not Done"; exit 1; }
+
+        echo
+        echo "PASS — worker $AGENT completed task #$N: deliverable pushed, issue closed, board card moved to Done. Persistent."

@@ -1,0 +1,20 @@
+# Run BEAT 3 — a worker agent completes ONE task. Incremental, persistent.
+# Change task-number to walk the board across runs (1..6).
+#   tkn task start genesis-work -p task-number=2 -s aoit-runner -n agent-office --showlog
+# or edit task-number below and:
+#   oc create -f integration-tests/genesis-demo/run/work-run.yaml
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  generateName: genesis-work-
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/part-of: agent-office-genesis-demo
+spec:
+  serviceAccountName: aoit-runner
+  taskRef:
+    name: genesis-work
+  params:
+    - name: task-number
+      value: "2"
+  timeout: "20m"

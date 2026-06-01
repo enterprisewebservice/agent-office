@@ -1,0 +1,20 @@
+# Run TEARDOWN — independent, on-demand. NEVER runs automatically.
+# Default: delete the board + close issues, keep the repo + agents.
+#   oc create -f integration-tests/genesis-demo/run/teardown-run.yaml
+# Full wipe (also delete the tracker repo):
+#   tkn task start genesis-teardown -p delete-repo=true -s aoit-runner -n agent-office --showlog
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  generateName: genesis-teardown-
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/part-of: agent-office-genesis-demo
+spec:
+  serviceAccountName: aoit-runner
+  taskRef:
+    name: genesis-teardown
+  params:
+    - name: delete-repo
+      value: "false"
+  timeout: "15m"
