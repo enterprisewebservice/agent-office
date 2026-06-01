@@ -1,0 +1,55 @@
+# Make GET /mcp return 405 at the Istio MCP gateway.
+#
+# WHY: the Kuadrant MCP broker answers GET /mcp (the OPTIONAL streamable-HTTP
+# server-notification stream) with `200` + a SILENT SSE stream that never
+# sends data. Its own backend (github-mcp-server) correctly returns 405 there.
+# openclaw's MCP client opens that GET stream and, on a 200, waits for the
+# stream to deliver something — it never does, so after 30s the client times
+# out and abandons the ENTIRE server ("failed to start server github"). Result:
+# agents load ZERO governed MCP tools.
+#
+# openclaw handles 405 perfectly — its client does `if (status===405) return;`
+# and proceeds POST-only, which is all the tools need (POST request/response
+# works flawlessly; that's how the projectboard_* tools were proven e2e).
+#
+# So: short-circuit GET /mcp to 405 BEFORE it reaches the broker. POST /mcp
+# (every real tool call) is untouched and still flows through the broker, so
+# governance/per-user filtering is fully preserved. Reversible: delete this.
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: mcp-gateway-get-405
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  workloadSelector:
+    labels:
+      gateway.networking.k8s.io/gateway-name: mcp-gateway
+  configPatches:
+    - applyTo: HTTP_FILTER
+      match:
+        context: GATEWAY
+        listener:
+          filterChain:
+            filter:
+              name: envoy.filters.network.http_connection_manager
+              subFilter:
+                name: envoy.filters.http.router
+      patch:
+        operation: INSERT_BEFORE
+        value:
+          name: mcp-get-405.lua
+          typed_config:
+            "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
+            inlineCode: |
+              function envoy_on_request(handle)
+                local m = handle:headers():get(":method")
+                local p = handle:headers():get(":path") or ""
+                if m == "GET" and (p == "/mcp" or p:sub(1,5) == "/mcp/" or p:sub(1,5) == "/mcp?") then
+                  handle:respond(
+                    {[":status"] = "405", ["content-type"] = "text/plain", ["allow"] = "POST, DELETE"},
+                    "Method Not Allowed: MCP server-notification stream is not supported; use POST."
+                  )
+                end
+              end
