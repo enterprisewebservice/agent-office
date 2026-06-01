@@ -47,8 +47,12 @@ For each agent it ensures: a **bot** `@<agent>` (its own name) + **bot token**
 ## Roadmap
 - [x] Deploy Mattermost in-cluster (declarative)
 - [x] API-driven per-agent bot + channel + DM (proven; reference provisioner)
-- [ ] **openclaw ↔ Mattermost** — the agent receives + replies as itself (the real lift)
+- [x] **openclaw ↔ Mattermost** — `integration-tests/mattermost/bridge.py`: watches an
+      agent's channel + DM, drives the real openclaw agent, posts the reply AS the
+      bot. PROVEN (genesis-pm answers in `#genesis-pm`). Prototype runs locally;
+      productionize as an in-cluster Deployment next.
 - [ ] **Operator auto-provision** — on AgentWorkstation reconcile, mint bot + channel + DM
+- [ ] Bridge as an in-cluster Deployment (per gateway), drive openclaw via its API not `oc exec`
 - [ ] Bootstrap Job + Vault/ESO for the DB + admin secrets
 
 Supersedes the Discord approach in `docs/design/discord-per-agent-channels.md`
