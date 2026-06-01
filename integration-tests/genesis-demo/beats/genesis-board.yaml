@@ -35,7 +35,9 @@ spec:
       default: "Genesis Model"
     - name: pm-agent
       type: string
-      default: pm-agent
+      # The dedicated Genesis PM agent (created via the UI E2E / KEEP_AGENT=1).
+      # Falls back to the shared pm-agent if you pass it explicitly.
+      default: genesis-pm
     - name: gateway
       type: string
       default: research-gateway

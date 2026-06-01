@@ -22,6 +22,14 @@ import { test, expect } from '@playwright/test';
 import { execSync } from 'node:child_process';
 
 const NAME = process.env.AGENT_NAME || 'genesis-pm';
+const DISPLAY = process.env.DISPLAY_NAME || 'Genesis PM';
+const ROLE = process.env.ROLE || 'pm';
+const DESC =
+  process.env.AGENT_DESC ||
+  'Genesis demo PM agent — plans the Genesis Model board and decomposes first-principles tasks.';
+const SYSTEM_PROMPT =
+  process.env.SYSTEM_PROMPT ||
+  'You are the Genesis Model PM agent. Plan the project as a GitHub board and decompose the goal into first-principles tasks. Created by the agent-office UI integration test.';
 const NS = 'agent-office';
 const OWNER = 'enterprisewebservice';
 const KEEP = process.env.KEEP_AGENT === '1';
@@ -57,13 +65,11 @@ test('create the Genesis PM agent via the openclaw-agent wizard', async ({
 
   // ---- Page 1: Identity ----
   await page.locator('#root_name').fill(NAME);
-  await page.locator('#root_displayName').fill('Genesis PM');
+  await page.locator('#root_displayName').fill(DISPLAY);
   // Description MUST be a non-empty string (Backstage rejects null:
   // "/metadata/description must be string"). The template now also defaults
   // it, but a real value is the honest input.
-  await page
-    .locator('#root_description')
-    .fill('Genesis demo PM agent — plans the Genesis Model board and decomposes first-principles tasks.');
+  await page.locator('#root_description').fill(DESC);
   // Owner is a validated EntityPicker — type then pick the option.
   const owner = page.locator('#root_owner');
   await owner.click();
@@ -80,14 +86,12 @@ test('create the Genesis PM agent via the openclaw-agent wizard', async ({
     // Page 2: role + Directive (systemPrompt is required)
     const role = page.locator('#root_role');
     if ((await role.count()) && (await role.isVisible())) {
-      await role.fill('pm');
+      await role.fill(ROLE);
     }
     const sp = page.locator('#root_systemPrompt');
     if ((await sp.count()) && (await sp.isVisible())) {
       if (!(await sp.inputValue().catch(() => ''))) {
-        await sp.fill(
-          'You are the Genesis Model PM agent. Plan the project as a GitHub board and decompose the goal into first-principles tasks. Created by the agent-office UI integration test.',
-        );
+        await sp.fill(SYSTEM_PROMPT);
       }
     }
 

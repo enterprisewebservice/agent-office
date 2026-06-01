@@ -30,7 +30,8 @@ spec:
       default: "1"
     - name: worker-agent
       type: string
-      default: redhat-ai-researcher
+      # The dedicated Genesis worker agent (created via the UI E2E / KEEP_AGENT=1).
+      default: genesis-worker
     - name: gh-owner
       type: string
       default: enterprisewebservice
