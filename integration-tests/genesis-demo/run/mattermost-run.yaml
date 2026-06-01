@@ -1,0 +1,16 @@
+# Run BEAT — chat with an agent in Mattermost (provision + verify round-trip).
+#   oc create -f integration-tests/genesis-demo/run/mattermost-run.yaml
+# Different agent / ephemeral (teardown after):
+#   tkn task start genesis-mattermost -p agent-name=genesis-worker -p display-name="Genesis Worker" -p keep=false -s aoit-runner -n agent-office --showlog
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  generateName: genesis-mattermost-
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/part-of: agent-office-genesis-demo
+spec:
+  serviceAccountName: aoit-runner
+  taskRef:
+    name: genesis-mattermost
+  timeout: "20m"

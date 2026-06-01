@@ -1,0 +1,13 @@
+# Deploy the openclaw<->Mattermost bridge: oc apply -k cluster/mattermost/bridge
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: agent-office
+resources:
+  - rbac.yaml
+  - deployment.yaml
+configMapGenerator:
+  - name: mm-bridge-src
+    files:
+      - bridge.py
+generatorOptions:
+  disableNameSuffixHash: true

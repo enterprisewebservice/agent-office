@@ -26,6 +26,7 @@ Apply once: `oc apply -k beats`.
 | `genesis-team` | dedicated `genesis-pm` + `genesis-worker` agents created via the real scaffolder (board skill + Genesis KB) | ⬜ planned |
 | **`genesis-board`** | **PM agent** creates the "Genesis Model" GitHub **kanban** board and decomposes the goal into 6 first-principles task issues. Idempotent (reuses an existing board). | ✅ proven on-cluster |
 | **`genesis-work`** | **Worker agent** (distinct from the PM — role separation) pulls task N → authors a real deliverable (`docs/task-N.md`) → comments → closes the issue → moves the card to **Done**. | ✅ proven on-cluster |
+| **`genesis-mattermost`** | **Chat with the agent in Mattermost** — ensures its bot `@<agent>` + `#<agent>` channel, posts a question, and the in-cluster `mm-bridge` drives the REAL agent to reply AS itself. The wow moment: DM/chat your agents like teammates. | ✅ proven on-cluster |
 | `genesis-kb` | the first-principles KB, curated by the agents | ⬜ planned |
 
 Run examples:
@@ -44,9 +45,20 @@ AGENT_NAME=genesis-worker DISPLAY_NAME="Genesis Worker" ROLE=worker KEEP_AGENT=1
 (Pass `-p pm-agent=pm-agent` / `-p worker-agent=redhat-ai-researcher` to fall
 back to the shared production agents.)
 
-> Forward plan — **Discord per agent**: each agent will get its own
-> auto-provisioned Discord channel under its own name. Design captured in
-> `docs/design/discord-per-agent-channels.md` (next-thread build).
+### Wow factor — talk to your agents in Mattermost
+Self-hosted Mattermost (`cluster/mattermost/`) gives every agent its own
+**bot** (own name), **channel**, and **DM** — created by API, no captcha, no
+limits (we pivoted here from Discord, which captcha-walls bot creation). The
+in-cluster **`mm-bridge`** Deployment makes a provisioned agent actually
+*answer*: your message → the real openclaw agent → a reply under the agent's
+own name. So in the demo you don't just watch agents work a board — you
+**chat with genesis-pm like a teammate** (and it really does PM work).
+```
+oc create -f run/mattermost-run.yaml      # provision + verify the chat round-trip
+# then log into Mattermost and message #genesis-pm
+```
+Remaining: operator auto-provision on AgentWorkstation reconcile (so chat is
+wired the instant an agent is created).
 
 ### The kanban board view (important)
 GitHub's GraphQL API **cannot author a project view or set its layout** — board

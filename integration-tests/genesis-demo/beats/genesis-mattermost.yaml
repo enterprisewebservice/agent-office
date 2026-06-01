@@ -1,0 +1,97 @@
+# Genesis demo — BEAT (genesis-mattermost): chat with an agent in Mattermost.
+#
+# Exercises the WHOLE chat chain end to end:
+#   1. ensure the agent's Mattermost presence (bot @<agent> + #<agent> channel),
+#   2. post a question in the channel,
+#   3. the in-cluster mm-bridge drives the REAL openclaw agent and replies AS
+#      the bot — assert a reply arrives,
+#   4. teardown (disable bot + archive channel) unless keep=true.
+#
+# Proves: self-hosted Mattermost + per-agent bot (own name) + the bridge make
+# a provisioned agent actually answer. Idempotent. Requires the Mattermost
+# stack (cluster/mattermost) + the mm-bridge Deployment to be running.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: genesis-mattermost
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/part-of: agent-office-genesis-demo
+spec:
+  description: Provision an agent's Mattermost bot/channel + verify it chats back (via the bridge).
+  params:
+    - name: agent-name
+      type: string
+      default: genesis-pm
+    - name: display-name
+      type: string
+      default: "Genesis PM"
+    - name: keep
+      type: string
+      default: "true"   # default keep — this is the persistent demo presence
+    - name: mm-url
+      type: string
+      default: "http://mattermost.mattermost.svc.cluster.local:8065"
+    - name: mm-team
+      type: string
+      default: agents
+    - name: oc-download-url
+      type: string
+      default: "http://downloads.openshift-console.svc.cluster.local:80/amd64/linux/oc.tar"
+  steps:
+    - name: chat
+      image: registry.access.redhat.com/ubi9/ubi:latest
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        curl -sL "$(params.oc-download-url)" -o /tmp/oc.tar && tar -x -C /tmp -f /tmp/oc.tar oc
+        OC=/tmp/oc
+        AGENT="$(params.agent-name)"; DISPLAY="$(params.display-name)"; KEEP="$(params.keep)"
+        MM="$(params.mm-url)"; TEAM="$(params.mm-team)"
+        TOK=$($OC get secret mattermost-admin-token -n agent-office -o jsonpath='{.data.token}' | base64 -d)
+        [ -n "$TOK" ] || { echo "FAIL: no mattermost-admin-token in agent-office"; exit 1; }
+        h(){ curl -s -H "Authorization: Bearer $TOK" -H "Content-Type: application/json" "$@"; }
+        jget(){ python3 -c "import sys,json;d=json.load(sys.stdin);print(d.get('$1','') if isinstance(d,dict) else '')"; }
+
+        echo "=== ensure team + bot @$AGENT + channel #$AGENT ==="
+        TEAM_ID=$(h "$MM/api/v4/teams/name/$TEAM" | jget id)
+        [ -n "$TEAM_ID" ] || TEAM_ID=$(h -X POST "$MM/api/v4/teams" -d "{\"name\":\"$TEAM\",\"display_name\":\"Agents\",\"type\":\"O\"}" | jget id)
+        BOT_ID=$(h "$MM/api/v4/bots?per_page=200" | AG="$AGENT" python3 -c 'import sys,json,os;d=json.load(sys.stdin);print(next((b["user_id"] for b in d if b["username"]==os.environ["AG"]),""))')
+        if [ -z "$BOT_ID" ]; then
+          BOT_ID=$(h -X POST "$MM/api/v4/bots" -d "{\"username\":\"$AGENT\",\"display_name\":\"$DISPLAY\"}" | jget user_id)
+        else
+          h -X POST "$MM/api/v4/bots/$BOT_ID/enable" >/dev/null
+        fi
+        [ -n "$BOT_ID" ] || { echo "FAIL: no bot id"; exit 1; }
+        echo "  bot @$AGENT id=$BOT_ID"
+        h -X POST "$MM/api/v4/teams/$TEAM_ID/members" -d "{\"team_id\":\"$TEAM_ID\",\"user_id\":\"$BOT_ID\"}" >/dev/null
+        CH=$(h "$MM/api/v4/teams/$TEAM_ID/channels/name/$AGENT" | jget id)
+        [ -n "$CH" ] || CH=$(h -X POST "$MM/api/v4/channels" -d "{\"team_id\":\"$TEAM_ID\",\"name\":\"$AGENT\",\"display_name\":\"$DISPLAY\",\"type\":\"O\"}" | jget id)
+        h -X POST "$MM/api/v4/channels/$CH/members" -d "{\"user_id\":\"$BOT_ID\"}" >/dev/null
+        echo "  channel #$AGENT id=$CH"
+
+        echo "=== post a question; the mm-bridge should drive $AGENT + reply ==="
+        Q="Integration test ping — reply in one short sentence so we know you're live."
+        MYTS=$(h -X POST "$MM/api/v4/posts" -d "{\"channel_id\":\"$CH\",\"message\":\"$Q\"}" | jget create_at)
+        [ -n "$MYTS" ] || { echo "FAIL: could not post"; exit 1; }
+        echo "  posted at $MYTS; waiting up to ~3.5 min for $AGENT to answer…"
+        REPLY=""
+        for i in $(seq 1 42); do
+          REPLY=$(h "$MM/api/v4/channels/$CH/posts?per_page=10" | MYTS="$MYTS" BID="$BOT_ID" python3 -c 'import sys,json,os;d=json.load(sys.stdin);ts=int(os.environ["MYTS"]);bid=os.environ["BID"];print(next((d["posts"][p]["message"] for p in d["order"] if d["posts"][p]["user_id"]==bid and d["posts"][p]["create_at"]>ts and not d["posts"][p].get("type")),""))')
+          [ -n "$REPLY" ] && break
+          sleep 5
+        done
+        if [ -z "$REPLY" ]; then
+          echo "FAIL: no reply from $AGENT — is the mm-bridge Deployment running + the agent on a Ready gateway?"
+          $OC get pods -n agent-office -l app=mm-bridge 2>/dev/null | sed 's/^/  /'
+          exit 1
+        fi
+        echo "  ✓ $AGENT replied in Mattermost: \"$REPLY\""
+
+        if [ "$KEEP" = "true" ]; then
+          echo; echo "PASS (keep=true) — @$AGENT is live + chatting in #$AGENT. Left in place."
+        else
+          h -X DELETE "$MM/api/v4/channels/$CH" >/dev/null
+          h -X POST "$MM/api/v4/bots/$BOT_ID/disable" >/dev/null
+          echo; echo "PASS — provisioned, chatted, verified, torn down (bot disabled, channel archived)."
+        fi
