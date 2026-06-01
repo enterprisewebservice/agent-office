@@ -1,15 +1,17 @@
 # Genesis demo — BEAT (genesis-mattermost): chat with an agent in Mattermost.
 #
-# Exercises the WHOLE chat chain end to end:
-#   1. ensure the agent's Mattermost presence (bot @<agent> + #<agent> channel),
+# Exercises the WHOLE chat chain end to end, against the presence the OPERATOR
+# auto-provisioned (user @<agent> + #<agent> channel — see the operator's
+# reconcileMattermost). This beat does NOT provision; it verifies:
+#   1. the operator-provisioned user @<agent> + channel #<agent> exist,
 #   2. post a question in the channel,
 #   3. the in-cluster mm-bridge drives the REAL openclaw agent and replies AS
-#      the bot — assert a reply arrives,
-#   4. teardown (disable bot + archive channel) unless keep=true.
+#      the agent user — assert a reply arrives.
 #
-# Proves: self-hosted Mattermost + per-agent bot (own name) + the bridge make
-# a provisioned agent actually answer. Idempotent. Requires the Mattermost
-# stack (cluster/mattermost) + the mm-bridge Deployment to be running.
+# Proves: self-hosted Mattermost + operator-provisioned per-agent user (own
+# name, green dot) + the bridge make a provisioned agent actually answer.
+# Idempotent + read-only on the presence (keep=true). Requires operator
+# >= v1.7.0 (provisions the user/channel) + the mm-bridge Deployment running.
 apiVersion: tekton.dev/v1
 kind: Task
 metadata:
@@ -18,17 +20,11 @@ metadata:
   labels:
     app.kubernetes.io/part-of: agent-office-genesis-demo
 spec:
-  description: Provision an agent's Mattermost bot/channel + verify it chats back (via the bridge).
+  description: Verify an operator-provisioned agent chats back in Mattermost (via the bridge).
   params:
     - name: agent-name
       type: string
       default: genesis-pm
-    - name: display-name
-      type: string
-      default: "Genesis PM"
-    - name: keep
-      type: string
-      default: "true"   # default keep — this is the persistent demo presence
     - name: mm-url
       type: string
       default: "http://mattermost.mattermost.svc.cluster.local:8065"
@@ -46,38 +42,32 @@ spec:
         set -euo pipefail
         curl -sL "$(params.oc-download-url)" -o /tmp/oc.tar && tar -x -C /tmp -f /tmp/oc.tar oc
         OC=/tmp/oc
-        AGENT="$(params.agent-name)"; DISPLAY="$(params.display-name)"; KEEP="$(params.keep)"
-        MM="$(params.mm-url)"; TEAM="$(params.mm-team)"
+        AGENT="$(params.agent-name)"; MM="$(params.mm-url)"; TEAM="$(params.mm-team)"
         TOK=$($OC get secret mattermost-admin-token -n agent-office -o jsonpath='{.data.token}' | base64 -d)
         [ -n "$TOK" ] || { echo "FAIL: no mattermost-admin-token in agent-office"; exit 1; }
         h(){ curl -s -H "Authorization: Bearer $TOK" -H "Content-Type: application/json" "$@"; }
         jget(){ python3 -c "import sys,json;d=json.load(sys.stdin);print(d.get('$1','') if isinstance(d,dict) else '')"; }
 
-        echo "=== ensure team + bot @$AGENT + channel #$AGENT ==="
+        echo "=== resolve the OPERATOR-provisioned user @$AGENT + channel #$AGENT ==="
         TEAM_ID=$(h "$MM/api/v4/teams/name/$TEAM" | jget id)
-        [ -n "$TEAM_ID" ] || TEAM_ID=$(h -X POST "$MM/api/v4/teams" -d "{\"name\":\"$TEAM\",\"display_name\":\"Agents\",\"type\":\"O\"}" | jget id)
-        BOT_ID=$(h "$MM/api/v4/bots?per_page=200" | AG="$AGENT" python3 -c 'import sys,json,os;d=json.load(sys.stdin);print(next((b["user_id"] for b in d if b["username"]==os.environ["AG"]),""))')
-        if [ -z "$BOT_ID" ]; then
-          BOT_ID=$(h -X POST "$MM/api/v4/bots" -d "{\"username\":\"$AGENT\",\"display_name\":\"$DISPLAY\"}" | jget user_id)
-        else
-          h -X POST "$MM/api/v4/bots/$BOT_ID/enable" >/dev/null
-        fi
-        [ -n "$BOT_ID" ] || { echo "FAIL: no bot id"; exit 1; }
-        echo "  bot @$AGENT id=$BOT_ID"
-        h -X POST "$MM/api/v4/teams/$TEAM_ID/members" -d "{\"team_id\":\"$TEAM_ID\",\"user_id\":\"$BOT_ID\"}" >/dev/null
+        [ -n "$TEAM_ID" ] || { echo "FAIL: team '$TEAM' missing — operator hasn't provisioned yet"; exit 1; }
+        UID_=$(h "$MM/api/v4/users/username/$AGENT" | jget id)
+        [ -n "$UID_" ] || { echo "FAIL: user @$AGENT not found — is the operator (>= v1.7.0) running + an AgentWorkstation named $AGENT present?"; exit 1; }
+        echo "  user @$AGENT id=$UID_"
         CH=$(h "$MM/api/v4/teams/$TEAM_ID/channels/name/$AGENT" | jget id)
-        [ -n "$CH" ] || CH=$(h -X POST "$MM/api/v4/channels" -d "{\"team_id\":\"$TEAM_ID\",\"name\":\"$AGENT\",\"display_name\":\"$DISPLAY\",\"type\":\"O\"}" | jget id)
-        h -X POST "$MM/api/v4/channels/$CH/members" -d "{\"user_id\":\"$BOT_ID\"}" >/dev/null
+        [ -n "$CH" ] || { echo "FAIL: channel #$AGENT not found — operator hasn't provisioned the channel"; exit 1; }
         echo "  channel #$AGENT id=$CH"
+        # make sure the admin (this token) can post into the channel
+        h -X POST "$MM/api/v4/channels/$CH/members" -d "{\"user_id\":\"$(h "$MM/api/v4/users/me" | jget id)\"}" >/dev/null 2>&1 || true
 
-        echo "=== post a question; the mm-bridge should drive $AGENT + reply ==="
+        echo "=== post a question; the mm-bridge should drive $AGENT + reply AS the user ==="
         Q="Integration test ping — reply in one short sentence so we know you're live."
         MYTS=$(h -X POST "$MM/api/v4/posts" -d "{\"channel_id\":\"$CH\",\"message\":\"$Q\"}" | jget create_at)
         [ -n "$MYTS" ] || { echo "FAIL: could not post"; exit 1; }
         echo "  posted at $MYTS; waiting up to ~3.5 min for $AGENT to answer…"
         REPLY=""
         for i in $(seq 1 42); do
-          REPLY=$(h "$MM/api/v4/channels/$CH/posts?per_page=10" | MYTS="$MYTS" BID="$BOT_ID" python3 -c 'import sys,json,os;d=json.load(sys.stdin);ts=int(os.environ["MYTS"]);bid=os.environ["BID"];print(next((d["posts"][p]["message"] for p in d["order"] if d["posts"][p]["user_id"]==bid and d["posts"][p]["create_at"]>ts and not d["posts"][p].get("type")),""))')
+          REPLY=$(h "$MM/api/v4/channels/$CH/posts?per_page=10" | MYTS="$MYTS" BID="$UID_" python3 -c 'import sys,json,os;d=json.load(sys.stdin);ts=int(os.environ["MYTS"]);bid=os.environ["BID"];print(next((d["posts"][p]["message"] for p in d["order"] if d["posts"][p]["user_id"]==bid and d["posts"][p]["create_at"]>ts and not d["posts"][p].get("type")),""))')
           [ -n "$REPLY" ] && break
           sleep 5
         done
@@ -87,11 +77,4 @@ spec:
           exit 1
         fi
         echo "  ✓ $AGENT replied in Mattermost: \"$REPLY\""
-
-        if [ "$KEEP" = "true" ]; then
-          echo; echo "PASS (keep=true) — @$AGENT is live + chatting in #$AGENT. Left in place."
-        else
-          h -X DELETE "$MM/api/v4/channels/$CH" >/dev/null
-          h -X POST "$MM/api/v4/bots/$BOT_ID/disable" >/dev/null
-          echo; echo "PASS — provisioned, chatted, verified, torn down (bot disabled, channel archived)."
-        fi
+        echo; echo "PASS — @$AGENT (operator-provisioned) is live + chatting in #$AGENT via the bridge."

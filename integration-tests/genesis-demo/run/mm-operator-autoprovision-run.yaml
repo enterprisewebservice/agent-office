@@ -1,0 +1,16 @@
+# Run BEAT — assert the OPERATOR auto-provisions + tears down an agent's
+# Mattermost presence (create AgentWorkstation -> user+channel; delete ->
+# deactivate+archive). Requires operator >= v1.7.0.
+#   oc create -f integration-tests/genesis-demo/run/mm-operator-autoprovision-run.yaml
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  generateName: mm-operator-autoprovision-
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/part-of: agent-office-genesis-demo
+spec:
+  serviceAccountName: aoit-runner
+  taskRef:
+    name: mm-operator-autoprovision
+  timeout: "15m"
