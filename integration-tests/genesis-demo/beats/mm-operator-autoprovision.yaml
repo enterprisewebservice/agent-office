@@ -1,0 +1,88 @@
+# Integration test — the OPERATOR auto-provisions an agent's Mattermost
+# presence on reconcile, and its finalizer tears it down on delete.
+#
+# Creates a throwaway AgentWorkstation (pointing at a non-existent gateway so
+# the operator's gateway-register path no-ops and never bounces a real gateway,
+# while its reconcileMattermost still runs), then asserts via the Mattermost
+# API that the operator created the user @<name> + #<name> channel. Deletes the
+# AW and asserts the finalizer deactivated the user + archived the channel.
+#
+# Requires operator >= v1.7.0 (Mattermost reconcile/finalizer) + the
+# mattermost-admin-token Secret in agent-office. Idempotent + self-cleaning.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: mm-operator-autoprovision
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/part-of: agent-office-genesis-demo
+spec:
+  description: Assert the operator auto-provisions + tears down an agent's Mattermost presence.
+  params:
+    - name: agent-name
+      type: string
+      default: mm-optest
+    - name: display-name
+      type: string
+      default: "MM Operator Test"
+    - name: target-namespace
+      type: string
+      default: agent-office
+    - name: mm-url
+      type: string
+      default: "http://mattermost.mattermost.svc.cluster.local:8065"
+    - name: mm-team
+      type: string
+      default: agents
+    - name: oc-download-url
+      type: string
+      default: "http://downloads.openshift-console.svc.cluster.local:80/amd64/linux/oc.tar"
+  steps:
+    - name: autoprovision
+      image: registry.access.redhat.com/ubi9/ubi:latest
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        curl -sL "$(params.oc-download-url)" -o /tmp/oc.tar && tar -x -C /tmp -f /tmp/oc.tar oc
+        OC=/tmp/oc
+        AGENT="$(params.agent-name)"; DISPLAY="$(params.display-name)"; NS="$(params.target-namespace)"
+        MM="$(params.mm-url)"; TEAM="$(params.mm-team)"
+        TOK=$($OC get secret mattermost-admin-token -n agent-office -o jsonpath='{.data.token}' | base64 -d)
+        [ -n "$TOK" ] || { echo "FAIL: no mattermost-admin-token"; exit 1; }
+        h(){ curl -s -H "Authorization: Bearer $TOK" "$@"; }
+        teamid(){ h "$MM/api/v4/teams/name/$TEAM" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("id",""))'; }
+        userfield(){ h "$MM/api/v4/users/username/$AGENT" | python3 -c "import sys,json;d=json.load(sys.stdin);print(d.get('$1',''))"; }
+        chanfield(){ h "$MM/api/v4/teams/$(teamid)/channels/name/$AGENT" | python3 -c "import sys,json;d=json.load(sys.stdin);print(d.get('$1',''))"; }
+
+        echo "=== pre-clean any prior test AW ==="
+        $OC delete agentworkstation "$AGENT" -n "$NS" --ignore-not-found --wait=false 2>/dev/null || true
+
+        echo "=== create a throwaway AgentWorkstation (non-existent gateway → no prod bounce) ==="
+        printf 'apiVersion: agentoffice.ai/v1alpha1\nkind: AgentWorkstation\nmetadata:\n  name: %s\n  namespace: %s\nspec:\n  displayName: %s\n  provider: openai-codex\n  runtime:\n    shared:\n      gatewayRef: mm-optest-throwaway-gw\n' "$AGENT" "$NS" "$DISPLAY" > /tmp/aw.yaml
+        $OC apply -f /tmp/aw.yaml 2>&1 | sed 's/^/  /'
+
+        echo "=== assert: the OPERATOR provisioned the Mattermost user @$AGENT (real user, not bot) ==="
+        uok=""
+        for i in $(seq 1 24); do
+          isbot=$(userfield is_bot)
+          [ -n "$(userfield id)" ] && [ "$isbot" != "True" ] && { uok=1; break; }
+          echo "  [$i] waiting for operator to create user @$AGENT…"; sleep 5
+        done
+        [ -n "$uok" ] && echo "  ✓ operator created user @$AGENT (is_bot=$(userfield is_bot))" || { echo "FAIL: user @$AGENT not provisioned by operator"; exit 1; }
+
+        echo "=== assert: the OPERATOR provisioned channel #$AGENT ==="
+        [ -n "$(chanfield id)" ] && echo "  ✓ operator created channel #$AGENT" || { echo "FAIL: channel #$AGENT not provisioned"; exit 1; }
+
+        echo "=== delete the AW → the finalizer should tear down the presence ==="
+        $OC delete agentworkstation "$AGENT" -n "$NS" --wait=false 2>&1 | sed 's/^/  /'
+
+        echo "=== assert: finalizer deactivated the user + archived the channel ==="
+        dok=""
+        for i in $(seq 1 24); do
+          udel=$(userfield delete_at); cdel=$(chanfield delete_at)
+          [ -n "$udel" ] && [ "$udel" != "0" ] && [ -n "$cdel" ] && [ "$cdel" != "0" ] && { dok=1; break; }
+          echo "  [$i] waiting for finalizer teardown (user delete_at=$udel chan delete_at=$cdel)…"; sleep 5
+        done
+        [ -n "$dok" ] && echo "  ✓ finalizer deactivated user + archived channel" || { echo "FAIL: finalizer did not tear down Mattermost presence"; exit 1; }
+
+        echo; echo "PASS — operator auto-provisioned (user+channel) on create and tore it down on delete."

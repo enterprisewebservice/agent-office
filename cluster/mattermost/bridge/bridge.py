@@ -147,37 +147,20 @@ def list_aws():
 
 
 def ensure_presence(agent, display, team_id, admin_id):
-    """find-or-create the agent as a regular USER (a real user shows the green
-    presence dot — Mattermost does NOT render dots for bot accounts) + channel
-    + DM. A legacy auto-provisioned bot owning the username is renamed away."""
+    """Find the agent's USER + channel (provisioned by the OPERATOR's reconcile)
+    and set up the chat record (token + DM + presence WS). Does NOT create —
+    the operator owns provisioning; we just bridge what it made. Returns None
+    until the operator has provisioned this agent."""
     u = get_user(agent)
-    if u and u.get("is_bot"):
-        # free the username so a real user can take it (bots get no dot).
-        # NB: the bots endpoint is PUT, not PATCH.
-        api("PUT", f"/api/v4/bots/{u['id']}", {"username": f"zz-{agent}-bot"})
-        api("POST", f"/api/v4/bots/{u['id']}/disable")
-        u = None
-    if not u:
-        pw = "Aa1!" + secrets.token_urlsafe(18)
-        st, u = api("POST", "/api/v4/users", {"email": f"{agent}@agents.local",
-                    "username": agent, "password": pw})
-        if st != 201:
-            FAILED.add(agent)  # don't retry/spam (e.g. username too long)
-            print(f"[bridge] provision {agent} SKIPPED: {u.get('message', u)}", file=sys.stderr, flush=True)
-            return None
-        print(f"[bridge] provisioned user @{agent}", file=sys.stderr, flush=True)
-    else:
-        api("PUT", f"/api/v4/users/{u['id']}/active", {"active": True})  # reactivate if needed
+    if not u or u.get("is_bot"):
+        return None  # operator hasn't provisioned this agent (yet)
     uid = u["id"]
-    api("PUT", f"/api/v4/users/{uid}/patch", {"nickname": display})  # display name (best-effort)
-    set_online(uid)  # green dot
+    set_online(uid)  # keep the green dot lit
     _, tok = api("POST", f"/api/v4/users/{uid}/tokens", {"description": "bridge"})
     api("POST", f"/api/v4/teams/{team_id}/members", {"team_id": team_id, "user_id": uid})
     st, ch = api("GET", f"/api/v4/teams/{team_id}/channels/name/{agent}")
     if st != 200:
-        st, ch = api("POST", "/api/v4/channels", {"team_id": team_id, "name": agent,
-                     "display_name": display, "type": "O"})
-        print(f"[bridge] provisioned channel #{agent}", file=sys.stderr, flush=True)
+        return None  # operator hasn't made the channel yet
     chan = ch["id"]
     api("POST", f"/api/v4/channels/{chan}/members", {"user_id": uid})
     api("POST", f"/api/v4/channels/{chan}/members", {"user_id": admin_id})
@@ -195,13 +178,10 @@ def teardown_presence(agent, team_id):
             w.close()
         except Exception:
             pass
-    st, c = api("GET", f"/api/v4/teams/{team_id}/channels/name/{agent}")
-    if st == 200:
-        api("DELETE", f"/api/v4/channels/{c['id']}")
-    u = get_user(agent)
-    if u and not u.get("is_bot"):
-        api("DELETE", f"/api/v4/users/{u['id']}")  # deactivate the agent user
-    print(f"[bridge] torn down @{agent} (AW deleted)", file=sys.stderr, flush=True)
+    # The operator's finalizer deactivates the user + archives the channel on
+    # AW delete — the bridge just stops bridging.
+    print(f"[bridge] stopped bridging @{agent} (operator handles Mattermost teardown)",
+          file=sys.stderr, flush=True)
 
 
 def gw_pod(gw):
