@@ -11,6 +11,7 @@ NAME="${1:?agent name required}"
 NS="${2:-agent-office}"
 OWNER="${3:-enterprisewebservice}"
 REPO="${NAME}-agent-gitops"
+WIKI_REPO="${NAME}-wiki"   # createNewKnowledgeBase publishes this + a KB CR named the same
 echo "=== cleanup-agent: $NAME (ns=$NS owner=$OWNER) ==="
 
 # 1. ArgoCD Application — cascade removes the AW + AgentGateway it manages.
@@ -22,6 +23,14 @@ oc delete applications.argoproj.io -n openshift-gitops "${NAME}-agent" --ignore-
 if oc get agentworkstation "$NAME" -n "$NS" >/dev/null 2>&1; then
   oc delete agentworkstation "$NAME" -n "$NS" --ignore-not-found --wait=false 2>/dev/null
   echo "  agentworkstation $NAME: delete requested"
+fi
+
+# 2a. KnowledgeBase CR (only when the agent was created WITH a new KB). The
+#     CR is named <name>-wiki; deleting it triggers the operator's PVC +
+#     gateway-detach cleanup.
+if oc get knowledgebase "$WIKI_REPO" -n "$NS" >/dev/null 2>&1; then
+  oc delete knowledgebase "$WIKI_REPO" -n "$NS" --ignore-not-found --wait=false 2>/dev/null
+  echo "  knowledgebase $WIKI_REPO: delete requested"
 fi
 
 # 2b. Backstage catalog Location — the scaffolder's catalog:register creates
@@ -55,12 +64,14 @@ ss=$(printf '%s.%s' "$hh" "$pp" | openssl dgst -sha256 -sign /tmp/ca_gh.pem -bin
 TOK=$(curl -s -X POST -H "Authorization: Bearer $hh.$pp.$ss" -H "Accept: application/vnd.github+json" "https://api.github.com/app/installations/$instId/access_tokens" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("token",""))')
 rm -f /tmp/ca_gh.pem
 if [ -n "$TOK" ]; then
-  code=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE -H "Authorization: Bearer $TOK" "https://api.github.com/repos/$OWNER/$REPO")
-  case "$code" in
-    204) echo "  repo $OWNER/$REPO: deleted" ;;
-    404) echo "  repo $OWNER/$REPO: already absent" ;;
-    403) echo "  repo $OWNER/$REPO: 403 (App lacks delete_repo) — delete manually" ;;
-    *)   echo "  repo $OWNER/$REPO: delete http=$code" ;;
-  esac
+  for r in "$REPO" "$WIKI_REPO"; do
+    code=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE -H "Authorization: Bearer $TOK" "https://api.github.com/repos/$OWNER/$r")
+    case "$code" in
+      204) echo "  repo $OWNER/$r: deleted" ;;
+      404) echo "  repo $OWNER/$r: already absent" ;;
+      403) echo "  repo $OWNER/$r: 403 (App lacks delete_repo) — delete manually" ;;
+      *)   echo "  repo $OWNER/$r: delete http=$code" ;;
+    esac
+  done
 fi
 echo "=== cleanup-agent done: $NAME ==="
