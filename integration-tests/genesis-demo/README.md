@@ -33,9 +33,20 @@ Run examples:
 oc create -f run/board-run.yaml                                   # PM plans the board
 tkn task start genesis-work -p task-number=3 -s aoit-runner -n agent-office --showlog
 ```
-Both currently drive the SHARED research-gateway agents (`pm-agent` as PM,
-`redhat-ai-researcher` as worker) — proving role separation today; the
-`genesis-team` beat will swap in dedicated `genesis-pm`/`genesis-worker`.
+Both drive the **dedicated** `genesis-pm` / `genesis-worker` agents (created
+via the Dev Hub UI E2E and persisted with `KEEP_AGENT=1`, registered on
+research-gateway). Create/persist them once:
+```
+cd ../ui
+KEEP_AGENT=1 npm test -- create-agent                         # genesis-pm
+AGENT_NAME=genesis-worker DISPLAY_NAME="Genesis Worker" ROLE=worker KEEP_AGENT=1 npm test -- create-agent
+```
+(Pass `-p pm-agent=pm-agent` / `-p worker-agent=redhat-ai-researcher` to fall
+back to the shared production agents.)
+
+> Forward plan — **Discord per agent**: each agent will get its own
+> auto-provisioned Discord channel under its own name. Design captured in
+> `docs/design/discord-per-agent-channels.md` (next-thread build).
 
 ### The kanban board view (important)
 GitHub's GraphQL API **cannot author a project view or set its layout** — board
