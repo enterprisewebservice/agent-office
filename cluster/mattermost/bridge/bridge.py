@@ -94,6 +94,19 @@ def with_typing(ws, channel, fn):
         stop.set()
 
 
+FAILED = set()  # agents that can't be provisioned (e.g. name > Mattermost's
+                # 22-char username limit) — skip + don't spam the log.
+
+
+def set_online(bot_id):
+    """Keep the bot status ONLINE (green dot). A WS alone drifts to 'away', so
+    refresh it every discovery cycle (well under Mattermost's auto-away)."""
+    try:
+        api("PUT", f"/api/v4/users/{bot_id}/status", {"user_id": bot_id, "status": "online"})
+    except Exception:
+        pass
+
+
 def api(method, path, body=None, token=ADMIN):
     data = json.dumps(body).encode() if body is not None else None
     req = urllib.request.Request(MM + path, data=data, method=method, headers={
@@ -140,12 +153,14 @@ def ensure_presence(agent, display, team_id, admin_id):
         st, bot = api("POST", "/api/v4/bots", {"username": agent, "display_name": display,
                       "description": f"{display} — talk to me in #{agent} or DM me."})
         if st != 201:
-            print(f"[bridge] provision {agent} FAILED: {bot}", file=sys.stderr, flush=True)
+            FAILED.add(agent)  # don't retry/spam (e.g. username too long)
+            print(f"[bridge] provision {agent} SKIPPED: {bot.get('message', bot)}", file=sys.stderr, flush=True)
             return None
         print(f"[bridge] provisioned bot @{agent}", file=sys.stderr, flush=True)
     else:
         api("POST", f"/api/v4/bots/{bot['user_id']}/enable")
     bot_id = bot["user_id"]
+    set_online(bot_id)  # green dot
     _, tok = api("POST", f"/api/v4/users/{bot_id}/tokens", {"description": "bridge"})
     api("POST", f"/api/v4/teams/{team_id}/members", {"team_id": team_id, "user_id": bot_id})
     st, ch = api("GET", f"/api/v4/teams/{team_id}/channels/name/{agent}")
@@ -216,6 +231,8 @@ def discover(admin_id, team_id):
         return None
     agents = {}
     for agent, display in aws.items():
+        if agent in FAILED:
+            continue
         rec = ensure_presence(agent, display, team_id, admin_id)
         if rec:
             agents[agent] = rec
