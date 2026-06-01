@@ -1,0 +1,6 @@
+node_modules/
+auth/storageState.json
+test-results/
+playwright-report/
+blob-report/
+.last-run.json

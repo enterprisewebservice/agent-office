@@ -1,0 +1,17 @@
+{
+  "name": "agent-office-ui-e2e",
+  "private": true,
+  "version": "0.0.1",
+  "description": "Playwright E2E tests for the agent-office Dev Hub UI — agent creation, then KB create/populate.",
+  "scripts": {
+    "capture-auth": "tsx auth/capture-auth.ts",
+    "explore": "playwright test explore --headed",
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "codegen": "playwright codegen --load-storage=auth/storageState.json https://v1-developer-hub-rhdh-test.apps.salamander.aimlworkbench.com"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.50.1",
+    "tsx": "^4.19.2"
+  }
+}
