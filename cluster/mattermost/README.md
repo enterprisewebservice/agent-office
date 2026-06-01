@@ -52,13 +52,15 @@ For each agent it ensures: a **bot** `@<agent>` (its own name) + **bot token**
       bot. PROVEN (genesis-pm answers in `#genesis-pm`). Prototype runs locally;
       productionize as an in-cluster Deployment next.
 - [x] **In-cluster bridge** — `cluster/mattermost/bridge/` Deployment (mm-bridge), durable
-- [x] **Auto-provision** — the bridge watches AgentWorkstations and mints a bot + channel
-      + DM for EVERY agent (tearing it down when the AW is deleted; only touches bots it
-      provisioned). So every agent is chat-reachable the moment it exists. PROVEN.
-- [x] **Presence (green dot) + "…is typing"** — a persistent per-bot WebSocket keeps each
-      bot ONLINE, and `user_typing` events fire while the agent thinks. (The WS must hit the
-      SiteURL host via the route — Mattermost blocks WS upgrades whose Host/Origin != SiteURL.)
-      Both verified live.
+- [x] **Auto-provision** — the bridge watches AgentWorkstations and provisions a **user
+      account** `@<agent>` + `#<agent>` channel + DM for EVERY agent (tearing it down when the
+      AW is deleted; only touches what it provisioned). Agents are regular USERS, **not bots**,
+      because Mattermost does NOT render a presence dot for bot accounts (a legacy bot owning
+      the name is renamed away). So every agent is chat-reachable the moment it exists. PROVEN.
+- [x] **Presence (green dot) + "…is typing"** — a persistent per-agent WebSocket + a status
+      keepalive hold each agent-user ONLINE (green), and `user_typing` events fire while the
+      agent thinks. (The WS must hit the SiteURL host via the route — Mattermost blocks WS
+      upgrades whose Host/Origin != SiteURL.) Both verified live.
 - [ ] Name sanitization for agents whose name exceeds Mattermost's 22-char username limit
 - [ ] Fold auto-provision into the main operator's reconcile + finalizer (native, with status)
 - [ ] Drive openclaw via its API instead of `oc exec`; bootstrap Job + Vault/ESO for secrets

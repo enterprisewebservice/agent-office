@@ -21,7 +21,7 @@ Env:
 Drives openclaw with `oc exec` using the pod's ServiceAccount (needs
 pods/exec + agentworkstations get).
 """
-import json, os, re, ssl, subprocess, sys, time, urllib.error, urllib.request
+import json, os, re, secrets, ssl, subprocess, sys, time, urllib.error, urllib.request
 
 MM = os.environ["MM_URL"]
 ADMIN = os.environ["MM_ADMIN_TOKEN"]
@@ -147,33 +147,43 @@ def list_aws():
 
 
 def ensure_presence(agent, display, team_id, admin_id):
-    """find-or-create the agent's bot + channel + DM; return its bridge record."""
-    bot = find_bot(agent)
-    if not bot:
-        st, bot = api("POST", "/api/v4/bots", {"username": agent, "display_name": display,
-                      "description": f"{display} — talk to me in #{agent} or DM me."})
+    """find-or-create the agent as a regular USER (a real user shows the green
+    presence dot — Mattermost does NOT render dots for bot accounts) + channel
+    + DM. A legacy auto-provisioned bot owning the username is renamed away."""
+    u = get_user(agent)
+    if u and u.get("is_bot"):
+        # free the username so a real user can take it (bots get no dot).
+        # NB: the bots endpoint is PUT, not PATCH.
+        api("PUT", f"/api/v4/bots/{u['id']}", {"username": f"zz-{agent}-bot"})
+        api("POST", f"/api/v4/bots/{u['id']}/disable")
+        u = None
+    if not u:
+        pw = "Aa1!" + secrets.token_urlsafe(18)
+        st, u = api("POST", "/api/v4/users", {"email": f"{agent}@agents.local",
+                    "username": agent, "password": pw})
         if st != 201:
             FAILED.add(agent)  # don't retry/spam (e.g. username too long)
-            print(f"[bridge] provision {agent} SKIPPED: {bot.get('message', bot)}", file=sys.stderr, flush=True)
+            print(f"[bridge] provision {agent} SKIPPED: {u.get('message', u)}", file=sys.stderr, flush=True)
             return None
-        print(f"[bridge] provisioned bot @{agent}", file=sys.stderr, flush=True)
+        print(f"[bridge] provisioned user @{agent}", file=sys.stderr, flush=True)
     else:
-        api("POST", f"/api/v4/bots/{bot['user_id']}/enable")
-    bot_id = bot["user_id"]
-    set_online(bot_id)  # green dot
-    _, tok = api("POST", f"/api/v4/users/{bot_id}/tokens", {"description": "bridge"})
-    api("POST", f"/api/v4/teams/{team_id}/members", {"team_id": team_id, "user_id": bot_id})
+        api("PUT", f"/api/v4/users/{u['id']}/active", {"active": True})  # reactivate if needed
+    uid = u["id"]
+    api("PUT", f"/api/v4/users/{uid}/patch", {"nickname": display})  # display name (best-effort)
+    set_online(uid)  # green dot
+    _, tok = api("POST", f"/api/v4/users/{uid}/tokens", {"description": "bridge"})
+    api("POST", f"/api/v4/teams/{team_id}/members", {"team_id": team_id, "user_id": uid})
     st, ch = api("GET", f"/api/v4/teams/{team_id}/channels/name/{agent}")
     if st != 200:
         st, ch = api("POST", "/api/v4/channels", {"team_id": team_id, "name": agent,
                      "display_name": display, "type": "O"})
         print(f"[bridge] provisioned channel #{agent}", file=sys.stderr, flush=True)
     chan = ch["id"]
-    api("POST", f"/api/v4/channels/{chan}/members", {"user_id": bot_id})
+    api("POST", f"/api/v4/channels/{chan}/members", {"user_id": uid})
     api("POST", f"/api/v4/channels/{chan}/members", {"user_id": admin_id})
-    _, dm = api("POST", "/api/v4/channels/direct", [admin_id, bot_id])
+    _, dm = api("POST", "/api/v4/channels/direct", [admin_id, uid])
     chans = [chan] + ([dm["id"]] if dm.get("id") else [])
-    return {"bot_id": bot_id, "token": tok.get("token", ""),
+    return {"bot_id": uid, "token": tok.get("token", ""),
             "gw": aw_gateway(agent), "channels": chans,
             "ws": get_ws(agent, tok.get("token", ""))}  # presence (green) + typing
 
@@ -188,9 +198,9 @@ def teardown_presence(agent, team_id):
     st, c = api("GET", f"/api/v4/teams/{team_id}/channels/name/{agent}")
     if st == 200:
         api("DELETE", f"/api/v4/channels/{c['id']}")
-    b = find_bot(agent)
-    if b:
-        api("POST", f"/api/v4/bots/{b['user_id']}/disable")
+    u = get_user(agent)
+    if u and not u.get("is_bot"):
+        api("DELETE", f"/api/v4/users/{u['id']}")  # deactivate the agent user
     print(f"[bridge] torn down @{agent} (AW deleted)", file=sys.stderr, flush=True)
 
 
@@ -213,9 +223,9 @@ def drive(agent, gw, text):
     return ANSI.sub("", out.stdout).strip() or "(no reply)"
 
 
-def find_bot(agent):
-    st, bots = api("GET", "/api/v4/bots?per_page=200&include_deleted=true")
-    return next((b for b in (bots or []) if b["username"] == agent), None) if st == 200 else None
+def get_user(username):
+    st, u = api("GET", f"/api/v4/users/username/{username}")
+    return u if st == 200 else None
 
 
 # agents this bridge has provisioned — so teardown only ever touches our own.
