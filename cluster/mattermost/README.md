@@ -55,6 +55,10 @@ For each agent it ensures: a **bot** `@<agent>` (its own name) + **bot token**
 - [x] **Auto-provision** — the bridge watches AgentWorkstations and mints a bot + channel
       + DM for EVERY agent (tearing it down when the AW is deleted; only touches bots it
       provisioned). So every agent is chat-reachable the moment it exists. PROVEN.
+- [x] **Presence (green dot) + "…is typing"** — a persistent per-bot WebSocket keeps each
+      bot ONLINE, and `user_typing` events fire while the agent thinks. (The WS must hit the
+      SiteURL host via the route — Mattermost blocks WS upgrades whose Host/Origin != SiteURL.)
+      Both verified live.
 - [ ] Name sanitization for agents whose name exceeds Mattermost's 22-char username limit
 - [ ] Fold auto-provision into the main operator's reconcile + finalizer (native, with status)
 - [ ] Drive openclaw via its API instead of `oc exec`; bootstrap Job + Vault/ESO for secrets

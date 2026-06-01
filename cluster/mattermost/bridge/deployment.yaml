@@ -20,7 +20,7 @@ spec:
       serviceAccountName: mm-bridge
       containers:
         - name: bridge
-          image: registry.access.redhat.com/ubi9/ubi:latest
+          image: registry.access.redhat.com/ubi9/python-311:latest
           command: ["/bin/bash", "-c"]
           args:
             - |
@@ -28,11 +28,18 @@ spec:
               curl -sL http://downloads.openshift-console.svc.cluster.local:80/amd64/linux/oc.tar -o /tmp/oc.tar
               tar -x -C /tmp -f /tmp/oc.tar oc
               export PATH=/tmp:$PATH
-              echo "[bridge] oc fetched"
+              # websocket-client → per-bot presence (green) + typing indicator.
+              # Non-fatal: the bridge degrades to polling-only chat if absent.
+              pip install --quiet --target=/tmp/pylibs websocket-client || echo "[bridge] WARN: websocket-client install failed"
+              export PYTHONPATH=/tmp/pylibs:$PYTHONPATH
+              echo "[bridge] deps ready"
               exec python3 /scripts/bridge.py
           env:
             - name: MM_URL
               value: http://mattermost.mattermost.svc.cluster.local:8065
+            # WS must hit the SiteURL host (route) or Mattermost blocks the upgrade.
+            - name: MM_WS_URL
+              value: https://mattermost-mattermost.apps.salamander.aimlworkbench.com
             - name: MM_ADMIN_TOKEN
               valueFrom:
                 secretKeyRef: { name: mattermost-admin-token, key: token }

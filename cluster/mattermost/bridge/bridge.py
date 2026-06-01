@@ -32,6 +32,67 @@ REDISCOVER = int(os.environ.get("REDISCOVER_SECONDS", "60"))
 CTX = ssl.create_default_context(); CTX.check_hostname = False; CTX.verify_mode = ssl.CERT_NONE
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
+# --- presence + typing via a per-bot WebSocket --------------------------------
+# A live WS connection makes a bot show ONLINE (green); user_typing events on it
+# drive the "…is typing" indicator while the agent thinks. Graceful if the lib
+# is absent (chat still works via polling).
+import threading  # noqa: E402
+try:
+    import websocket  # websocket-client (pip-installed at container start)
+    HAVE_WS = True
+except Exception:
+    HAVE_WS = False
+# The WS must hit the SiteURL host (the route) — Mattermost blocks WS upgrades
+# whose Host/Origin != SiteURL ("URL Blocked because of CORS"). REST stays on
+# the internal service; only the WS uses the route.
+MM_WS = os.environ.get("MM_WS_URL", MM)
+WS_URL = MM_WS.replace("https://", "wss://").replace("http://", "ws://") + "/api/v4/websocket"
+WSCONNS = {}  # agent -> WebSocketApp (persistent → presence)
+
+
+def get_ws(agent, token):
+    """One persistent authenticated WS per bot (keeps it online)."""
+    if not HAVE_WS or not token:
+        return None
+    if agent in WSCONNS:
+        return WSCONNS[agent]
+
+    def on_open(w):
+        w.send(json.dumps({"seq": 1, "action": "authentication_challenge",
+                           "data": {"token": token}}))
+
+    app = websocket.WebSocketApp(WS_URL, on_open=on_open,
+                                 on_error=lambda w, e: None,
+                                 on_close=lambda w, *a: WSCONNS.pop(agent, None))
+    threading.Thread(target=lambda: app.run_forever(ping_interval=30, ping_timeout=10,
+                     sslopt={"cert_reqs": ssl.CERT_NONE}), daemon=True).start()
+    WSCONNS[agent] = app
+    return app
+
+
+def with_typing(ws, channel, fn):
+    """Run fn() while emitting user_typing on `ws` (so the bot shows 'is typing')."""
+    if not ws:
+        return fn()
+    stop = threading.Event()
+
+    def typer():
+        seq = 100
+        while not stop.is_set():
+            try:
+                ws.send(json.dumps({"action": "user_typing", "seq": seq,
+                                    "data": {"channel_id": channel, "parent_id": ""}}))
+            except Exception:
+                pass
+            seq += 1
+            stop.wait(2)  # typing events expire ~5s; refresh every 2s
+
+    t = threading.Thread(target=typer, daemon=True); t.start()
+    try:
+        return fn()
+    finally:
+        stop.set()
+
 
 def api(method, path, body=None, token=ADMIN):
     data = json.dumps(body).encode() if body is not None else None
@@ -98,10 +159,17 @@ def ensure_presence(agent, display, team_id, admin_id):
     _, dm = api("POST", "/api/v4/channels/direct", [admin_id, bot_id])
     chans = [chan] + ([dm["id"]] if dm.get("id") else [])
     return {"bot_id": bot_id, "token": tok.get("token", ""),
-            "gw": aw_gateway(agent), "channels": chans}
+            "gw": aw_gateway(agent), "channels": chans,
+            "ws": get_ws(agent, tok.get("token", ""))}  # presence (green) + typing
 
 
 def teardown_presence(agent, team_id):
+    w = WSCONNS.pop(agent, None)
+    if w:
+        try:
+            w.close()
+        except Exception:
+            pass
     st, c = api("GET", f"/api/v4/teams/{team_id}/channels/name/{agent}")
     if st == 200:
         api("DELETE", f"/api/v4/channels/{c['id']}")
@@ -201,7 +269,8 @@ def main():
                     if not text:
                         continue
                     print(f"[bridge] {agent} <- {text!r}", file=sys.stderr, flush=True)
-                    reply = drive(agent, a["gw"], text)
+                    # show "…is typing" while the agent thinks
+                    reply = with_typing(a.get("ws"), ch, lambda: drive(agent, a["gw"], text))
                     print(f"[bridge] {agent} -> {reply[:80]!r}", file=sys.stderr, flush=True)
                     api("POST", "/api/v4/posts", {"channel_id": ch, "message": reply}, token=a["token"])
         time.sleep(POLL)
