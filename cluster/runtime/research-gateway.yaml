@@ -1,0 +1,37 @@
+# research-gateway — the shared OpenClaw runtime gateway the genesis + research
+# agents slot into (spec.runtime.shared.gatewayRef: research-gateway).
+#
+# Declarative source of truth (previously applied ad-hoc). Reproduce with:
+#   oc apply -f cluster/runtime/research-gateway.yaml
+#
+# spec.skillsImage pins the Quay skills-catalog image version mounted into the
+# gateway pod + seeded into every agent's workspace. Bump it (after rebuilding
+# the skills image under a new tag) to roll out new skills — requires operator
+# >= v1.7.5 (the AgentGateway.spec.skillsImage field). v0.0.2 adds genesis-train.
+apiVersion: agentoffice.ai/v1alpha1
+kind: AgentGateway
+metadata:
+  name: research-gateway
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/managed-by: agent-office
+spec:
+  displayName: Research Gateway
+  description: |
+    Shared OpenClaw gateway for the Karpathy auto-research crew.
+    Multiple AgentWorkstations with `runtime.shared.gatewayRef:
+    research-gateway` slot in as logical openclaw agents inside this
+    pod, sharing the paired browser node-host VM via per-agent
+    Chromium profiles.
+  image: quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/openclaw:v2026.4.9
+  skillsImage: quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/agent-office-skills:v0.0.2
+  nodeHostRef:
+    name: fedora-black-zebra-36
+    namespace: default
+  autoApproveNodeHost: true
+  codexCredentialsSecretRef: codex-subscription-credentials
+  envFromSecretRef: agent-web-browser-researcher-secret
+  allowedUsers:
+    - channel: discord
+      accountId: default
+      id: "745444500335231169"
