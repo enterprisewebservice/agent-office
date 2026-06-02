@@ -21,10 +21,11 @@ spec:
       value: '{{source_url}}'
     - name: revision
       value: '{{revision}}'
-    # Tag-stable: bump :v0.0.x + the operator's image-volume reference
-    # to roll a new skill catalog into agent pods.
+    # Bump :v0.0.x here + set AgentGateway.spec.skillsImage to the new tag
+    # (operator >= v1.7.4) to roll a new skill catalog into agent pods —
+    # no operator release needed. v0.0.2 adds the genesis-train skill.
     - name: output-image
-      value: 'quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/agent-office-skills:v0.0.1'
+      value: 'quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/agent-office-skills:v0.0.2'
     - name: dockerfile
       value: skills-image/Containerfile
     - name: path-context
