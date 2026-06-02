@@ -20,4 +20,4 @@ resources:
 # Image Updater rewrites it automatically when a new build lands.
 images:
   - name: quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/agent-office-server
-    newTag: on-push-05f2db47b5c004e4ec9d6718117e524bf3479683
+    newTag: on-push-c6500b07e37d524a0f544a8c57de9633145c228e
