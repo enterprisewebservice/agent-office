@@ -1,0 +1,46 @@
+# Genesis demo — FULL END-TO-END test pipeline.
+#
+# Chains the beats in narrative order so one PipelineRun exercises the entire
+# demo and asserts each stage:
+#   board  → PM agent stands up the "Genesis Model" kanban + first-principles tasks
+#   work   → worker agent completes task 1 (deliverable + close + card → Done)
+#   train  → worker agent TRAINS the model on the DSPA via its genesis-train skill
+#            (it learns w≈2, b≈1) and moves that card Backlog → In Progress → Done
+#   chat   → the agent answers in Mattermost (bridge drives the real openclaw agent)
+#   mm-op  → the operator auto-provisions + tears down an agent's Mattermost presence
+#
+# Persistent (no teardown step) — the demo is left standing so you can show every
+# artifact. Reset with the genesis-teardown Task when you want a clean slate.
+#   oc create -f integration-tests/genesis-demo/run/e2e-run.yaml
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: genesis-e2e
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/part-of: agent-office-genesis-demo
+spec:
+  description: Full end-to-end Genesis demo — board → work → train → chat → operator auto-provision.
+  tasks:
+    - name: board
+      taskRef:
+        name: genesis-board
+    - name: work
+      runAfter: [board]
+      taskRef:
+        name: genesis-work
+      params:
+        - name: task-number
+          value: "1"
+    - name: train
+      runAfter: [work]
+      taskRef:
+        name: genesis-train
+    - name: chat
+      runAfter: [train]
+      taskRef:
+        name: genesis-mattermost
+    - name: mm-operator-autoprovision
+      runAfter: [chat]
+      taskRef:
+        name: mm-operator-autoprovision

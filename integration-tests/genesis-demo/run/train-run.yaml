@@ -1,0 +1,16 @@
+# Run BEAT — the worker agent trains the Genesis model + moves the kanban card.
+#   oc create -f integration-tests/genesis-demo/run/train-run.yaml
+# Requires: genesis-board has been run (the "Genesis Model" board exists),
+# Codex auth, and the worker's genesis-train skill (skills image v0.0.2).
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  generateName: genesis-train-
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/part-of: agent-office-genesis-demo
+spec:
+  serviceAccountName: aoit-runner
+  taskRef:
+    name: genesis-train
+  timeout: "20m"

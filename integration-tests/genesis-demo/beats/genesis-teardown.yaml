@@ -1,19 +1,25 @@
 # Genesis demo — TEARDOWN (independent, on-demand, NEVER automatic).
 #
-# This is a standalone Task you invoke deliberately when you want the demo
-# torn down. It is intentionally NOT part of any pipeline that runs the
-# board/work beats — the demo is persistent until you choose otherwise.
+# A standalone Task you invoke deliberately to wipe the Genesis demo back to a
+# clean slate so the whole thing is repeatable. The demo is persistent until you
+# run this. It cleans EVERYTHING the demo creates, across every system:
 #
-# Default (safe + reversible):
-#   - delete the "Genesis Model" board (reversible: genesis-board recreates it)
-#   - close every open issue in the tracker repo (reversible: reopen)
-# It does NOT delete the tracker repo and does NOT touch any agent — the
-# board/work beats reuse the SHARED production agents (pm-agent, the
-# researcher), so teardown must never delete them.
+#   1. K8s    — delete the genesis-pm + genesis-worker AgentWorkstations (the
+#               operator finalizer de-registers them from the gateway) + the
+#               genesis-first-principles KnowledgeBase if present.
+#   2. Mattermost — hard-delete the @genesis-pm / @genesis-worker users +
+#               #genesis-pm / #genesis-worker channels (and the @mm-optest test
+#               artifact). Best-effort permanent delete; falls back to deactivate
+#               + archive if the server disallows permanent API deletion.
+#   3. DSP    — delete the genesis-model pipeline + experiment + every run.
+#   4. GitHub — delete the "Genesis Model" board + close every open issue.
 #
-# Opt-in (delete-repo=true): hard-delete the tracker repo for a fully
-# clean slate. Off by default because it permanently removes data; flip it
-# only when you deliberately want the repo gone.
+# Kept on purpose (platform infra the demo reuses, NOT per-run state): the
+# genesis-train Skill, its DSP RBAC, the skills image, and research-gateway.
+# So re-running genesis-board/work/train/mattermost rebuilds the whole demo.
+#
+# Each domain is independently toggleable; opt-in delete-repo also removes the
+# tracker repo. Defaults = full clean.
 apiVersion: tekton.dev/v1
 kind: Task
 metadata:
@@ -22,7 +28,7 @@ metadata:
   labels:
     app.kubernetes.io/part-of: agent-office-genesis-demo
 spec:
-  description: On-demand teardown — delete the Genesis board + close issues (repo deletion opt-in).
+  description: On-demand FULL teardown — agents, Mattermost, DSP runs, board/issues. Repeatable reset.
   params:
     - name: gh-owner
       type: string
@@ -33,9 +39,27 @@ spec:
     - name: board-title
       type: string
       default: "Genesis Model"
+    - name: delete-agents
+      type: string
+      default: "true"
+    - name: clean-mattermost
+      type: string
+      default: "true"
+    - name: clean-dsp
+      type: string
+      default: "true"
     - name: delete-repo
       type: string
       default: "false"
+    - name: dsp-url
+      type: string
+      default: "https://ds-pipeline-dspa.agent-office.svc.cluster.local:8443"
+    - name: mm-url
+      type: string
+      default: "http://mattermost.mattermost.svc.cluster.local:8065"
+    - name: mm-team
+      type: string
+      default: agents
     - name: oc-download-url
       type: string
       default: "http://downloads.openshift-console.svc.cluster.local:80/amd64/linux/oc.tar"
@@ -44,66 +68,92 @@ spec:
       image: registry.access.redhat.com/ubi9/ubi:latest
       script: |
         #!/usr/bin/env bash
-        set -euo pipefail
+        set -uo pipefail
         curl -sL "$(params.oc-download-url)" -o /tmp/oc.tar && tar -x -C /tmp -f /tmp/oc.tar oc
         OC=/tmp/oc
         OWNER="$(params.gh-owner)"; REPO="$(params.gh-repo)"; TITLE="$(params.board-title)"
-        DELREPO="$(params.delete-repo)"
+        DELAGENTS="$(params.delete-agents)"; CLEANMM="$(params.clean-mattermost)"; CLEANDSP="$(params.clean-dsp)"
+        DELREPO="$(params.delete-repo)"; DSP="$(params.dsp-url)"; MM="$(params.mm-url)"; TEAM="$(params.mm-team)"
+        GENESIS_AGENTS="genesis-pm genesis-worker"
+        MM_PURGE="genesis-pm genesis-worker mm-optest"
 
-        echo "=== mint a GitHub App installation token ==="
+        echo "############ 1. K8S: agents + KB ############"
+        if [ "$DELAGENTS" = "true" ]; then
+          for a in $GENESIS_AGENTS; do
+            $OC delete agentworkstation "$a" -n agent-office --ignore-not-found --wait=false 2>&1 | sed 's/^/  /'
+          done
+          # KnowledgeBase (if it was wired as a CR) + its wiki PVC cascade.
+          $OC delete knowledgebase genesis-first-principles -n agent-office --ignore-not-found --wait=false 2>&1 | sed 's/^/  /'
+          echo "  (operator finalizers de-register the agents from research-gateway)"
+        else echo "  skipped (delete-agents=false)"; fi
+
+        echo "############ 2. MATTERMOST ############"
+        if [ "$CLEANMM" = "true" ]; then
+          MTOK=$($OC get secret mattermost-admin-token -n agent-office -o jsonpath='{.data.token}' 2>/dev/null | base64 -d)
+          if [ -z "$MTOK" ]; then echo "  (no mattermost-admin-token — skipping)"; else
+            m(){ curl -s -H "Authorization: Bearer $MTOK" "$@"; }
+            tid=$(m "$MM/api/v4/teams/name/$TEAM" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("id",""))' 2>/dev/null)
+            for name in $MM_PURGE; do
+              uid=$(m "$MM/api/v4/users/username/$name" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("id",""))' 2>/dev/null)
+              if [ -n "$uid" ]; then
+                code=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $MTOK" -X DELETE "$MM/api/v4/users/$uid?permanent=true")
+                [ "$code" = "200" ] || curl -s -X DELETE -H "Authorization: Bearer $MTOK" "$MM/api/v4/users/$uid" >/dev/null
+                echo "  user @$name removed (http=$code; 200=permanent, else deactivated)"
+              fi
+              if [ -n "$tid" ]; then
+                cid=$(m "$MM/api/v4/teams/$tid/channels/name/$name?include_deleted=true" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("id",""))' 2>/dev/null)
+                if [ -n "$cid" ]; then
+                  code=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $MTOK" -X DELETE "$MM/api/v4/channels/$cid?permanent=true")
+                  [ "$code" = "200" ] || curl -s -X DELETE -H "Authorization: Bearer $MTOK" "$MM/api/v4/channels/$cid" >/dev/null
+                  echo "  channel #$name removed (http=$code)"
+                fi
+              fi
+            done
+          fi
+        else echo "  skipped (clean-mattermost=false)"; fi
+
+        echo "############ 3. DSP (genesis-model) ############"
+        if [ "$CLEANDSP" = "true" ]; then
+          DTOK=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+          d(){ curl -sk -H "Authorization: Bearer $DTOK" "$@"; }
+          PID=$(d "$DSP/apis/v2beta1/pipelines?page_size=200" | python3 -c 'import sys,json;print(next((p["pipeline_id"] for p in json.load(sys.stdin).get("pipelines",[]) if p.get("display_name")=="genesis-model"),""))' 2>/dev/null)
+          # delete every run for the genesis-model experiment(s)
+          for rid in $(d "$DSP/apis/v2beta1/runs?page_size=200" | python3 -c 'import sys,json;[print(r["run_id"]) for r in json.load(sys.stdin).get("runs",[]) if "genesis" in r.get("display_name","") or r.get("display_name","").startswith("gw-")]' 2>/dev/null); do
+            d -X DELETE "$DSP/apis/v2beta1/runs/$rid" >/dev/null && echo "  deleted run $rid"
+          done
+          for eid in $(d "$DSP/apis/v2beta1/experiments?page_size=200" | python3 -c 'import sys,json;[print(e["experiment_id"]) for e in json.load(sys.stdin).get("experiments",[]) if e.get("display_name")=="genesis-model"]' 2>/dev/null); do
+            d -X DELETE "$DSP/apis/v2beta1/experiments/$eid" >/dev/null && echo "  deleted experiment $eid"
+          done
+          [ -n "$PID" ] && { d -X DELETE "$DSP/apis/v2beta1/pipelines/$PID" >/dev/null && echo "  deleted pipeline genesis-model"; } || echo "  (no genesis-model pipeline)"
+        else echo "  skipped (clean-dsp=false)"; fi
+
+        echo "############ 4. GITHUB (board + issues) ############"
         appId=$($OC get secret -n agent-office agent-office-github-app -o jsonpath='{.data.appId}' | base64 -d)
         instId=$($OC get secret -n agent-office agent-office-github-app -o jsonpath='{.data.installationId}' | base64 -d)
         $OC get secret -n agent-office agent-office-github-app -o jsonpath='{.data.privateKey}' | base64 -d > /tmp/ghapp.pem
         b64url(){ openssl base64 -A | tr '+/' '-_' | tr -d '='; }
-        now=$(date +%s)
-        hh=$(printf '{"alg":"RS256","typ":"JWT"}' | b64url)
+        now=$(date +%s); hh=$(printf '{"alg":"RS256","typ":"JWT"}' | b64url)
         pp=$(printf '{"iat":%d,"exp":%d,"iss":"%s"}' $((now-60)) $((now+540)) "$appId" | b64url)
         ss=$(printf '%s.%s' "$hh" "$pp" | openssl dgst -sha256 -sign /tmp/ghapp.pem -binary | b64url)
         TOK=$(curl -s -X POST -H "Authorization: Bearer $hh.$pp.$ss" -H "Accept: application/vnd.github+json" "https://api.github.com/app/installations/$instId/access_tokens" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("token",""))')
         rm -f /tmp/ghapp.pem
-        [ -n "$TOK" ] || { echo "FAIL: could not mint GitHub App token"; exit 1; }
-
-        echo "=== delete the \"$TITLE\" board(s) ==="
-        curl -s -H "Authorization: Bearer $TOK" -X POST https://api.github.com/graphql \
-          -d '{"query":"query{organization(login:\"'"$OWNER"'\"){projectsV2(first:50){nodes{id number title}}}}"}' > /tmp/b.json
-        IDS=$(TITLE="$TITLE" python3 -c 'import json,os;d=json.load(open("/tmp/b.json"));t=os.environ["TITLE"];print(" ".join(n["id"] for n in d["data"]["organization"]["projectsV2"]["nodes"] if n["title"]==t))')
-        if [ -z "$IDS" ]; then
-          echo "  (no board titled \"$TITLE\" — already gone)"
-        else
-          for pid in $IDS; do
-            curl -s -H "Authorization: Bearer $TOK" -X POST https://api.github.com/graphql \
-              -d "{\"query\":\"mutation{deleteProjectV2(input:{projectId:\\\"$pid\\\"}){projectV2{id}}}\"}" > /tmp/del.json
-            python3 -c 'import json;d=json.load(open("/tmp/del.json"));print("  ✓ deleted board" if d.get("data",{}).get("deleteProjectV2") else "  delete err: "+json.dumps(d.get("errors")))'
+        if [ -z "$TOK" ]; then echo "  (could not mint GitHub token — skipping GitHub)"; else
+          curl -s -H "Authorization: Bearer $TOK" -X POST https://api.github.com/graphql -d '{"query":"query{organization(login:\"'"$OWNER"'\"){projectsV2(first:50){nodes{id title}}}}"}' > /tmp/b.json
+          for pid in $(TITLE="$TITLE" python3 -c 'import json,os;d=json.load(open("/tmp/b.json"));t=os.environ["TITLE"];print(" ".join(n["id"] for n in d["data"]["organization"]["projectsV2"]["nodes"] if n["title"]==t))' 2>/dev/null); do
+            curl -s -H "Authorization: Bearer $TOK" -X POST https://api.github.com/graphql -d "{\"query\":\"mutation{deleteProjectV2(input:{projectId:\\\"$pid\\\"}){projectV2{id}}}\"}" >/dev/null && echo "  ✓ deleted board"
           done
-        fi
-
-        echo "=== close every open issue in $OWNER/$REPO ==="
-        code=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TOK" "https://api.github.com/repos/$OWNER/$REPO")
-        if [ "$code" = "404" ]; then
-          echo "  (repo $OWNER/$REPO does not exist — nothing to close)"
-        else
-          curl -s -H "Authorization: Bearer $TOK" "https://api.github.com/repos/$OWNER/$REPO/issues?state=open&per_page=100" > /tmp/iss.json
-          NUMS=$(python3 -c 'import json;d=json.load(open("/tmp/iss.json"));print(" ".join(str(i["number"]) for i in d if isinstance(i,dict) and "pull_request" not in i))')
-          if [ -z "$NUMS" ]; then echo "  (no open issues)"; else
-            for n in $NUMS; do
-              curl -s -X PATCH -H "Authorization: Bearer $TOK" "https://api.github.com/repos/$OWNER/$REPO/issues/$n" -d '{"state":"closed"}' >/dev/null
-              echo "  ✓ closed issue #$n"
+          code=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TOK" "https://api.github.com/repos/$OWNER/$REPO")
+          if [ "$code" != "404" ]; then
+            for n in $(curl -s -H "Authorization: Bearer $TOK" "https://api.github.com/repos/$OWNER/$REPO/issues?state=open&per_page=100" | python3 -c 'import sys,json;print(" ".join(str(i["number"]) for i in json.load(sys.stdin) if isinstance(i,dict) and "pull_request" not in i))' 2>/dev/null); do
+              curl -s -X PATCH -H "Authorization: Bearer $TOK" "https://api.github.com/repos/$OWNER/$REPO/issues/$n" -d '{"state":"closed"}' >/dev/null && echo "  ✓ closed issue #$n"
             done
-          fi
+            if [ "$DELREPO" = "true" ]; then
+              hc=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE -H "Authorization: Bearer $TOK" "https://api.github.com/repos/$OWNER/$REPO")
+              [ "$hc" = "204" ] && echo "  ✓ deleted repo $OWNER/$REPO" || echo "  (repo delete http=$hc)"
+            else echo "  repo LEFT IN PLACE (delete-repo=true to remove)"; fi
+          else echo "  (repo absent)"; fi
         fi
 
-        echo "=== tracker repo handling (delete-repo=$DELREPO) ==="
-        if [ "$DELREPO" = "true" ]; then
-          if [ "$code" = "404" ]; then
-            echo "  (repo already absent)"
-          else
-            hc=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE -H "Authorization: Bearer $TOK" "https://api.github.com/repos/$OWNER/$REPO")
-            [ "$hc" = "204" ] && echo "  ✓ deleted repo $OWNER/$REPO" || echo "  (repo delete http=$hc — the App may lack delete_repo scope; remove it manually)"
-          fi
-        else
-          echo "  repo $OWNER/$REPO LEFT IN PLACE (auditable record; closed issues + deliverables kept)."
-          echo "  To remove it: re-run with -p delete-repo=true, or delete it in the GitHub UI."
-        fi
-
-        echo
-        echo "DONE — Genesis demo torn down: board deleted, issues closed. Agents untouched (shared/production). Re-run genesis-board to rebuild."
+        echo; echo "DONE — Genesis demo wiped: agents + Mattermost presence + DSP runs + board/issues."
+        echo "Platform infra kept (genesis-train skill, DSP RBAC, skills image, research-gateway)."
+        echo "Repeatable: re-run genesis-board → genesis-work → genesis-train → genesis-mattermost to rebuild."

@@ -1,0 +1,19 @@
+# Run the FULL Genesis demo end-to-end (board → work → train → chat → operator auto-provision).
+#   oc create -f integration-tests/genesis-demo/run/e2e-run.yaml
+#   tkn pipelinerun logs -f --last -n agent-office
+# Prereqs: oc apply -k integration-tests/genesis-demo/beats ; the genesis-pm /
+# genesis-worker agents exist; Codex auth healthy; skills image v0.0.2 on the gateway.
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  generateName: genesis-e2e-
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/part-of: agent-office-genesis-demo
+spec:
+  taskRunTemplate:
+    serviceAccountName: aoit-runner
+  pipelineRef:
+    name: genesis-e2e
+  timeout:
+    pipeline: "45m"

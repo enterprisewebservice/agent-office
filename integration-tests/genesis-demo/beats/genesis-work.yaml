@@ -106,8 +106,8 @@ spec:
         sok=""
         for i in $(seq 1 6); do
           curl -s -H "Authorization: Bearer $TOK" -X POST https://api.github.com/graphql \
-            -d '{"query":"query{organization(login:\"'"$OWNER"'\"){projectV2(number:'"$BNUM"'){items(first:30){nodes{content{... on Issue{number}} fieldValues(first:20){nodes{... on ProjectV2ItemFieldSingleSelectValue{name field{... on ProjectV2SingleSelectField{name}}}}}}}}}}"}' > /tmp/items.json
-          ST=$(N="$N" python3 -c 'import json,os;d=json.load(open("/tmp/items.json"));n=int(os.environ["N"]);print(next((fv.get("name") for it in d["data"]["organization"]["projectV2"]["items"]["nodes"] if (it.get("content") or {}).get("number")==n for fv in it["fieldValues"]["nodes"] if fv and (fv.get("field") or {}).get("name")=="Status"),""))')
+            -d '{"query":"query{repository(owner:\"'"$OWNER"'\",name:\"'"$REPO"'\"){issue(number:'"$N"'){projectItems(first:20){nodes{project{number} fieldValues(first:20){nodes{... on ProjectV2ItemFieldSingleSelectValue{name field{... on ProjectV2SingleSelectField{name}}}}}}}}}}"}' > /tmp/items.json
+          ST=$(B="$BNUM" python3 -c 'import sys,json,os;d=json.load(open("/tmp/items.json"));items=(((((d.get("data") or {}).get("repository") or {}).get("issue") or {}).get("projectItems") or {}).get("nodes") or []);b=int(os.environ["B"]);print(next((fv.get("name") for it in items if (it.get("project") or {}).get("number")==b for fv in it["fieldValues"]["nodes"] if fv and (fv.get("field") or {}).get("name")=="Status"),""))')
           if [ "$ST" = "Done" ]; then sok=1; break; fi
           echo "  [$i] card #$N status=${ST:-none}…"; sleep 5
         done

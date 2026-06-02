@@ -1,0 +1,115 @@
+# Genesis demo — BEAT (genesis-train): the WORKER AGENT trains the model.
+#
+# Tekton is only the test harness here — it drives the REAL genesis-worker
+# agent, which uses its `genesis-train` SKILL to submit the genesis-model
+# pipeline to the OpenShift AI DSPA (the training runs as Argo pods the DSPA
+# launches; NOT in Tekton). The beat:
+#   1. creates a "train the model" task issue on the Genesis Model board,
+#   2. drives the worker to: move the card to In Progress → train via its skill
+#      → comment the result → close the issue + move the card to Done,
+#   3. asserts the card is Done, the issue is closed, and the worker reported
+#      the model LEARNED (recovered w≈2, b≈1 — the run hard-fails otherwise).
+#
+# Proves the on-narrative wow: a governed agent builds + trains a predictive
+# model from first principles and tracks the work on a kanban. Idempotent
+# (creates a fresh training task per run). Requires Codex auth + the worker's
+# genesis-train skill (skills image v0.0.2) + the genesis-model pipeline
+# registered on the DSPA.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: genesis-train
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/part-of: agent-office-genesis-demo
+spec:
+  description: Drive the worker agent to train the model via its skill + move the kanban card.
+  params:
+    - name: worker-agent
+      type: string
+      default: genesis-worker
+    - name: gh-owner
+      type: string
+      default: enterprisewebservice
+    - name: gh-repo
+      type: string
+      default: genesis-tracker
+    - name: board-title
+      type: string
+      default: "Genesis Model"
+    - name: gateway
+      type: string
+      default: research-gateway
+    - name: target-namespace
+      type: string
+      default: agent-office
+    - name: oc-download-url
+      type: string
+      default: "http://downloads.openshift-console.svc.cluster.local:80/amd64/linux/oc.tar"
+  steps:
+    - name: train
+      image: registry.access.redhat.com/ubi9/ubi:latest
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        curl -sL "$(params.oc-download-url)" -o /tmp/oc.tar && tar -x -C /tmp -f /tmp/oc.tar oc
+        OC=/tmp/oc
+        AGENT="$(params.worker-agent)"; OWNER="$(params.gh-owner)"; REPO="$(params.gh-repo)"
+        TITLE="$(params.board-title)"; GW="$(params.gateway)"; NS="$(params.target-namespace)"
+
+        echo "=== mint a GitHub App installation token ==="
+        appId=$($OC get secret -n agent-office agent-office-github-app -o jsonpath='{.data.appId}' | base64 -d)
+        instId=$($OC get secret -n agent-office agent-office-github-app -o jsonpath='{.data.installationId}' | base64 -d)
+        $OC get secret -n agent-office agent-office-github-app -o jsonpath='{.data.privateKey}' | base64 -d > /tmp/ghapp.pem
+        b64url(){ openssl base64 -A | tr '+/' '-_' | tr -d '='; }
+        now=$(date +%s)
+        hh=$(printf '{"alg":"RS256","typ":"JWT"}' | b64url)
+        pp=$(printf '{"iat":%d,"exp":%d,"iss":"%s"}' $((now-60)) $((now+540)) "$appId" | b64url)
+        ss=$(printf '%s.%s' "$hh" "$pp" | openssl dgst -sha256 -sign /tmp/ghapp.pem -binary | b64url)
+        TOK=$(curl -s -X POST -H "Authorization: Bearer $hh.$pp.$ss" -H "Accept: application/vnd.github+json" "https://api.github.com/app/installations/$instId/access_tokens" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("token",""))')
+        rm -f /tmp/ghapp.pem
+        [ -n "$TOK" ] || { echo "FAIL: could not mint GitHub App token"; exit 1; }
+        h(){ curl -s -H "Authorization: Bearer $TOK" "$@"; }
+
+        echo "=== find board number for \"$TITLE\" ==="
+        h -X POST https://api.github.com/graphql -d '{"query":"query{organization(login:\"'"$OWNER"'\"){projectsV2(first:50){nodes{number id title}}}}"}' > /tmp/b.json
+        BNUM=$(TITLE="$TITLE" python3 -c 'import json,os;d=json.load(open("/tmp/b.json"));t=os.environ["TITLE"];print(next((str(n["number"]) for n in d["data"]["organization"]["projectsV2"]["nodes"] if n["title"]==t),""))')
+        PID=$(TITLE="$TITLE" python3 -c 'import json,os;d=json.load(open("/tmp/b.json"));t=os.environ["TITLE"];print(next((n["id"] for n in d["data"]["organization"]["projectsV2"]["nodes"] if n["title"]==t),""))')
+        [ -n "$BNUM" ] || { echo "FAIL: board \"$TITLE\" not found — run genesis-board first"; exit 1; }
+        echo "  board #$BNUM"
+
+        echo "=== create the training task + add it to the board ==="
+        TS=$(date +%H%M%S)
+        IJ=$(h -X POST "https://api.github.com/repos/$OWNER/$REPO/issues" -d '{"title":"Train the Genesis model on OpenShift AI ('"$TS"')","body":"Train the genesis-model pipeline on the OpenShift AI DSPA and confirm the model recovers the true parameters (w=2, b=1). Use the genesis-train skill. Move this card to In Progress before starting; to Done only if the run SUCCEEDED."}')
+        INUM=$(echo "$IJ" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("number",""))')
+        INODE=$(echo "$IJ" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("node_id",""))')
+        [ -n "$INUM" ] || { echo "FAIL: could not create training issue"; exit 1; }
+        h -X POST https://api.github.com/graphql -d '{"query":"mutation{addProjectV2ItemById(input:{projectId:\"'"$PID"'\",contentId:\"'"$INODE"'\"}){item{id}}}"}' >/dev/null
+        echo "  created + boarded training issue #$INUM"
+
+        echo "=== drive the REAL worker $AGENT to train + move the card ==="
+        GWPOD=$($OC get pods -n "$NS" -l agentoffice.ai/gateway="$GW" --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}')
+        [ -n "$GWPOD" ] || { echo "FAIL: no Running pod for gateway $GW"; exit 1; }
+        MSG="You are the worker engineer on the \"$TITLE\" project (org $OWNER, GitHub Projects v2 board number $BNUM, tracker repo $OWNER/$REPO). Complete TASK #$INUM end to end, moving its board card as you go: 1. Read issue #$INUM (github_issue_read). 2. BEFORE starting, move issue #$INUM's card on board number $BNUM to In Progress (project-board-management skill: github_projects_list/read to find the Status field id + the In Progress option id + the item id for issue #$INUM, then github_projects_write update_project_item). 3. DO THE WORK: train the model using your genesis-train skill; wait for its RESULT line. 4. Comment on issue #$INUM (github_add_issue_comment) with the result — whether it learned (recovered w≈2, b≈1) and the run name. 5. If the run SUCCEEDED: close issue #$INUM (github_issue_write state closed) and move its card to Done. If it FAILED: leave the card In Progress. Report the card Status transitions you made, whether it learned, and the run name."
+        $OC exec -n "$NS" "$GWPOD" -c openclaw -- openclaw agent --agent "$AGENT" --message "$MSG" --json --timeout 540 >/tmp/w.json 2>&1 || true
+        echo "  worker run finished (stopReason: $(grep -o '"stopReason":"[a-z]*"' /tmp/w.json | tail -1))"
+
+        echo "=== assert: issue #$INUM closed ==="
+        STATE=$(h "https://api.github.com/repos/$OWNER/$REPO/issues/$INUM" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("state",""))')
+        [ "$STATE" = "closed" ] && echo "  ✓ issue #$INUM closed" || { echo "FAIL: issue #$INUM state=$STATE (expected closed → model likely did not learn)"; exit 1; }
+
+        echo "=== assert: the worker reported it LEARNED ==="
+        h "https://api.github.com/repos/$OWNER/$REPO/issues/$INUM/comments" | python3 -c 'import sys,json;c=json.load(sys.stdin);b=(c[-1]["body"] if c else "").lower();import re;sys.exit(0 if ("succeeded" in b or "learned" in b) else 1)' \
+          && echo "  ✓ worker comment confirms the model learned" || { echo "FAIL: no SUCCEEDED/learned in the worker's comment"; exit 1; }
+
+        echo "=== assert: board card #$INUM is Done ==="
+        sok=""
+        for i in $(seq 1 6); do
+          h -X POST https://api.github.com/graphql -d '{"query":"query{repository(owner:\"'"$OWNER"'\",name:\"'"$REPO"'\"){issue(number:'"$INUM"'){projectItems(first:20){nodes{project{number} fieldValues(first:20){nodes{... on ProjectV2ItemFieldSingleSelectValue{name field{... on ProjectV2SingleSelectField{name}}}}}}}}}}"}' > /tmp/items.json
+          ST=$(B="$BNUM" python3 -c 'import sys,json,os;d=json.load(open("/tmp/items.json"));items=(((((d.get("data") or {}).get("repository") or {}).get("issue") or {}).get("projectItems") or {}).get("nodes") or []);b=int(os.environ["B"]);print(next((fv.get("name") for it in items if (it.get("project") or {}).get("number")==b for fv in it["fieldValues"]["nodes"] if fv and (fv.get("field") or {}).get("name")=="Status"),""))')
+          [ "$ST" = "Done" ] && { sok=1; break; }
+          echo "  [$i] card #$INUM status=${ST:-none}…"; sleep 5
+        done
+        [ -n "$sok" ] && echo "  ✓ card #$INUM Status=Done" || { echo "FAIL: card #$INUM not Done"; exit 1; }
+
+        echo; echo "PASS — worker $AGENT trained the Genesis model (it learned w≈2, b≈1) and moved its card Backlog → In Progress → Done."

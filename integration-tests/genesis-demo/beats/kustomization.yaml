@@ -4,6 +4,8 @@ kind: Kustomization
 resources:
   - genesis-board.yaml
   - genesis-work.yaml
+  - genesis-train.yaml
   - genesis-mattermost.yaml
   - mm-operator-autoprovision.yaml
+  - genesis-e2e.yaml
   - genesis-teardown.yaml
