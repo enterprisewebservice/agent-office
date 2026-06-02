@@ -22,11 +22,16 @@
 #     ▼
 #   api.github.com  (Authorization: token ghs_...)
 #
-# Why no init container / no scripts / no SA / no RBAC: the previous
-# iteration tried to mint the token in an init container with
-# kustomized RBAC. ESO replaces all of that with a declarative
-# generator. The pod has nothing to do with token minting now; it just
-# reads the env var and runs the binary.
+# Token MINTING stays out of the pod — ESO owns it (no SA, no RBAC, no
+# in-pod minting). The one init container below is NOT a minter; it is a
+# readiness GATE. envFrom is read once at container start, so if the pod
+# boots in the brief window where an ESO refresh has left the Secret
+# empty/mid-write, the server comes up token-less and 401s every request
+# until the next Reloader bounce (observed in the wild). The gate blocks
+# startup until the mounted Secret holds a token github actually accepts,
+# so the main container's envFrom can only ever snapshot a valid one. It
+# needs no K8s API access — it reads the mounted Secret + calls
+# api.github.com, exactly like the server does.
 #
 # Why Recreate strategy: only ever one instance. Rolling update would
 # briefly have two pods sharing the same SSE port from openclaw's
@@ -64,6 +69,36 @@ spec:
         runAsNonRoot: true
         seccompProfile:
           type: RuntimeDefault
+      # Readiness gate — do not start the server until the rotated Secret
+      # actually holds a token github accepts (see header comment). This
+      # makes the boot resilient to the ESO-refresh / Reloader-restart race.
+      initContainers:
+        - name: wait-for-valid-token
+          image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              for i in $(seq 1 100); do
+                T=$(cat /token/GITHUB_PERSONAL_ACCESS_TOKEN 2>/dev/null)
+                if [ -n "$T" ] && curl -sf -o /dev/null --max-time 8 \
+                     -H "Authorization: Bearer $T" \
+                     https://api.github.com/installation/repositories; then
+                  echo "github token valid — starting mcp-server"; exit 0
+                fi
+                echo "[$i] token empty/invalid; waiting for ESO/Reloader to settle..."
+                sleep 3
+              done
+              echo "timed out waiting for a valid github token"; exit 1
+          volumeMounts:
+            - {name: installation-token, mountPath: /token, readOnly: true}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+            readOnlyRootFilesystem: true
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits:   {cpu: 100m, memory: 64Mi}
       containers:
         - name: mcp-server
           image: ghcr.io/github/github-mcp-server:latest
@@ -112,3 +147,9 @@ spec:
           resources:
             requests: {cpu: 100m, memory: 128Mi}
             limits:   {cpu: 500m, memory: 256Mi}
+      # The same rotated Secret, mounted as a file so the init gate can poll
+      # it live (the main container reads it via start-time envFrom instead).
+      volumes:
+        - name: installation-token
+          secret:
+            secretName: github-mcp-installation-token
