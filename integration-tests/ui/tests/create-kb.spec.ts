@@ -24,11 +24,20 @@
 import { test, expect } from '@playwright/test';
 import { execSync } from 'node:child_process';
 
-const NAME = process.env.KB_AGENT || 'genesis-kb';
+const NAME = process.env.KB_AGENT || 'genesis-worker';
+const DISPLAY = process.env.DISPLAY_NAME || 'Genesis Worker';
+const ROLE = process.env.ROLE || 'worker';
+const DESC =
+  process.env.AGENT_DESC ||
+  'Genesis demo worker agent — trains the predictive model, moves the kanban cards, and owns the first-principles knowledge base.';
+const SYSTEM_PROMPT =
+  process.env.SYSTEM_PROMPT ||
+  'You are the Genesis Model worker agent. Pick up tasks from the GitHub project board, train the predictive model with your genesis-train skill (gradient descent recovering y=wx+b on OpenShift AI / DSPA), move your kanban cards as you work, and curate the first-principles knowledge base documenting what you learn.';
 const NS = 'agent-office';
 const OWNER = 'enterprisewebservice';
 const KEEP = process.env.KEEP_AGENT === '1';
 const TOPIC =
+  process.env.KB_TOPIC ||
   'First principles of model creation: data, hypothesis (y=wx+b), loss (MSE), gradient descent, evaluation.';
 
 function cleanup(label: string) {
@@ -62,10 +71,8 @@ test('create + populate a KB via the openclaw-agent wizard', async ({
 
   // ---- Page 1: Identity ----
   await page.locator('#root_name').fill(NAME);
-  await page.locator('#root_displayName').fill('Genesis KB Curator');
-  await page
-    .locator('#root_description')
-    .fill('Genesis demo KB-curating agent — owns the first-principles knowledge base.');
+  await page.locator('#root_displayName').fill(DISPLAY);
+  await page.locator('#root_description').fill(DESC);
   const owner = page.locator('#root_owner');
   await owner.click();
   await owner.fill('deanpeterson');
@@ -81,13 +88,11 @@ test('create + populate a KB via the openclaw-agent wizard', async ({
   for (let step = 0; step < 10; step++) {
     // Page 2
     const role = page.locator('#root_role');
-    if ((await role.count()) && (await role.isVisible())) await role.fill('kb-curator');
+    if ((await role.count()) && (await role.isVisible())) await role.fill(ROLE);
     const sp = page.locator('#root_systemPrompt');
     if ((await sp.count()) && (await sp.isVisible())) {
       if (!(await sp.inputValue().catch(() => ''))) {
-        await sp.fill(
-          'You curate the Genesis first-principles knowledge base. Created by the agent-office UI integration test.',
-        );
+        await sp.fill(SYSTEM_PROMPT);
       }
     }
 
@@ -144,4 +149,15 @@ test('create + populate a KB via the openclaw-agent wizard', async ({
     stdio: 'inherit',
   }); // throws on failure
   console.log(`\n✓ ${NAME}-wiki created + populated via the UI.`);
+
+  // ---- seed the REAL first-principles vault into the KB ----
+  // The scaffolder only publishes a stub wiki. Push the genesis-first-principles
+  // Obsidian vault (12 linked notes grounded in pipeline.py) into the wiki repo
+  // so the KB gitMirror makes the agent actually TEACH from first principles —
+  // not just carry an empty shell. This is what makes the KB meaningful.
+  console.log(`\nseeding genesis-first-principles vault into ${NAME}-wiki…`);
+  execSync(`bash scripts/seed-genesis-kb.sh ${NAME} ${OWNER}`, {
+    stdio: 'inherit',
+  }); // throws on failure
+  console.log(`\n✓ ${NAME}-wiki now teaches from the genesis-first-principles vault.`);
 });
