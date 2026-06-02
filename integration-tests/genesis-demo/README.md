@@ -22,13 +22,13 @@ Apply once: `oc apply -k beats`.
 
 | Beat | Shows | State |
 |---|---|---|
-| `genesis-train` | Run the Genesis Model DSP pipeline on OpenShift AI → watch the loss fall + `learned_w → 2`, `learned_b → 1` in the Experiments UI. Asserts `learned_ok=1`. | ⬜ next, codex-independent |
+| **`genesis-train` (skill)** | **The worker agent trains the model.** Given a kanban task, `genesis-worker` uses its **`genesis-train` skill** to submit the `genesis-model` pipeline to the OpenShift AI **DSPA** (runs on **Argo**, not Tekton), waits, and reports it learned (recovered `w≈2, b≈1`). `evaluate` HARD-FAILS unless it recovers the truth, so a SUCCEEDED run provably means it learned. The worker moves the card **In Progress → Done** as it works. The skill ships in the Quay **skills image** (`spec.skillsImage`, operator ≥ v1.7.5). | ✅ proven on-cluster |
 | `genesis-team` | dedicated `genesis-pm` + `genesis-worker` agents created via the real scaffolder (board skill + Genesis KB) | ⬜ planned |
 | **`genesis-board`** | **PM agent** creates the "Genesis Model" GitHub **kanban** board and decomposes the goal into 6 first-principles task issues. Idempotent (reuses an existing board). | ✅ proven on-cluster |
 | **`genesis-work`** | **Worker agent** (distinct from the PM — role separation) pulls task N → authors a real deliverable (`docs/task-N.md`) → comments → closes the issue → moves the card to **Done**. | ✅ proven on-cluster |
 | **`genesis-mattermost`** | **Chat with the agent in Mattermost** — against the operator-provisioned user `@<agent>` (own name, green presence dot) in `#<agent>`: post a question and the in-cluster `mm-bridge` drives the REAL agent to reply AS itself, with a live "…is typing" indicator. The wow moment: DM/chat your agents like teammates. | ✅ proven on-cluster |
 | **`mm-operator-autoprovision`** | **Operator auto-provision** — create an AgentWorkstation and the operator (≥ v1.7.1) auto-creates the Mattermost user + channel; delete it and the finalizer deactivates the user + archives the channel. Idempotent: re-create the agent and its channel is restored. | ✅ proven on-cluster |
-| `genesis-kb` | the first-principles KB, curated by the agents | ⬜ planned |
+| **`genesis-first-principles` (KB)** | The **first-principles Obsidian vault** (`kb/genesis-first-principles/`) — 12 linked notes teaching how a predictive model is built from scratch (`ŷ = w·x + b`, MSE, gradient descent, recovering `w=2, b=1`), grounded line-for-line in `pipeline.py`. Open the folder as an Obsidian vault (graph view + LaTeX). Wires to the agents as a KnowledgeBase so they teach from it. | ✅ readable now |
 
 Run examples:
 ```

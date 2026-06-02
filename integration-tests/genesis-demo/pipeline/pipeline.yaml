@@ -125,8 +125,14 @@ deploymentSpec:
           )\n    metrics.log_metric(\"test_mse\", round(test_mse, 6))\n    metrics.log_metric(\"\
           recovery_w_abs_err\", round(w_err, 4))\n    metrics.log_metric(\"recovery_b_abs_err\"\
           , round(b_err, 4))\n    # a single pass/fail the worker agent (and the integration\
-          \ test) can read\n    metrics.log_metric(\"learned_ok\", 1.0 if (w_err <\
-          \ 0.25 and b_err < 0.25) else 0.0)\n\n"
+          \ test) can read\n    ok = (w_err < 0.25 and b_err < 0.25)\n    metrics.log_metric(\"\
+          learned_ok\", 1.0 if ok else 0.0)\n    # Hard gate: a run that did NOT recover\
+          \ the truth FAILS the pipeline, so a\n    # SUCCEEDED run provably means\
+          \ \"the model learned\" \u2014 the integration test\n    # (and the worker\
+          \ agent) can trust run state alone, no metric scraping.\n    if not ok:\n\
+          \        raise RuntimeError(\n            f\"model did NOT recover the universe:\
+          \ learned w={w:.3f} (true {true_w}), \"\n            f\"b={b:.3f} (true\
+          \ {true_b}); |errors|=({w_err:.3f}, {b_err:.3f}) exceed 0.25\")\n\n"
         image: registry.access.redhat.com/ubi9/python-311:latest
     exec-generate-data:
       container:

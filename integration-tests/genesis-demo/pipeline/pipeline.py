@@ -124,7 +124,15 @@ def evaluate(
     metrics.log_metric("recovery_w_abs_err", round(w_err, 4))
     metrics.log_metric("recovery_b_abs_err", round(b_err, 4))
     # a single pass/fail the worker agent (and the integration test) can read
-    metrics.log_metric("learned_ok", 1.0 if (w_err < 0.25 and b_err < 0.25) else 0.0)
+    ok = (w_err < 0.25 and b_err < 0.25)
+    metrics.log_metric("learned_ok", 1.0 if ok else 0.0)
+    # Hard gate: a run that did NOT recover the truth FAILS the pipeline, so a
+    # SUCCEEDED run provably means "the model learned" — the integration test
+    # (and the worker agent) can trust run state alone, no metric scraping.
+    if not ok:
+        raise RuntimeError(
+            f"model did NOT recover the universe: learned w={w:.3f} (true {true_w}), "
+            f"b={b:.3f} (true {true_b}); |errors|=({w_err:.3f}, {b_err:.3f}) exceed 0.25")
 
 
 @dsl.pipeline(
