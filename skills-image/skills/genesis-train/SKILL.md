@@ -1,4 +1,4 @@
-Use this skill to **train the Genesis first-principles model on OpenShift AI** and report whether it learned. The model is `genesis-model` — linear regression `ŷ = w·x + b` learned by hand-written gradient descent — already registered on the agent-office Data Science Pipelines server (DSPA). You submit a run and wait; the training itself runs as Argo-orchestrated pods the DSPA launches (`generate_data → train_gd → evaluate`). The `evaluate` step HARD-FAILS the run unless the model recovers the universe's true parameters (`w≈2, b≈1`), so a **SUCCEEDED run provably means it learned** — no metric scraping needed.
+Use this skill to **train the Genesis first-principles model on OpenShift AI** and report whether it learned. The model is `genesis-model` — linear regression `ŷ = w·x + b` learned by hand-written gradient descent. **This skill stands up the pipeline itself: if the agent-office Data Science Pipelines server (DSPA) doesn't have `genesis-model` registered yet, it uploads it from the `pipeline.yaml` bundled next to this skill — no human pre-registers anything.** Then you submit a run and wait; the training itself runs as Argo-orchestrated pods the DSPA launches (`generate_data → train_gd → evaluate`). The `evaluate` step HARD-FAILS the run unless the model recovers the universe's true parameters (`w≈2, b≈1`), so a **SUCCEEDED run provably means it learned** — no metric scraping needed.
 
 ## When to use
 
@@ -26,7 +26,18 @@ api(){ local m="$1" p="$2" d="${3:-}" o c b
   case "$c" in 2[0-9][0-9]) printf '%s' "$b";; *) echo "DSP $m $p -> HTTP $c: $(printf '%s' "$b"|head -c200)">&2; return 1;; esac; }
 
 PID=$(api GET "/apis/v2beta1/pipelines?page_size=200" | python3 -c 'import sys,json;d=json.load(sys.stdin);print(next((p["pipeline_id"] for p in d.get("pipelines",[]) if p.get("display_name")=="genesis-model"),""))')
-[ -n "$PID" ] || { echo "genesis-model pipeline is not registered on the DSPA"; exit 1; }
+if [ -z "$PID" ]; then
+  # The DSPA doesn't have the pipeline yet — REGISTER it from the definition
+  # bundled with this skill. THIS is what makes the agent self-sufficient: no
+  # human pre-registers anything; the worker stands the pipeline up itself.
+  PIPE=$(ls -1 "$HOME"/.openclaw/workspaces/*/skills/genesis-train/pipeline.yaml 2>/dev/null | head -1)
+  [ -n "$PIPE" ] || PIPE=$(find "$HOME" -path '*skills/genesis-train/pipeline.yaml' 2>/dev/null | head -1)
+  [ -n "$PIPE" ] || { echo "bundled genesis-model pipeline.yaml not found next to this skill"; exit 1; }
+  echo "genesis-model is not on the DSPA yet — registering it from $PIPE …"
+  PID=$(curl -sk --connect-timeout 10 -H "Authorization: Bearer $TOK" -F "uploadfile=@$PIPE;type=application/x-yaml" "$DSP/apis/v2beta1/pipelines/upload?name=genesis-model&description=Genesis%20first-principles%20model" | jf pipeline_id)
+  [ -n "$PID" ] || { echo "could not register the genesis-model pipeline on the DSPA"; exit 1; }
+  echo "registered genesis-model (pipeline_id=$PID)"
+fi
 EID=$(api GET "/apis/v2beta1/experiments?page_size=200" | python3 -c 'import sys,json;d=json.load(sys.stdin);print(next((e["experiment_id"] for e in d.get("experiments",[]) if e.get("display_name")=="genesis-model"),""))')
 [ -n "$EID" ] || EID=$(api POST "/apis/v2beta1/experiments" '{"display_name":"genesis-model","description":"Genesis first-principles model runs"}' | jf experiment_id)
 TS=$(date +%Y%m%d-%H%M%S)

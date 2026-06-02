@@ -23,9 +23,11 @@ spec:
       value: '{{revision}}'
     # Bump :v0.0.x here + set AgentGateway.spec.skillsImage to the new tag
     # (operator >= v1.7.4) to roll a new skill catalog into agent pods —
-    # no operator release needed. v0.0.2 adds the genesis-train skill.
+    # no operator release needed. v0.0.2 adds the genesis-train skill;
+    # v0.0.3 makes genesis-train self-register its DSPA pipeline (bundled
+    # pipeline.yaml) so the worker stands up the training itself.
     - name: output-image
-      value: 'quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/agent-office-skills:v0.0.2'
+      value: 'quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/agent-office-skills:v0.0.3'
     - name: dockerfile
       value: skills-image/Containerfile
     - name: path-context
