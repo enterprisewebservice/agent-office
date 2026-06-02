@@ -34,19 +34,25 @@ resources:
   # ESO chain
   - githubaccesstoken-generator.yaml
   - externalsecret-installation-token.yaml
-  # Server itself
+  # Server itself (+ the Accept-header normalizer sidecar config — the
+  # github-MCP root-cause fix; see accept-proxy-config.yaml for the why)
+  - accept-proxy-config.yaml
   - mcp-server-deployment.yaml
   - mcp-server-service.yaml
-  # MCP Gateway wiring (federation pieces; the backend AuthPolicy in
-  # gateway/backend-auth-policy.yaml is deliberately commented OUT —
-  # Authorino CEL syntax for k8s-secret metadata lookup is fiddly;
-  # we'll iterate on it once the rest of the chain is live and we
-  # know the agent-side auth model. For now the github-mcp-server's
-  # auth requirement is satisfied by the agent sending its own
-  # Authorization header (the broker passes through).)
+  # MCP Gateway wiring (federation pieces). The backend AuthPolicy injects
+  # the rotating App installation token into the PER-REQUEST Authorization
+  # header — this is REQUIRED, not optional: per the Kuadrant docs,
+  # credentialRef is used only by the broker for tool DISCOVERY, never on
+  # forwarded tool calls. Without the AuthPolicy the agent's own header
+  # passes through to github-mcp-server and github rejects it (401 Bad
+  # credentials). Authorino reads the token via a dedicated least-privilege
+  # reader SA (gateway/authorino-rbac.yaml) using sharedSecretRef — the prior
+  # hand-rolled `auth.identity.token` was empty under anonymous auth.
   - gateway/mcp-gateway.yaml
   - gateway/mcp-gateway-extension.yaml
   - gateway/github-mcp-server-route.yaml
   - gateway/github-mcp-registration.yaml
   - gateway/broker-token-externalsecret.yaml
   - gateway/broker-rbac.yaml
+  - gateway/authorino-rbac.yaml
+  - gateway/backend-auth-policy.yaml

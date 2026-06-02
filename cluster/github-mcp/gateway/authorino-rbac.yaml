@@ -1,0 +1,66 @@
+# Reader identity for the backend AuthPolicy's secret lookup.
+#
+# The backend AuthPolicy (backend-auth-policy.yaml) must read the rotating
+# github-mcp-broker-token Secret at request time to inject its AUTHORIZATION
+# value ("Bearer <tok>") as the upstream Authorization header. Authorino
+# authenticates that Kubernetes API read via `sharedSecretRef` (per the
+# Authorino docs) — it needs a bearer token for a ServiceAccount that holds
+# `get` on exactly that one Secret.
+#
+# We use a DEDICATED, least-privilege SA (not Authorino's own) so the read
+# credential is scoped to this single Secret and nothing else.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: github-mcp-token-reader
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/name: github-mcp-server
+    app.kubernetes.io/component: backend-auth-policy
+    app.kubernetes.io/managed-by: agent-office-gitops
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: github-mcp-token-reader
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/name: github-mcp-server
+    app.kubernetes.io/component: backend-auth-policy
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["github-mcp-broker-token"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: github-mcp-token-reader
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/name: github-mcp-server
+    app.kubernetes.io/component: backend-auth-policy
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: github-mcp-token-reader
+subjects:
+  - kind: ServiceAccount
+    name: github-mcp-token-reader
+    namespace: agent-office
+---
+# Long-lived SA token for Authorino to bear when it reads the Secret. The
+# token controller populates `.data.token`. This token grants ONLY `get` on
+# github-mcp-installation-token (via the Role above) — minimal blast radius.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: github-mcp-token-reader-sa-token
+  namespace: agent-office
+  annotations:
+    kubernetes.io/service-account.name: github-mcp-token-reader
+  labels:
+    app.kubernetes.io/name: github-mcp-server
+    app.kubernetes.io/component: backend-auth-policy
+type: kubernetes.io/service-account-token

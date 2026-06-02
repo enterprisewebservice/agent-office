@@ -1,32 +1,50 @@
 # Backend AuthPolicy — Authorino rewrites the Authorization header on
 # every request the broker forwards to github-mcp-server.
 #
-# Why this exists: the upstream github-mcp-server requires every
-# incoming MCP request to carry an Authorization: Bearer <token>
-# header (the server validates the token AND uses it for outbound
-# GitHub calls). Agents calling the gateway don't know the App
-# installation token (rotated every 30min by ESO; agents have no
-# RBAC to read it). So the gateway has to inject it as the request
-# transits, using Authorino's response.success.headers feature.
+# Why this exists: the official github-mcp-server, run in HTTP mode
+# (`http --toolsets=all`), authenticates EVERY incoming MCP request
+# with that request's own `Authorization: Bearer <token>` header and
+# reuses the same token for its outbound GitHub API calls. Agents
+# calling the gateway do NOT know the App installation token (rotated
+# every 30min by ESO; agents have no RBAC to read it). So the gateway
+# must inject it as the request transits — Authorino's
+# response.success.headers feature does exactly that.
 #
-# Authorino reads the rotated token from the github-mcp-installation-
-# token Secret at REQUEST TIME via metadata.k8s-secret lookup — so
-# the value is always current; no caching, no stale-window risk.
-# (For this to work, the Authorino instance's SA needs Secret/get
-# RBAC on github-mcp-installation-token in agent-office. See
-# authorino-rbac.yaml in the same dir.)
+# Per the Kuadrant MCP-gateway docs, the MCPServerRegistration
+# credentialRef is consumed ONLY by the broker for tool DISCOVERY; it
+# is NOT applied to forwarded tool calls. Per-request injection on the
+# data path therefore REQUIRES this AuthPolicy on the HTTPRoute.
 #
-# Auth strategy in this AuthPolicy:
-#   - authentication: "anonymous" — accept any caller (the gateway
-#     itself is the trust boundary for MVP; in-cluster only).
-#     Tighten later by adding Kubernetes SA token validation here
-#     to ensure the request comes from openclaw/pm-agent pods only.
-#   - response.success.headers.authorization: inject Authorization
-#     header with the fresh App installation token, OVERWRITING
-#     whatever the caller sent (or filling in if nothing sent).
+# Token source — the base64 problem and why we read the broker-token:
+#   Authorino reads the token from a Secret at REQUEST TIME via a
+#   metadata HTTP lookup against the Kubernetes API, so the value is
+#   always the current rotated token (no caching, no stale window).
+#   The k8s API returns Secret `data` base64-encoded, and Authorino's
+#   CEL build has NO base64 decode — both `base64decode` and the
+#   cel-go `base64.decode` are undeclared refs that fail to compile
+#   (AuthConfig never enforces). The ONLY base64 mechanism Authorino
+#   exposes is the JSONPath `@base64:decode` modifier, usable from a
+#   `selector` (NOT a CEL `expression`). A selector resolves a single
+#   value and can't concatenate a literal "Bearer " prefix — so we
+#   read the github-mcp-broker-token Secret, whose AUTHORIZATION key
+#   already holds the full "Bearer <token>" string (built by the
+#   broker-token ExternalSecret template), and `@base64:decode` it as
+#   one unit. No CEL, no concatenation.
 #
-# The Authorization header value comes via CEL expression that
-# reads from the metadata block, prepending "Bearer ".
+#   The metadata read is authenticated with a dedicated least-
+#   privilege SA token (RBAC: get ONLY github-mcp-broker-token — see
+#   authorino-rbac.yaml), sent via sharedSecretRef. Under anonymous
+#   auth, auth.identity is empty, so the earlier `auth.identity.token`
+#   read silently failed and injected an empty token (a root cause of
+#   the 401s).
+#
+# Auth strategy:
+#   - authentication "anonymous": accept any caller (the in-cluster
+#     gateway is the trust boundary for MVP; tighten later with SA
+#     token validation so only openclaw/pm-agent pods are accepted).
+#   - response.success.headers.authorization: OVERWRITE the request's
+#     Authorization with the fresh "Bearer <token>", regardless of
+#     what the caller sent.
 apiVersion: kuadrant.io/v1
 kind: AuthPolicy
 metadata:
@@ -48,19 +66,27 @@ spec:
     metadata:
       "token_secret":
         http:
-          # Authorino reads the Secret via the Kubernetes API
-          urlExpression: "'https://kubernetes.default.svc/api/v1/namespaces/agent-office/secrets/github-mcp-installation-token'"
+          # Read the broker-token Secret (key AUTHORIZATION = "Bearer <tok>")
+          # via the k8s API at request time — always the current rotated token.
+          urlExpression: "'https://kubernetes.default.svc/api/v1/namespaces/agent-office/secrets/github-mcp-broker-token'"
           method: GET
           headers:
-            "Authorization":
-              expression: "'Bearer ' + auth.identity.token"
             "Accept":
               value: "application/json"
+        # Authenticate the k8s API read with the dedicated reader SA token
+        # (RBAC: get ONLY github-mcp-broker-token — authorino-rbac.yaml).
+        sharedSecretRef:
+          name: github-mcp-token-reader-sa-token
+          key: token
+        credentials:
+          authorizationHeader:
+            prefix: Bearer
     response:
       success:
         headers:
           "authorization":
             plain:
-              expression: |
-                'Bearer ' +
-                base64decode(auth.metadata.token_secret.data.GITHUB_PERSONAL_ACCESS_TOKEN)
+              # JSONPath selector + @base64:decode modifier (Authorino CEL has
+              # no base64). The broker-token's AUTHORIZATION value is already
+              # "Bearer <token>", so decoding it yields the complete header.
+              selector: auth.metadata.token_secret.data.AUTHORIZATION.@base64:decode

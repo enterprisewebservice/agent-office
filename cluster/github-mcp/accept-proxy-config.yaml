@@ -1,0 +1,59 @@
+# nginx config for the accept-proxy sidecar fronting github-mcp-server.
+#
+# WHY THIS EXISTS — the github MCP root cause:
+#   github-mcp-server's Streamable HTTP transport (official MCP Go SDK)
+#   strictly enforces the MCP spec: a POST whose Accept header lists
+#   `application/json` WITHOUT `text/event-stream` is rejected HTTP 400.
+#   The Red Hat MCP Gateway Router (which vendors mark3labs/mcp-go
+#   v0.53.0) sends exactly that incomplete `Accept: application/json`
+#   when it opens its upstream session, so every forwarded tool call
+#   failed with "4xx for initialize POST, likely a legacy SSE server"
+#   and the broker dropped the whole github toolset. (Proven by a
+#   request matrix: Accept json-only -> 400; add text/event-stream -> 200.)
+#
+#   This proxy OVERWRITES the Accept header on every request transiting
+#   to github-mcp-server so it always advertises both content types —
+#   making the Router's request spec-compliant at the one hop we own.
+#   It is a compatibility shim; remove it once the gateway Router ships
+#   a fixed mark3labs/mcp-go that sends the correct Accept header.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: github-mcp-accept-proxy
+  labels:
+    app.kubernetes.io/name: github-mcp-server
+    app.kubernetes.io/component: accept-proxy
+    app.kubernetes.io/managed-by: agent-office-gitops
+data:
+  nginx.conf: |
+    # Self-contained — all writable paths point at /tmp (an emptyDir) so
+    # the container can run with a random OpenShift UID.
+    pid /tmp/nginx.pid;
+    worker_processes 1;
+    error_log /dev/stderr warn;
+    events { worker_connections 1024; }
+    http {
+      client_body_temp_path /tmp/cbt;
+      proxy_temp_path        /tmp/pt;
+      fastcgi_temp_path      /tmp/fct;
+      uwsgi_temp_path        /tmp/ut;
+      scgi_temp_path         /tmp/st;
+      access_log /dev/stdout;
+      server {
+        listen 8080;
+        location / {
+          proxy_pass http://127.0.0.1:8082;
+          proxy_http_version 1.1;
+          # THE FIX: always advertise both content types upstream so the
+          # spec-strict github-mcp-server accepts the Router's request.
+          proxy_set_header Accept "application/json, text/event-stream";
+          proxy_set_header Connection "";
+          # Stream SSE (text/event-stream) responses through immediately —
+          # the broker's listen stream and tool responses must not buffer.
+          proxy_buffering off;
+          proxy_request_buffering off;
+          proxy_read_timeout 3600s;
+          proxy_send_timeout 3600s;
+        }
+      }
+    }
