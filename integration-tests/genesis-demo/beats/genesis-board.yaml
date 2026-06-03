@@ -100,12 +100,15 @@ spec:
         fi
 
         echo "=== assert: board \"$TITLE\" exists with >=6 items ==="
+        # Wide, patient window: a fresh/cold PM agent can finish adding the cards
+        # late, and GitHub Projects v2 GraphQL is eventually-consistent (newly
+        # added items lag in queries for a minute+). 30 x 10s = 5 min.
         ok=""
-        for i in $(seq 1 10); do
+        for i in $(seq 1 30); do
           boardquery > /tmp/b.json
           read -r BNUM BURL BITEMS < <(TITLE="$TITLE" python3 -c 'import sys,json,os;d=json.load(open("/tmp/b.json"));t=os.environ["TITLE"];n=next((x for x in d["data"]["organization"]["projectsV2"]["nodes"] if x["title"]==t),None);print((str(n["number"]),n["url"],str(n["items"]["totalCount"])) if n else ("","","0"))' | tr -d "()'," | sed "s/  */ /g")
           if [ -n "${BNUM:-}" ] && [ "${BITEMS:-0}" -ge 6 ] 2>/dev/null; then ok=1; break; fi
-          echo "  [$i] board not ready (num=${BNUM:-none} items=${BITEMS:-0})…"; sleep 6
+          echo "  [$i] board not ready (num=${BNUM:-none} items=${BITEMS:-0})…"; sleep 10
         done
         [ -n "$ok" ] || { echo "FAIL: board \"$TITLE\" missing or has <6 items"; exit 1; }
         echo "  ✓ board #$BNUM \"$TITLE\" has $BITEMS items — $BURL"
