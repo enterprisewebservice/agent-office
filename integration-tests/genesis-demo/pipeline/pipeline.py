@@ -53,13 +53,16 @@ def generate_data(
           f"{cut} train / {n - cut} test")
 
 
-@dsl.component(base_image=BASE_IMAGE, packages_to_install=["numpy==2.1.3"])
+@dsl.component(base_image=BASE_IMAGE, packages_to_install=["numpy==2.1.3", "mlflow-skinny==3.6.0"])
 def train_gd(
     train: dsl.Input[dsl.Dataset],
     epochs: int,
     lr: float,
     model: dsl.Output[dsl.Model],
     metrics: dsl.Output[dsl.Metrics],
+    mlflow_uri: str = "",
+    mlflow_workspace: str = "agent-office",
+    mlflow_experiment: str = "genesis-model",
 ):
     """The whole of machine learning, once, by hand.
 
@@ -68,7 +71,43 @@ def train_gd(
     That's gradient descent. There is nothing else under the hood of the
     giant models — only more parameters and more steps."""
     import json
+    import os
     import numpy as np
+
+    # --- optional MLflow tracking: stream the loss curve to the OpenShift AI
+    # MLflow tracking server. Auth is the documented RHOAI way: the pod's
+    # ServiceAccount token (-> Authorization: Bearer) + the workspace=namespace
+    # header (X-MLFLOW-WORKSPACE, sent by the client from MLFLOW_WORKSPACE).
+    # The pipeline SA needs the mlflow-operator-mlflow-view/-edit roles bound in
+    # the workspace namespace. If mlflow_uri is empty, tracking is skipped. ---
+    USE_MLFLOW = bool(mlflow_uri)
+    if USE_MLFLOW:
+        try:
+            os.environ["MLFLOW_TRACKING_INSECURE_TLS"] = "true"   # internal CA on :8443
+            _tok = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+            if os.path.exists(_tok):
+                os.environ["MLFLOW_TRACKING_TOKEN"] = open(_tok).read().strip()  # -> Authorization: Bearer
+            import mlflow
+            # RHOAI MLflow is multi-tenant: every REST call must carry the
+            # workspace=namespace header. The released client has no
+            # mlflow.set_workspace(), so register a request-header provider that
+            # injects X-MLFLOW-WORKSPACE on every call (the documented plugin hook).
+            from mlflow.tracking.request_header.abstract_request_header_provider import RequestHeaderProvider
+            from mlflow.tracking.request_header.registry import _request_header_provider_registry
+            class _WorkspaceHeader(RequestHeaderProvider):
+                def in_context(self):
+                    return True
+                def request_headers(self):
+                    return {"X-MLFLOW-WORKSPACE": mlflow_workspace}
+            _request_header_provider_registry.register(_WorkspaceHeader)
+            mlflow.set_tracking_uri(mlflow_uri)
+            mlflow.set_experiment(mlflow_experiment)
+            mlflow.start_run(run_name="genesis-gd")
+            mlflow.log_params({"epochs": epochs, "lr": lr})
+            print(f"MLflow: logging to {mlflow_uri} (workspace={mlflow_workspace}, experiment={mlflow_experiment})")
+        except Exception as e:
+            print(f"MLflow tracking disabled: {e}")
+            USE_MLFLOW = False
 
     d = json.load(open(train.path))
     x = np.array(d["x"]); y = np.array(d["y"])
@@ -83,6 +122,10 @@ def train_gd(
         db = float(2 * err.mean())        #           downhill direction for b
         w -= lr * dw                      # LEARN: step downhill
         b -= lr * db
+        if USE_MLFLOW:
+            mlflow.log_metric("loss", loss, step=epoch)   # the dropping loss curve
+            mlflow.log_metric("w", w, step=epoch)         # w crawling 0 -> 2
+            mlflow.log_metric("b", b, step=epoch)         # b crawling 0 -> 1
         if epoch % max(1, epochs // 20) == 0 or epoch == epochs - 1:
             history.append({"epoch": epoch, "loss": loss, "w": w, "b": b})
             print(f"epoch {epoch:4d}  loss={loss:.4f}  w={w:.4f}  b={b:.4f}")
@@ -92,6 +135,11 @@ def train_gd(
     metrics.log_metric("final_train_loss", round(loss, 6))
     metrics.log_metric("learned_w", round(w, 4))
     metrics.log_metric("learned_b", round(b, 4))
+    if USE_MLFLOW:
+        mlflow.log_metric("final_train_loss", round(loss, 6))
+        mlflow.log_metric("learned_w", round(w, 4))
+        mlflow.log_metric("learned_b", round(b, 4))
+        mlflow.end_run()
 
 
 @dsl.component(base_image=BASE_IMAGE, packages_to_install=["numpy==2.1.3"])
@@ -148,9 +196,19 @@ def genesis_pipeline(
     seed: int = 7,
     epochs: int = 300,
     lr: float = 0.05,
+    mlflow_uri: str = "https://mlflow.redhat-ods-applications.svc.cluster.local:8443",
+    mlflow_workspace: str = "agent-office",
+    mlflow_experiment: str = "genesis-model",
 ):
     data = generate_data(n=n, true_w=true_w, true_b=true_b, noise=noise, seed=seed)
-    trained = train_gd(train=data.outputs["train"], epochs=epochs, lr=lr)
+    trained = train_gd(
+        train=data.outputs["train"],
+        epochs=epochs,
+        lr=lr,
+        mlflow_uri=mlflow_uri,
+        mlflow_workspace=mlflow_workspace,
+        mlflow_experiment=mlflow_experiment,
+    )
     evaluate(
         test=data.outputs["test"],
         model=trained.outputs["model"],

@@ -22,6 +22,10 @@ export default defineConfig({
     // VISIBLE by default (matches the "show real Chromium" preference).
     // Set HEADLESS=1 for CI / headless runs.
     headless: process.env.HEADLESS === '1',
+    // Demo pace: SLOWMO=700 (ms between actions) makes the creation flow —
+    // especially the binder tabs (Knowledge Bases / Skills / MCP servers) —
+    // watchable for a recording. Unset / 0 = full speed (CI default).
+    launchOptions: { slowMo: Number(process.env.SLOWMO) || 0 },
     ignoreHTTPSErrors: true, // cluster route uses an internal CA
     actionTimeout: 30 * 1000,
     navigationTimeout: 60 * 1000,

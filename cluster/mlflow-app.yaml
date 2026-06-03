@@ -1,0 +1,31 @@
+# ArgoCD Application — reconciles cluster/mlflow/ into agent-office.
+#
+# Provides the OpenShift AI MLflow tracking server (MLflow CR) + the workspace
+# RoleBindings the genesis-train pipeline needs to log its loss curve.
+#
+# Prerequisite (out-of-band — see cluster/mlflow/README.md): the MLflow component
+# must be enabled on the DataScienceCluster (mlflowoperator: Managed) so the
+# mlflow.opendatahub.io API + the mlflow-operator-mlflow-{view,edit} ClusterRoles
+# exist. Apply this Application once: oc apply -f cluster/mlflow-app.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: mlflow
+  namespace: openshift-gitops
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/enterprisewebservice/agent-office.git
+    targetRevision: main
+    path: cluster/mlflow
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: agent-office
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true

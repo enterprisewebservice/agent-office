@@ -1,0 +1,57 @@
+# Workspace RBAC for the OpenShift AI MLflow server.
+#
+# The RHOAI MLflow server is multi-tenant: it authorizes every API call with a
+# SelfSubjectAccessReview against the workspace = namespace, mapping MLflow ops
+# to verbs on the virtual mlflow.kubeflow.org resources (experiments /
+# registeredmodels / jobs). Red Hat ships the mlflow-operator-mlflow-{view,edit}
+# ClusterRoles for exactly this. We bind:
+#   - pipeline-runner-dspa (the SA the DSPA runs training pods as) -> view + edit,
+#     so train_gd can search/create experiments and log metrics in this workspace.
+#   - default (the gateway/agent SA) -> view, so agents can read their own runs.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: pipeline-runner-dspa-mlflow-view
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/part-of: agent-office-genesis-demo
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: mlflow-operator-mlflow-view
+subjects:
+  - kind: ServiceAccount
+    name: pipeline-runner-dspa
+    namespace: agent-office
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: pipeline-runner-dspa-mlflow-edit
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/part-of: agent-office-genesis-demo
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: mlflow-operator-mlflow-edit
+subjects:
+  - kind: ServiceAccount
+    name: pipeline-runner-dspa
+    namespace: agent-office
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: default-mlflow-view
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/part-of: agent-office-genesis-demo
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: mlflow-operator-mlflow-view
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: agent-office

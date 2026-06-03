@@ -36,6 +36,10 @@ const SYSTEM_PROMPT =
 const NS = 'agent-office';
 const OWNER = 'enterprisewebservice';
 const KEEP = process.env.KEEP_AGENT === '1';
+// DEMO=1 lingers on the Compose/binder step (Knowledge Bases / Skills / MCP
+// tabs) so a recorder can narrate the plugin. DEMO_DWELL_MS tunes it (default 10s).
+const DEMO = process.env.DEMO === '1';
+const DWELL = Number(process.env.DEMO_DWELL_MS) || 10000;
 const TOPIC =
   process.env.KB_TOPIC ||
   'First principles of model creation: data, hypothesis (y=wx+b), loss (MSE), gradient descent, evaluation.';
@@ -99,6 +103,9 @@ test('create + populate a KB via the openclaw-agent wizard', async ({
     // Page 4 (Compose): check "create new KB" + fill the topic
     const kbBox = page.locator('#root_createNewKnowledgeBase');
     if (!kbChecked && (await kbBox.count()) && (await kbBox.isVisible())) {
+      // DEMO: pause on the binder so the narrator can walk the
+      // Knowledge Bases / Skills / MCP servers tabs before we interact.
+      if (DEMO) await page.waitForTimeout(DWELL);
       await kbBox.check().catch(async () => {
         await page.getByText(/Also create a NEW knowledge base/i).click();
       });
