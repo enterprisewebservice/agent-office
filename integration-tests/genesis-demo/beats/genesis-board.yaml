@@ -95,7 +95,7 @@ spec:
           GWPOD=$($OC get pods -n "$NS" -l agentoffice.ai/gateway="$GW" --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}')
           [ -n "$GWPOD" ] || { echo "FAIL: no Running pod for gateway $GW"; exit 1; }
           MSG="You are the PM agent for the Genesis Model project. PROJECT GOAL: build the smallest, most concrete first-principles predictive model — trained on OpenShift AI — that a learner can build on to truly understand how models are created from first principles (data -> hypothesis -> loss -> gradient descent -> evaluation -> iteration). Using your governed MCP tools, do these steps IN ORDER: 1. Create a GitHub project board titled \"$TITLE\" owned by org $OWNER. Use projectboard_create_project_board with owner_type \"org\". 2. Decompose the goal into exactly 6 concrete, sequenced first-principles tasks. For EACH task create a GitHub issue in repo $OWNER/$REPO using github_issue_write, with a clear imperative title and a 1-2 sentence body stating the concrete deliverable AND the first-principles concept it teaches. 3. Add each issue you created to the \"$TITLE\" board using github_projects_write (add_project_item). Finally report the board URL and the issue numbers + titles you created."
-          $OC exec -n "$NS" "$GWPOD" -c openclaw -- openclaw agent --agent "$AGENT" --message "$MSG" --json --timeout 540 >/tmp/pm.json 2>&1 || true
+          $OC exec -n "$NS" "$GWPOD" -c openclaw -- openclaw agent --agent "$AGENT" --message "$MSG" --json --timeout 900 >/tmp/pm.json 2>&1 || true
           echo "  pm-agent run finished (stopReason: $(grep -o '"stopReason":"[a-z]*"' /tmp/pm.json | tail -1))"
         fi
 
