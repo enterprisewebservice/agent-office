@@ -1,21 +1,26 @@
 # nginx config for the accept-proxy sidecar fronting github-mcp-server.
 #
-# WHY THIS EXISTS — the github MCP root cause:
-#   github-mcp-server's Streamable HTTP transport (official MCP Go SDK)
-#   strictly enforces the MCP spec: a POST whose Accept header lists
-#   `application/json` WITHOUT `text/event-stream` is rejected HTTP 400.
-#   The Red Hat MCP Gateway Router (which vendors mark3labs/mcp-go
-#   v0.53.0) sends exactly that incomplete `Accept: application/json`
-#   when it opens its upstream session, so every forwarded tool call
-#   failed with "4xx for initialize POST, likely a legacy SSE server"
-#   and the broker dropped the whole github toolset. (Proven by a
-#   request matrix: Accept json-only -> 400; add text/event-stream -> 200.)
+# It does TWO things for the governed github MCP path:
 #
-#   This proxy OVERWRITES the Accept header on every request transiting
-#   to github-mcp-server so it always advertises both content types —
-#   making the Router's request spec-compliant at the one hop we own.
-#   It is a compatibility shim; remove it once the gateway Router ships
-#   a fixed mark3labs/mcp-go that sends the correct Accept header.
+# 1. ACCEPT normalization — advertises both `application/json` and
+#    `text/event-stream` upstream. The Kuadrant gateway's data path (mcp-go)
+#    is Streamable-HTTP/SSE; a POST that omits text/event-stream is 400'd.
+#
+# 2. AUTH injection (the real fix) — sets the Authorization header to the
+#    governed GitHub App token on EVERY upstream request. Per the Kuadrant
+#    guide (docs/guides/external-mcp-server.md), the MCPServerRegistration
+#    `credentialRef` is consumed ONLY by the broker for tool DISCOVERY; it is
+#    NOT propagated to the router's per-call `initialize` (Kuadrant issue
+#    #926). So tool CALLS reached github-mcp-server without a usable
+#    credential and were rejected (400/401 — "legacy SSE" was a misleading
+#    relabel). We inject the shared App token here — the one hop on the
+#    direct Service path that BOTH the broker and the router traverse — so
+#    every upstream request authenticates. The agent never holds the token
+#    (the governance boundary is preserved).
+#
+#    The token is baked into /tmp/auth.conf at container start from the
+#    mounted github-mcp-broker-token Secret (see the Deployment command), and
+#    Reloader restarts the pod when that Secret rotates so the bake refreshes.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -44,14 +49,14 @@ data:
         location / {
           proxy_pass http://127.0.0.1:8082;
           proxy_http_version 1.1;
-          # THE FIX: always advertise both content types upstream so the
-          # spec-strict github-mcp-server accepts the Router's request.
+          # (1) Accept normalization.
           proxy_set_header Accept "application/json, text/event-stream";
+          # (2) Governed App-token injection — baked from the mounted Secret
+          #     at startup as: proxy_set_header Authorization "Bearer <tok>";
+          include /tmp/auth.conf;
           proxy_set_header Connection "";
-          # Stream SSE (text/event-stream) responses through immediately —
-          # the broker's listen stream and tool responses must not buffer.
+          # Stream SSE responses straight through (no buffering).
           proxy_buffering off;
-          proxy_request_buffering off;
           proxy_read_timeout 3600s;
           proxy_send_timeout 3600s;
         }

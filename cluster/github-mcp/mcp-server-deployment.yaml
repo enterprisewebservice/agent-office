@@ -15,17 +15,17 @@
 #   2. mcp-server (github)  — the official server on :8082 (internal only).
 #
 # WHY the accept-proxy (the github-MCP root cause):
-#   github-mcp-server's Streamable HTTP transport (official MCP Go SDK)
-#   strictly enforces the spec — a POST whose Accept header omits
-#   `text/event-stream` is rejected HTTP 400. The Red Hat MCP Gateway
-#   Router (vendoring mark3labs/mcp-go v0.53.0) sends an incomplete
-#   `Accept: application/json` when opening its upstream session, so
-#   every forwarded tool call failed ("4xx for initialize POST, likely a
-#   legacy SSE server") and the broker dropped the github toolset. The
-#   proxy rewrites Accept to list both content types, making the Router's
-#   request spec-compliant at the one hop we control. Remove this shim
-#   once the gateway ships a fixed mark3labs/mcp-go. Config + full
-#   rationale: accept-proxy-config.yaml.
+#   The MCPServerRegistration `credentialRef` is consumed ONLY by the broker
+#   for tool DISCOVERY (per the Kuadrant external-mcp-server guide); it is NOT
+#   propagated to the router's per-call `initialize` (Kuadrant issue #926). So
+#   tool DISCOVERY worked (broker 200) but tool CALLS reached github-mcp-server
+#   unauthenticated and were rejected (400/401 — mark3labs/mcp-go mislabels
+#   that as "legacy SSE / 4xx for initialize POST"). The accept-proxy injects
+#   the governed App token on EVERY upstream request — the one hop on the
+#   direct Service path both the broker and router traverse — so calls
+#   authenticate, while the agent never holds the token. It also normalizes
+#   the Accept header (Streamable-HTTP/SSE) defensively. Full rationale +
+#   config: accept-proxy-config.yaml.
 #
 # Image is pinned by DIGEST (not :latest): a silent :latest drift to a
 # stricter server build is exactly what broke this. Pin so upgrades are
@@ -41,8 +41,10 @@ metadata:
     app.kubernetes.io/component: mcp-server
     app.kubernetes.io/managed-by: agent-office-gitops
   annotations:
-    # Reloader: bounce the Deployment when the rotated token Secret changes.
-    secret.reloader.stakater.com/reload: "github-mcp-installation-token"
+    # Reloader: bounce the Deployment when EITHER rotated token Secret changes
+    # — installation-token (server env fallback) or broker-token (the App
+    # token the accept-proxy injects; bounce re-bakes it from the Secret).
+    secret.reloader.stakater.com/reload: "github-mcp-installation-token,github-mcp-broker-token"
 spec:
   replicas: 1
   selector:
@@ -65,9 +67,15 @@ spec:
         - name: accept-proxy
           image: registry.access.redhat.com/ubi9/nginx-124:latest
           imagePullPolicy: IfNotPresent
-          # Run nginx directly with our self-contained config (bypasses the
-          # s2i run wrapper). Config is mounted at /etc/nginx/nginx.conf.
-          command: ["nginx", "-g", "daemon off;"]
+          # Bake the governed App token from the mounted broker-token Secret
+          # into the nginx include (/tmp/auth.conf), then run nginx with our
+          # self-contained config. The agent never holds the token; Reloader
+          # restarts the pod on Secret rotation so the bake refreshes.
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              printf 'proxy_set_header Authorization "%s";\n' "$(tr -d '\n' < /run/ghtoken/AUTHORIZATION)" > /tmp/auth.conf
+              exec nginx -g 'daemon off;'
           ports:
             - name: sse            # the Service targets this named port
               containerPort: 8080
@@ -84,6 +92,7 @@ spec:
           volumeMounts:
             - {name: accept-proxy-config, mountPath: /etc/nginx/nginx.conf, subPath: nginx.conf, readOnly: true}
             - {name: nginx-tmp, mountPath: /tmp}
+            - {name: ghtoken, mountPath: /run/ghtoken, readOnly: true}
           securityContext:
             allowPrivilegeEscalation: false
             capabilities: {drop: [ALL]}
@@ -92,8 +101,10 @@ spec:
             limits:   {cpu: 200m, memory: 128Mi}
         # ── 2. The official github-mcp-server (internal :8082) ──
         - name: mcp-server
-          # Pinned by digest (was :latest — see header comment).
-          image: ghcr.io/github/github-mcp-server@sha256:458c77c8a77c2e6ada1db56396bae79c81485c296b77ac7aa7c5afed49010a88
+          # Pinned to a release tag (was :latest — the silent drift it caused
+          # is the kind of surprise we don't want). v1.1.2 ships the current
+          # MCP go-sdk; update deliberately.
+          image: ghcr.io/github/github-mcp-server:v1.1.2
           imagePullPolicy: IfNotPresent
           # Streamable HTTP on :8082 (internal; the accept-proxy fronts it
           # on :8080). --toolsets=all covers projects, issues, repos, etc.
@@ -131,3 +142,8 @@ spec:
             name: github-mcp-accept-proxy
         - name: nginx-tmp
           emptyDir: {}
+        # The governed App token the accept-proxy injects (key: AUTHORIZATION
+        # = "Bearer <tok>"). Same Secret the broker uses via credentialRef.
+        - name: ghtoken
+          secret:
+            secretName: github-mcp-broker-token

@@ -34,25 +34,22 @@ resources:
   # ESO chain
   - githubaccesstoken-generator.yaml
   - externalsecret-installation-token.yaml
-  # Server itself (+ the Accept-header normalizer sidecar config — the
-  # github-MCP root-cause fix; see accept-proxy-config.yaml for the why)
+  # Server itself (+ the accept-proxy sidecar config — injects the governed
+  # App token on the upstream call path, which is the github-MCP fix; see
+  # accept-proxy-config.yaml for the full why)
   - accept-proxy-config.yaml
   - mcp-server-deployment.yaml
   - mcp-server-service.yaml
-  # MCP Gateway wiring (federation pieces). The backend AuthPolicy injects
-  # the rotating App installation token into the PER-REQUEST Authorization
-  # header — this is REQUIRED, not optional: per the Kuadrant docs,
-  # credentialRef is used only by the broker for tool DISCOVERY, never on
-  # forwarded tool calls. Without the AuthPolicy the agent's own header
-  # passes through to github-mcp-server and github rejects it (401 Bad
-  # credentials). Authorino reads the token via a dedicated least-privilege
-  # reader SA (gateway/authorino-rbac.yaml) using sharedSecretRef — the prior
-  # hand-rolled `auth.identity.token` was empty under anonymous auth.
+  # MCP Gateway wiring (federation pieces). credentialRef (broker-rbac +
+  # broker-token-externalsecret) gives the broker the App token for tool
+  # DISCOVERY. Tool CALLS are authenticated by the accept-proxy injecting the
+  # same token on the call path (see mcp-server-deployment.yaml) — NOT by an
+  # AuthPolicy: the router connects to the backend Service directly, bypassing
+  # the Gateway route an AuthPolicy would target (Kuadrant issue #926). The
+  # earlier backend-auth-policy + authorino-rbac were removed as dead weight.
   - gateway/mcp-gateway.yaml
   - gateway/mcp-gateway-extension.yaml
   - gateway/github-mcp-server-route.yaml
   - gateway/github-mcp-registration.yaml
   - gateway/broker-token-externalsecret.yaml
   - gateway/broker-rbac.yaml
-  - gateway/authorino-rbac.yaml
-  - gateway/backend-auth-policy.yaml
