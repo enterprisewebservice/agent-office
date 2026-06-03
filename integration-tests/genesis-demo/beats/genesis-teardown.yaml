@@ -170,7 +170,11 @@ spec:
           for eid in $(d "$DSP/apis/v2beta1/experiments?page_size=200" | python3 -c 'import sys,json;[print(e["experiment_id"]) for e in json.load(sys.stdin).get("experiments",[]) if e.get("display_name")=="genesis-model"]' 2>/dev/null); do
             d -X DELETE "$DSP/apis/v2beta1/experiments/$eid" >/dev/null && echo "  deleted experiment $eid"
           done
-          [ -n "$PID" ] && { d -X DELETE "$DSP/apis/v2beta1/pipelines/$PID" >/dev/null && echo "  deleted pipeline genesis-model"; } || echo "  (no genesis-model pipeline)"
+          # cascade=true is REQUIRED: KFP 400s a pipeline delete while it still
+          # has versions ("Set cascade=true to delete all versions"). Without it
+          # the genesis-model pipeline silently persists across teardowns, so the
+          # next genesis-train reuses the stale pipeline instead of re-registering.
+          [ -n "$PID" ] && { d -X DELETE "$DSP/apis/v2beta1/pipelines/$PID?cascade=true" >/dev/null && echo "  deleted pipeline genesis-model"; } || echo "  (no genesis-model pipeline)"
         else echo "  skipped (clean-dsp=false)"; fi
 
         echo "############ 4. GITHUB (board + tracker repo + issues) ############"
