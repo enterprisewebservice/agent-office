@@ -58,7 +58,7 @@ echo "RESULT: timed out waiting for the run"; exit 1
 
 ## How to report back
 
-State plainly whether it **learned**. If the run SUCCEEDED, say the Genesis model trained on OpenShift AI and recovered the universe's true slope and intercept (`w≈2, b≈1`) from noisy data — that's gradient descent working — and point the user to **Experiments and runs → genesis-model** in the OpenShift AI dashboard to see the loss fall and the `learned_w` / `learned_b` metrics. If it FAILED, say so and share the last state.
+State plainly whether it **learned**. If the run SUCCEEDED, say the Genesis model trained on OpenShift AI and recovered the universe's true slope and intercept (`w≈2, b≈1`) from noisy data — that's gradient descent working — and point the user to **Experiments and runs → genesis-model** in the OpenShift AI dashboard to see the loss fall and the `learned_w` / `learned_b` metrics. The training also streams a live **loss curve** (loss, w, b logged every epoch) to the OpenShift AI **MLflow** UI — open MLflow → Experiments → `genesis-model` → the `genesis-gd` run → `loss` to watch the descent as a chart (loss 13 → 0.2, w → 2, b → 1). If it FAILED, say so and share the last state.
 
 ## If you're a worker on a kanban board
 

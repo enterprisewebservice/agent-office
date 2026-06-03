@@ -1,0 +1,28 @@
+# OpenShift AI MLflow tracking server (Red Hat MLflow operator).
+#
+# The genesis-train pipeline streams its training curves (loss, w, b per epoch)
+# here, so a SUCCEEDED run shows the model visibly learning: loss 13 -> 0.2,
+# w -> 2, b -> 1, in Experiments -> genesis-model -> run genesis-gd.
+#
+# PREREQUISITE (out-of-band, RHOAI-owned — see README.md): the MLflow component
+# must be enabled on the DataScienceCluster:
+#   oc patch datasciencecluster default-dsc --type merge \
+#     -p '{"spec":{"components":{"mlflowoperator":{"managementState":"Managed"}}}}'
+#
+# The CR name MUST be "mlflow" (the operator enforces a per-namespace singleton).
+# PVC-backed: sqlite metadata + file artifacts on the volume — no external DB/S3.
+apiVersion: mlflow.opendatahub.io/v1
+kind: MLflow
+metadata:
+  name: mlflow
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/part-of: agent-office-genesis-demo
+spec:
+  serveArtifacts: true
+  storage:
+    accessModes:
+      - ReadWriteOnce
+    resources:
+      requests:
+        storage: 5Gi
