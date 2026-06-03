@@ -82,11 +82,20 @@ spec:
         [ -n "$BNUM" ] || { echo "FAIL: board \"$TITLE\" not found — run genesis-board first"; exit 1; }
         echo "  board #$BNUM"
 
+        echo "=== pick the board's first OPEN issue (robust to issue-number drift across runs) ==="
+        # task-number is a hint; what we actually work is the lowest-numbered
+        # OPEN issue that's ON this board, so the card always exists to move.
+        curl -s -H "Authorization: Bearer $TOK" -X POST https://api.github.com/graphql \
+          -d '{"query":"query{organization(login:\"'"$OWNER"'\"){projectV2(number:'"$BNUM"'){items(first:50){nodes{content{... on Issue{number state repository{name}}}}}}}}"}' > /tmp/items0.json
+        N=$(REPO="$REPO" python3 -c 'import json,os;d=json.load(open("/tmp/items0.json"));repo=os.environ["REPO"];nodes=(((d.get("data") or {}).get("organization") or {}).get("projectV2") or {}).get("items",{}).get("nodes",[]);opens=sorted(c["number"] for it in nodes if (c:=it.get("content")) and c.get("state")=="OPEN" and (c.get("repository") or {}).get("name")==repo);print(opens[0] if opens else "")')
+        [ -n "$N" ] || { echo "FAIL: no OPEN issue on board #$BNUM (run genesis-board first, or the board is already fully done)"; exit 1; }
+        echo "  working the board's first OPEN issue: #$N"
+
         echo "=== drive the REAL worker $AGENT on task #$N ==="
         GWPOD=$($OC get pods -n "$NS" -l agentoffice.ai/gateway="$GW" --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}')
         [ -n "$GWPOD" ] || { echo "FAIL: no Running pod for gateway $GW"; exit 1; }
         MSG="You are a worker engineer on the \"$TITLE\" project (org $OWNER, board number $BNUM, tracker repo $OWNER/$REPO). Complete TASK #$N end to end. 1. Read issue #$N in $OWNER/$REPO (github_issue_read) to understand the task. If it is already closed, report that and stop. 2. DO THE WORK: author a concrete, correct first-principles deliverable specific to THIS task and push it to branch main at path docs/task-$N.md using github_push_files (about 25 lines, specific and technically correct for the Genesis Model where the data law is y = 2x + 1 + noise). 3. Add a comment on issue #$N summarizing the deliverable and its path. 4. Close issue #$N (github_issue_write, state closed). 5. Move the issue's card on board number $BNUM to Done: use github_projects_list/github_projects_read to find the board's Status field id, its Done option id, and the item id for issue #$N, then github_projects_write update_project_item to set Status = Done. Report what you pushed, that the issue is closed, and that the card is Done."
-        $OC exec -n "$NS" "$GWPOD" -c openclaw -- openclaw agent --agent "$AGENT" --message "$MSG" --json --timeout 540 >/tmp/w.json 2>&1 || true
+        $OC exec -n "$NS" "$GWPOD" -c openclaw -- openclaw agent --agent "$AGENT" --message "$MSG" --json --timeout 720 >/tmp/w.json 2>&1 || true
         echo "  worker run finished (stopReason: $(grep -o '"stopReason":"[a-z]*"' /tmp/w.json | tail -1))"
 
         echo "=== assert: deliverable docs/task-$N.md pushed ==="
