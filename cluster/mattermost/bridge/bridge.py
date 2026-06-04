@@ -208,8 +208,8 @@ def drive(agent, gw, text):
         return "(my gateway is unavailable right now)"
     try:
         out = subprocess.run(["oc", "exec", "-n", GW_NS, pod, "-c", "openclaw", "--",
-            "openclaw", "agent", "--agent", agent, "--message", text, "--timeout", "150"],
-            capture_output=True, text=True, timeout=200)
+            "openclaw", "agent", "--agent", agent, "--message", text, "--timeout", "1200"],
+            capture_output=True, text=True, timeout=1260)
     except subprocess.TimeoutExpired:
         return "(I took too long thinking — try again?)"
     return ANSI.sub("", out.stdout).strip() or "(no reply)"
