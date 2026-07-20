@@ -1,0 +1,14 @@
+# Pipelines-as-Code onboarding for supply-chain-demo repos — DECLARATIVE.
+# A Repository CR is all PaC needs to accept webhooks for a repo (the org-wide
+# GitHub App delivers them); the repo itself carries its .tekton/ pipeline.
+# This is the mechanism forge-dev's golden-path template relies on: publish the
+# repo + this CR lands via gitops -> first push builds, no console clicks.
+apiVersion: pipelinesascode.tekton.dev/v1alpha1
+kind: Repository
+metadata:
+  name: konflux-onboard-spike
+  namespace: default-tenant
+  labels:
+    app.kubernetes.io/part-of: supply-chain-demo
+spec:
+  url: https://github.com/enterprisewebservice/konflux-onboard-spike
