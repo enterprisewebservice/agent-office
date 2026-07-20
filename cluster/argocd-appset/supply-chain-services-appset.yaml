@@ -1,0 +1,48 @@
+# ApplicationSet for golden-path SERVICE repos (the supply-chain-demo scenario).
+# Mirrors agent-office-agents: SCM-provider generator + marker-file gating.
+# Any enterprisewebservice repo containing `gitops/applicationset-managed`
+# gets an ArgoCD Application syncing its gitops/ directory — publish a repo,
+# the service deploys; delete the repo, the app prunes. Zero console clicks.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: supply-chain-services
+  namespace: openshift-gitops
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - scmProvider:
+        github:
+          organization: enterprisewebservice
+          appSecretName: agent-office-github-app-scm
+        cloneProtocol: https
+        requeueAfterSeconds: 60
+        filters:
+          - repositoryMatch: '.*'
+            pathsExist: ['gitops/applicationset-managed']
+  template:
+    metadata:
+      name: '{{ .repository }}'
+      labels:
+        app.kubernetes.io/managed-by: supply-chain-services-appset
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+    spec:
+      project: default
+      source:
+        repoURL: '{{ .url }}'
+        targetRevision: '{{ .branch }}'
+        path: gitops
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: agent-office
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true

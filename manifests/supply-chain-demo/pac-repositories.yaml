@@ -12,3 +12,12 @@ metadata:
     app.kubernetes.io/part-of: supply-chain-demo
 spec:
   url: https://github.com/enterprisewebservice/konflux-onboard-spike
+---
+# golden-path-probe — inc-3 rails probe (template-rendered repo, untouched by hands)
+apiVersion: pipelinesascode.tekton.dev/v1alpha1
+kind: Repository
+metadata:
+  name: golden-path-probe
+  namespace: default-tenant
+spec:
+  url: https://github.com/enterprisewebservice/golden-path-probe

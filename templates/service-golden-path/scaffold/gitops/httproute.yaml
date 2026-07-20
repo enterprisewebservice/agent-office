@@ -1,0 +1,27 @@
+# Attaches __SVC__ to the MCP Gateway's `mcps` listener (same pattern as
+# projectboard-mcp): the broker routes per-tool MCP calls here.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: __SVC__-route
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/name: __SVC__
+    app.kubernetes.io/component: backend-route
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: mcp-gateway
+      namespace: agent-office
+      sectionName: mcps
+  hostnames:
+    - __SVC__.mcp.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /mcp
+      backendRefs:
+        - name: __SVC__
+          port: 8080

@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: __SVC__
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/name: __SVC__
+    app.kubernetes.io/part-of: supply-chain-services
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: __SVC__
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: __SVC__
+    spec:
+      containers:
+        - name: __SVC__
+          image: quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/__SVC__:main
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+              name: http
+          env:
+            - name: PORT
+              value: "8080"
+            - name: ORDERS_API_URL
+              value: "http://orders-api:8080"
+          readinessProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
