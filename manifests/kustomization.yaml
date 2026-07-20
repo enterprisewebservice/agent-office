@@ -16,6 +16,9 @@ kind: Kustomization
 resources:
   - deploy/agent-office-deploy.yaml
   - rbac/agent-office-rbac.yaml
+  # supply-chain demo scenery: the pre-existing endpoint the ops manager exports CSVs from
+  - supply-chain-demo/orders-api/orders-app.yaml
+  - supply-chain-demo/orders-api/orders-data.yaml
 # Image source-of-truth. Change `newTag` here to deploy a different version;
 # Image Updater rewrites it automatically when a new build lands.
 images:
