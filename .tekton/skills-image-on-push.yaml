@@ -29,7 +29,7 @@ spec:
     # v0.0.4 streams the training loss curve to OpenShift AI MLflow.
     # v0.0.5 adds weekly-ops-report (SME ops-summary skill; supply-chain scenario Act 3).
     - name: output-image
-      value: 'quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/agent-office-skills:v0.0.5'
+      value: 'quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/agent-office-skills:v0.0.6'
     - name: dockerfile
       value: skills-image/Containerfile
     - name: path-context
