@@ -2,6 +2,8 @@
 # tools/list; per-call routing through the HTTPRoute). credentialRef mirrors
 # projectboard-mcp: the broker requires an Authorization value for its
 # discovery connection even for backends that need no credential of their own.
+# NOTE: the declared CRD field is spec.prefix (NOT toolPrefix — that name is
+# pruned by client-side apply and REJECTED by ServerSideApply). Probe-caught.
 apiVersion: mcp.kuadrant.io/v1alpha1
 kind: MCPServerRegistration
 metadata:
@@ -11,7 +13,7 @@ metadata:
     app.kubernetes.io/name: __SVC__
     app.kubernetes.io/component: registration
 spec:
-  toolPrefix: __SVC___
+  prefix: __SVC___
   path: /mcp
   targetRef:
     group: gateway.networking.k8s.io

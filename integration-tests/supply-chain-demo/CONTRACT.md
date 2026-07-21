@@ -25,6 +25,8 @@ One process, port **8080** (env `PORT`), serving BOTH:
    - `metrics_stuck_orders(threshold_days: int = 7)`
    - `metrics_top_products(period_days: int = 30, n: int = 5)`
    Tool results are the same JSON objects as the REST mirrors below.
+   *(Names as surfaced through the gateway: register with `spec.prefix: metrics_` and name the
+   backend tools `weekly_summary` / `stuck_orders` / `top_products`.)*
 2. **REST mirrors** (what the acceptance test drives):
    - `GET /healthz` → `{"status":"ok","service":"ops-metrics","as_of":"<orders-api as_of>"}`
    - `GET /v1/summary?weeks=1`
