@@ -4,6 +4,8 @@
 # discovery connection even for backends that need no credential of their own.
 # NOTE: the declared CRD field is spec.prefix (NOT toolPrefix — that name is
 # pruned by client-side apply and REJECTED by ServerSideApply). Probe-caught.
+# ALSO probe-caught: prefix must match ^[a-z0-9][a-z0-9_]*$ — no hyphens —
+# so it renders from __SVC_PREFIX__ (service name with - -> _).
 apiVersion: mcp.kuadrant.io/v1alpha1
 kind: MCPServerRegistration
 metadata:
@@ -13,7 +15,7 @@ metadata:
     app.kubernetes.io/name: __SVC__
     app.kubernetes.io/component: registration
 spec:
-  prefix: __SVC___
+  prefix: __SVC_PREFIX___
   path: /mcp
   targetRef:
     group: gateway.networking.k8s.io
