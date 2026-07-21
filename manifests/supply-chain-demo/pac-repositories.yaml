@@ -21,3 +21,15 @@ metadata:
   namespace: default-tenant
 spec:
   url: https://github.com/enterprisewebservice/golden-path-probe
+---
+# ops-metrics — pre-staged rails for the supply-chain scenario centerpiece:
+# forge-dev creates + pushes the repo; this CR routes its PaC webhooks to
+# default-tenant the moment the first push lands. (Repo may not exist yet —
+# the CR just waits.)
+apiVersion: pipelinesascode.tekton.dev/v1alpha1
+kind: Repository
+metadata:
+  name: ops-metrics
+  namespace: default-tenant
+spec:
+  url: https://github.com/enterprisewebservice/ops-metrics
