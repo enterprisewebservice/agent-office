@@ -16,6 +16,8 @@ spec:
       labels:
         app.kubernetes.io/name: __SVC__
     spec:
+      imagePullSecrets:
+        - name: quay-pull-secret
       containers:
         - name: __SVC__
           image: quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/__SVC__:main
