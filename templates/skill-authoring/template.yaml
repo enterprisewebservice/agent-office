@@ -1,0 +1,119 @@
+# Backstage Software Template — skill-authoring
+#
+# Morgan's form (supply-chain scenario Act 3): a subject-matter expert turns
+# their working ritual into a governed, versioned skill — WITHOUT touching git
+# or YAML. The form PRs skills-image/skills/<name>/SKILL.md (+ the VERSION
+# trigger marker) into the agent-office repo; merging fires the Konflux
+# skills-image build (signed + SBOM), and the operator renders the new skill
+# into every agent workspace. The governance preamble is injected
+# automatically — every SME skill ships with the gateway language baked in.
+#
+# Registered in RHDH via catalog location (API-created; see NOTES.md).
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: skill-authoring
+  title: Author an Agent Skill
+  description: >
+    Turn your working procedure into a governed skill every agent can
+    discover. Plain English in, pull request out — the platform handles
+    signing, publishing, and distribution.
+  tags:
+    - agent-office
+    - skills
+    - sme
+spec:
+  owner: agent-office
+  type: skill
+
+  parameters:
+    - title: Skill identity
+      required: [name, oneliner]
+      properties:
+        name:
+          title: Skill name
+          type: string
+          description: "kebab-case, e.g. weekly-ops-report"
+          pattern: '^[a-z][a-z0-9-]*[a-z0-9]$'
+          maxLength: 40
+        oneliner:
+          title: What does this skill produce?
+          type: string
+          description: "One sentence, e.g. 'the Monday-morning summary of order operations'"
+
+    - title: The know-how
+      required: [when_to_use, procedure]
+      properties:
+        when_to_use:
+          title: When should an agent use this?
+          type: string
+          description: "Bullet the trigger situations — the requests/questions this covers"
+          ui:widget: textarea
+          ui:options: {rows: 4}
+        when_not:
+          title: When should an agent NOT use this?
+          type: string
+          description: "Boundaries and exclusions (optional but recommended)"
+          ui:widget: textarea
+          ui:options: {rows: 3}
+        procedure:
+          title: The procedure — your ritual, step by step
+          type: string
+          description: "Numbered steps, exactly as you'd teach a new hire. Name the tools where you use them."
+          ui:widget: textarea
+          ui:options: {rows: 8}
+        output_format:
+          title: Output format
+          type: string
+          description: "What the finished result should look like (optional)"
+          ui:widget: textarea
+          ui:options: {rows: 5}
+
+    - title: Governed tools
+      required: [tools]
+      properties:
+        tools:
+          title: Which governed tools does it call?
+          type: array
+          minItems: 1
+          items:
+            type: string
+          description: "Gateway tool names, e.g. metrics_weekly_summary, metrics_stuck_orders, metrics_top_products"
+          ui:options: {addable: true, orderable: false, removable: true}
+
+  steps:
+    - id: render
+      name: Render the skill package
+      action: fetch:template
+      input:
+        url: ./skeleton
+        values:
+          name: ${{ parameters.name }}
+          oneliner: ${{ parameters.oneliner }}
+          when_to_use: ${{ parameters.when_to_use }}
+          when_not: ${{ parameters.when_not }}
+          procedure: ${{ parameters.procedure }}
+          output_format: ${{ parameters.output_format }}
+          tools: ${{ parameters.tools }}
+
+    - id: pr
+      name: Open the pull request
+      action: publish:github:pull-request
+      input:
+        repoUrl: github.com?owner=enterprisewebservice&repo=agent-office
+        branchName: skill/${{ parameters.name }}
+        title: "skill: ${{ parameters.name }} (SME-authored via Dev Hub)"
+        description: |
+          New agent skill authored through the skill-authoring template.
+
+          - **Skill:** `${{ parameters.name }}` — ${{ parameters.oneliner }}
+          - **Governed tools:** ${{ parameters.tools | join(', ') }}
+
+          On merge: Konflux rebuilds the signed skills image; the operator
+          renders the skill into every agent workspace on the next roll.
+        targetPath: skills-image
+
+  output:
+    links:
+      - title: Review the pull request
+        url: ${{ steps.pr.output.remoteUrl }}

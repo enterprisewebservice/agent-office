@@ -1,0 +1,1 @@
+skill added via skill-authoring template: ${{ values.name }} — bump marker so the CEL path filter fires the skills-image build on merge
