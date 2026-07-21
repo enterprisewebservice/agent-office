@@ -1,0 +1,61 @@
+# Supply-chain demo — BEAT (Act 5): Morgan's sentence in chat, asserted
+# against the seeded truth. The answer key is loaded from fixtures.json at
+# main — the agent's chat numbers must match reality or this beat goes red.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: sc-report
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/part-of: agent-office-supply-chain-demo
+spec:
+  description: ops-reporter runs the weekly ops report; numbers must match fixtures (Act 5).
+  params:
+    - name: agent-name
+      type: string
+      default: ops-reporter
+    - name: mm-url
+      type: string
+      default: "http://mattermost.mattermost.svc.cluster.local:8065"
+  steps:
+    - name: report
+      image: registry.access.redhat.com/ubi9/ubi:latest
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        curl -sL "http://downloads.openshift-console.svc.cluster.local:80/amd64/linux/oc.tar" -o /tmp/oc.tar && tar -x -C /tmp -f /tmp/oc.tar oc
+        MT=$(/tmp/oc get secret mattermost-admin-token -n agent-office -o jsonpath='{.data.token}' | base64 -d)
+        MM="$(params.mm-url)"
+        h(){ curl -s -H "Authorization: Bearer $MT" -H "Content-Type: application/json" "$@"; }
+        curl -sfL "https://raw.githubusercontent.com/enterprisewebservice/agent-office/main/manifests/supply-chain-demo/orders-api/hack/fixtures.json" -o /tmp/fx.json
+        read -r ORD REV STK FID <<<"$(python3 -c "
+        import json;f=json.load(open('/tmp/fx.json'))
+        print(f['weekly_summary']['orders'], int(f['weekly_summary']['revenue']), f['stuck_orders']['count'], f['stuck_orders']['ids'][0])")"
+        echo "answer key: orders=$ORD revenue=$REV stuck=$STK first_id=$FID"
+        TEAM_ID=$(h "$MM/api/v4/teams/name/agents" | python3 -c "import json,sys;print(json.load(sys.stdin)['id'])")
+        CH=$(h "$MM/api/v4/teams/$TEAM_ID/channels/name/$(params.agent-name)" | python3 -c "import json,sys;print(json.load(sys.stdin)['id'])")
+        BOT=$(h "$MM/api/v4/users/username/$(params.agent-name)" | python3 -c "import json,sys;print(json.load(sys.stdin)['id'])")
+        h -X POST "$MM/api/v4/channels/$CH/members" -d "{\"user_id\":\"$(h "$MM/api/v4/users/me" | python3 -c "import json,sys;print(json.load(sys.stdin)['id'])")\"}" >/dev/null 2>&1 || true
+        NOW=$(python3 -c "import time;print(int(time.time()*1000))")
+        h -X POST "$MM/api/v4/posts" -d "{\"channel_id\":\"$CH\",\"message\":\"Run my weekly ops report.\"}" >/dev/null
+        echo "asked; waiting for the report…"
+        for i in $(seq 1 60); do
+          R=$(h "$MM/api/v4/channels/$CH/posts?per_page=15" | python3 -c "
+        import sys,json
+        d=json.load(sys.stdin)
+        for p in d['order']:
+            m=d['posts'][p]
+            if m['user_id']=='$BOT' and m['create_at']>$NOW and not m.get('type') and not m['message'].strip().startswith('['):
+                print(m['message'][:1500]); break")
+          if [ -n "$R" ]; then
+            echo "=== report ==="; echo "$R"; echo "=== assertions ==="
+            FAIL=0
+            echo "$R" | grep -qE "\b$ORD\b"    && echo "PASS orders=$ORD"    || { echo "FAIL orders";  FAIL=1; }
+            echo "$R" | grep -qE "187,?285"    && echo "PASS revenue~$REV"   || { echo "FAIL revenue"; FAIL=1; }
+            echo "$R" | grep -qE "\b$STK\b"    && echo "PASS stuck=$STK"     || { echo "FAIL stuck";   FAIL=1; }
+            echo "$R" | grep -qF "$FID"        && echo "PASS first stuck id" || { echo "FAIL ids";     FAIL=1; }
+            [ $FAIL -eq 0 ] && { echo "ACT 5 TRUTH TEST PASSED"; exit 0; } || { echo "ACT 5 FAILED"; exit 1; }
+          fi
+          sleep 15
+        done
+        echo "FAIL: no report in 15m"; exit 1

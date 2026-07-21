@@ -1,0 +1,16 @@
+# Reset the supply-chain demo world (keeps orders-api, the skill, the agents).
+#   oc create -f integration-tests/supply-chain-demo/run/teardown-run.yaml
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  generateName: supply-chain-teardown-
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/part-of: agent-office-supply-chain-demo
+spec:
+  taskRunTemplate:
+    serviceAccountName: aoit-runner
+  pipelineRef:
+    name: supply-chain-teardown
+  timeouts:
+    pipeline: "20m"

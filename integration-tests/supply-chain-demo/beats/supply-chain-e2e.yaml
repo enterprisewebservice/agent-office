@@ -1,0 +1,41 @@
+# Supply-chain demo — the E2E pipeline. THE DEMO IS THE TEST SUITE:
+# Act 1 (card) -> Act 2 (forge-dev ships through TSSC, 5 asserts) ->
+# oracle (contract ACCEPTED vs live service) -> Act 5 (Morgan's report,
+# numbers asserted against seeded truth).
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: supply-chain-e2e
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/part-of: agent-office-supply-chain-demo
+spec:
+  description: Full supply-chain scenario, asserted end to end.
+  tasks:
+    - name: card
+      taskRef: {name: sc-card}
+    - name: forge
+      runAfter: [card]
+      taskRef: {name: sc-forge}
+      params:
+        - name: issue-number
+          value: $(tasks.card.results.issue-number)
+    - name: oracle
+      runAfter: [forge]
+      taskRef: {name: sc-oracle}
+    - name: report
+      runAfter: [oracle]
+      taskRef: {name: sc-report}
+---
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: supply-chain-teardown
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/part-of: agent-office-supply-chain-demo
+spec:
+  description: Reset the supply-chain demo world (keeps orders-api, skill, agents).
+  tasks:
+    - name: teardown
+      taskRef: {name: sc-teardown}

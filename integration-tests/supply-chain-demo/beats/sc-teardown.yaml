@@ -1,0 +1,49 @@
+# Supply-chain demo — TEARDOWN: unwind everything the demo creates, keep the
+# pre-existing world. Deletes the agent-built ops-metrics repo (the ApplicationSet
+# prunes its ArgoCD app -> deployment/service/route/registration go with it).
+# KEEPS: orders-api (pre-existing system), weekly-ops-report skill (platform
+# content), the agents (platform staff + Morgan's agent), the idle Repository CR
+# (ArgoCD-owned in manifests; harmless when the repo is absent).
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: sc-teardown
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/part-of: agent-office-supply-chain-demo
+spec:
+  description: Reset the supply-chain demo to a truthful clean slate.
+  params:
+    - name: service
+      type: string
+      default: ops-metrics
+  steps:
+    - name: teardown
+      image: registry.access.redhat.com/ubi9/ubi:latest
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        curl -sL "http://downloads.openshift-console.svc.cluster.local:80/amd64/linux/oc.tar" -o /tmp/oc.tar && tar -x -C /tmp -f /tmp/oc.tar oc
+        OC=/tmp/oc; SVC="$(params.service)"
+        GT=$($OC get secret github-mcp-installation-token -n agent-office -o jsonpath='{.data.GITHUB_PERSONAL_ACCESS_TOKEN}' | base64 -d)
+        gh(){ curl -s -H "Authorization: Bearer $GT" -H "Accept: application/vnd.github+json" "$@"; }
+
+        echo "=== delete repo enterprisewebservice/$SVC ==="
+        CODE=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE -H "Authorization: Bearer $GT" "https://api.github.com/repos/enterprisewebservice/$SVC")
+        case "$CODE" in
+          204) echo "repo deleted";;
+          404) echo "repo already absent";;
+          *)   echo "FAIL: repo delete http $CODE (App needs administration RW on org repos)"; exit 1;;
+        esac
+
+        echo "=== wait for ApplicationSet prune (app + workload + registration) ==="
+        for i in $(seq 1 30); do
+          APP=$($OC get applications.argoproj.io "$SVC" -n openshift-gitops -o name 2>/dev/null || true)
+          DEP=$($OC get deploy "$SVC" -n agent-office -o name 2>/dev/null || true)
+          REG=$($OC get mcpserverregistrations.mcp.kuadrant.io "$SVC" -n agent-office -o name 2>/dev/null || true)
+          if [ -z "$APP" ] && [ -z "$DEP" ] && [ -z "$REG" ]; then
+            echo "pruned clean (t=$((i*15))s)"; echo "TEARDOWN COMPLETE — orders-api, skill, agents preserved"; exit 0
+          fi
+          sleep 15
+        done
+        echo "FAIL: remnants after 7.5m: app=$APP dep=$DEP reg=$REG"; exit 1

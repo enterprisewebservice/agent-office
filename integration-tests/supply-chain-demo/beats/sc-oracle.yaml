@@ -1,0 +1,25 @@
+# Supply-chain demo — BEAT: the contract oracle, in-cluster. The acceptance
+# test (fetched from the repo at main) must ACCEPT the live agent-built service.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: sc-oracle
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/part-of: agent-office-supply-chain-demo
+spec:
+  description: Run the ops-metrics acceptance oracle against the live service.
+  params:
+    - name: base-url
+      type: string
+      default: "http://ops-metrics.agent-office.svc.cluster.local:8080"
+  steps:
+    - name: oracle
+      image: registry.access.redhat.com/ubi9/python-311:latest
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        RAW="https://raw.githubusercontent.com/enterprisewebservice/agent-office/main"
+        curl -sfL "$RAW/integration-tests/supply-chain-demo/acceptance/test_ops_metrics.py" -o /tmp/test.py
+        curl -sfL "$RAW/manifests/supply-chain-demo/orders-api/hack/fixtures.json" -o /tmp/fixtures.json
+        python3 /tmp/test.py "$(params.base-url)" /tmp/fixtures.json

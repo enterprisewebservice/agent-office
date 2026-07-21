@@ -1,0 +1,19 @@
+# Run the FULL supply-chain demo end to end (card -> forge-dev ships -> oracle -> report).
+#   oc create -f integration-tests/supply-chain-demo/run/e2e-run.yaml
+#   tkn pipelinerun logs -f --last -n agent-office
+# Prereqs: oc apply -k integration-tests/supply-chain-demo/beats ; forge-dev +
+# ops-reporter agents exist; codex auth healthy; orders-api running.
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  generateName: supply-chain-e2e-
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/part-of: agent-office-supply-chain-demo
+spec:
+  taskRunTemplate:
+    serviceAccountName: aoit-runner
+  pipelineRef:
+    name: supply-chain-e2e
+  timeouts:
+    pipeline: "75m"

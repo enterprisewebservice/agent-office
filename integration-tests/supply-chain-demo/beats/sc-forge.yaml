@@ -1,0 +1,69 @@
+# Supply-chain demo — BEAT (Act 2, the centerpiece): drive forge-dev in chat
+# and assert the WHOLE hands-free chain: repo created -> Konflux green ->
+# ArgoCD deploy Ready -> gateway registration live -> card closed.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: sc-forge
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/part-of: agent-office-supply-chain-demo
+spec:
+  description: forge-dev ships ops-metrics through the production pipeline (Act 2).
+  params:
+    - name: issue-number
+      type: string
+    - name: agent-name
+      type: string
+      default: forge-dev
+    - name: mm-url
+      type: string
+      default: "http://mattermost.mattermost.svc.cluster.local:8065"
+    - name: service
+      type: string
+      default: ops-metrics
+  steps:
+    - name: drive-and-assert
+      image: registry.access.redhat.com/ubi9/ubi:latest
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        curl -sL "http://downloads.openshift-console.svc.cluster.local:80/amd64/linux/oc.tar" -o /tmp/oc.tar && tar -x -C /tmp -f /tmp/oc.tar oc
+        OC=/tmp/oc
+        SVC="$(params.service)"; ISS="$(params.issue-number)"; MM="$(params.mm-url)"
+        GT=$($OC get secret github-mcp-installation-token -n agent-office -o jsonpath='{.data.GITHUB_PERSONAL_ACCESS_TOKEN}' | base64 -d)
+        MT=$($OC get secret mattermost-admin-token -n agent-office -o jsonpath='{.data.token}' | base64 -d)
+        gh(){ curl -s -H "Authorization: Bearer $GT" -H "Accept: application/vnd.github+json" "$@"; }
+        h(){ curl -s -H "Authorization: Bearer $MT" -H "Content-Type: application/json" "$@"; }
+        TEAM_ID=$(h "$MM/api/v4/teams/name/agents" | python3 -c "import json,sys;print(json.load(sys.stdin)['id'])")
+        CH=$(h "$MM/api/v4/teams/$TEAM_ID/channels/name/$(params.agent-name)" | python3 -c "import json,sys;print(json.load(sys.stdin)['id'])")
+        h -X POST "$MM/api/v4/channels/$CH/members" -d "{\"user_id\":\"$(h "$MM/api/v4/users/me" | python3 -c "import json,sys;print(json.load(sys.stdin)['id'])")\"}" >/dev/null 2>&1 || true
+
+        MSG="You are forge-dev. Execute issue #$ISS of enterprisewebservice/supply-chain-tracker end to end with your governed github tools, autonomously. Read integration-tests/supply-chain-demo/CONTRACT.md and the acceptance test in the enterprisewebservice/agent-office repo; fetch every file under templates/service-golden-path/scaffold/ (recurse app/, gitops/, .tekton/, tests/); render tokens __SVC__ -> $SVC and __SVC_PREFIX__ -> metrics_ (contract override; registration resource name stays $SVC). Implement app/server.py per the contract (FastMCP streamable-http, PORT 8080; backend tools weekly_summary, stuck_orders, top_products; REST mirrors /healthz /v1/summary /v1/stuck /v1/top-products; ORDERS_API_URL default http://orders-api.agent-office.svc.cluster.local:8080; as_of from orders-api /healthz, never wall clock; money 2dp). CRITICAL: create repo enterprisewebservice/$SVC (public, main) and push ALL files in ONE first commit including .tekton/on-push.yaml. Poll the commit checks until the build is green; fix and re-push if it fails. Then comment receipts on issue #$ISS and close it. Finish by replying here with repo URL, final SHA, and build result."
+        NOW=$(python3 -c "import time;print(int(time.time()*1000))")
+        h -X POST "$MM/api/v4/posts" -d "$(python3 -c "import json,sys;print(json.dumps({'channel_id':'$CH','message':sys.argv[1]}))" "$MSG")" >/dev/null
+        echo "directive posted for card #$ISS"
+
+        ok=0
+        for i in $(seq 1 140); do
+          T=$((i*15))
+          if [ $ok -lt 1 ] && gh "https://api.github.com/repos/enterprisewebservice/$SVC" | grep -q '"full_name"'; then echo "t=${T}s ASSERT 1/5 repo exists"; ok=1; fi
+          if [ $ok -ge 1 ] && [ $ok -lt 2 ]; then
+            ST=$($OC get pipelinerun -n default-tenant -l "appstudio.openshift.io/component=$SVC" --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1].status.conditions[0].reason}' 2>/dev/null || true)
+            [ "$ST" = "Completed" ] && { echo "t=${T}s ASSERT 2/5 Konflux green"; ok=2; }
+          fi
+          if [ $ok -ge 2 ] && [ $ok -lt 3 ]; then
+            R=$($OC get deploy "$SVC" -n agent-office -o jsonpath='{.status.readyReplicas}' 2>/dev/null || true)
+            [ "$R" = "1" ] && { echo "t=${T}s ASSERT 3/5 deploy Ready"; ok=3; }
+          fi
+          if [ $ok -ge 3 ] && [ $ok -lt 4 ]; then
+            P=$($OC get mcpserverregistrations.mcp.kuadrant.io "$SVC" -n agent-office -o jsonpath='{.spec.prefix}' 2>/dev/null || true)
+            [ -n "$P" ] && { echo "t=${T}s ASSERT 4/5 registration live (prefix=$P)"; ok=4; }
+          fi
+          if [ $ok -ge 4 ]; then
+            S=$(gh "https://api.github.com/repos/enterprisewebservice/supply-chain-tracker/issues/$ISS" | python3 -c "import json,sys;print(json.load(sys.stdin).get('state',''))")
+            [ "$S" = "closed" ] && { echo "t=${T}s ASSERT 5/5 card closed with receipts"; echo "ACT 2 PROVEN"; exit 0; }
+          fi
+          sleep 15
+        done
+        echo "FAIL: chain incomplete after 35m (reached $ok/5)"; exit 1
