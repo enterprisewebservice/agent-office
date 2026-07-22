@@ -36,9 +36,14 @@ spec:
         CH=$(h "$MM/api/v4/teams/$TEAM_ID/channels/name/$(params.agent-name)" | python3 -c "import json,sys;print(json.load(sys.stdin)['id'])")
         BOT=$(h "$MM/api/v4/users/username/$(params.agent-name)" | python3 -c "import json,sys;print(json.load(sys.stdin)['id'])")
         h -X POST "$MM/api/v4/channels/$CH/members" -d "{\"user_id\":\"$(h "$MM/api/v4/users/me" | python3 -c "import json,sys;print(json.load(sys.stdin)['id'])")\"}" >/dev/null 2>&1 || true
+        # ATTEMPTS: after a teardown/rebuild the gateway broker can hold a stale
+        # MCP session to the replaced backend ("Session not found") until it
+        # re-establishes. Ask up to 3 times, 60s apart. Root fix tracked:
+        # operator should invalidate broker sessions on re-registration.
+        for attempt in 1 2 3; do
         NOW=$(python3 -c "import time;print(int(time.time()*1000))")
         h -X POST "$MM/api/v4/posts" -d "{\"channel_id\":\"$CH\",\"message\":\"Run my weekly ops report.\"}" >/dev/null
-        echo "asked; waiting for the report…"
+        echo "asked (attempt $attempt); waiting for the report…"
         for i in $(seq 1 60); do
           R=$(h "$MM/api/v4/channels/$CH/posts?per_page=15" | python3 -c "
         import sys,json
@@ -54,8 +59,14 @@ spec:
             echo "$R" | grep -qE "187,?285"    && echo "PASS revenue~$REV"   || { echo "FAIL revenue"; FAIL=1; }
             echo "$R" | grep -qE "\b$STK\b"    && echo "PASS stuck=$STK"     || { echo "FAIL stuck";   FAIL=1; }
             echo "$R" | grep -qF "$FID"        && echo "PASS first stuck id" || { echo "FAIL ids";     FAIL=1; }
-            [ $FAIL -eq 0 ] && { echo "ACT 5 TRUTH TEST PASSED"; exit 0; } || { echo "ACT 5 FAILED"; exit 1; }
+            if [ $FAIL -eq 0 ]; then echo "ACT 5 TRUTH TEST PASSED (attempt $attempt)"; exit 0; fi
+            if echo "$R" | grep -qiE "session not found|tools? failed|gateway error"; then
+              echo "stale broker session detected — retrying after 60s"; R=""; sleep 60; break
+            fi
+            echo "ACT 5 FAILED (wrong numbers, not a session error)"; exit 1
           fi
           sleep 15
         done
-        echo "FAIL: no report in 15m"; exit 1
+        [ -n "$R" ] || echo "(attempt $attempt got no usable report)"
+        done
+        echo "FAIL: no truthful report after 3 attempts"; exit 1
