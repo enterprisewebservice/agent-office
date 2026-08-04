@@ -8,6 +8,14 @@
 # gateway pod + seeded into every agent's workspace. Bump it (after rebuilding
 # the skills image under a new tag) to roll out new skills — requires operator
 # >= v1.7.5 (the AgentGateway.spec.skillsImage field). v0.0.2 adds genesis-train.
+#
+# spec.modelAuth pins the BILLING ROUTE. OpenClaw 2026.7.x folded the
+# `openai-codex` provider into canonical `openai`, so one gateway config can
+# describe only ONE OpenAI route — subscription (OAuth via the mounted
+# ~/.codex/auth.json) or metered API key, not both. With mode: subscription the
+# operator renders baseUrl chatgpt.com/backend-api, omits apiKey entirely, and
+# pins auth.order to the OAuth profile, so agent turns cannot silently fall back
+# to per-token billing. Requires operator >= v1.7.6.
 apiVersion: agentoffice.ai/v1alpha1
 kind: AgentGateway
 metadata:
@@ -23,13 +31,18 @@ spec:
     research-gateway` slot in as logical openclaw agents inside this
     pod, sharing the paired browser node-host VM via per-agent
     Chromium profiles.
-  image: quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/openclaw:v2026.4.9
-  skillsImage: quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/agent-office-skills:v0.0.4
+  image: quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/openclaw:v2026.7.1
+  skillsImage: quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/agent-office-skills:v0.0.6
   nodeHostRef:
     name: fedora-black-zebra-36
     namespace: default
   autoApproveNodeHost: true
   codexCredentialsSecretRef: codex-subscription-credentials
+  # Bill agent turns against the ChatGPT/Codex subscription, never the
+  # metered API key. Explicit rather than inferred from
+  # codexCredentialsSecretRef so the intent is readable in git.
+  modelAuth:
+    mode: subscription
   envFromSecretRef: agent-web-browser-researcher-secret
   allowedUsers:
     - channel: discord
