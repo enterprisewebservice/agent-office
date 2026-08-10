@@ -101,7 +101,9 @@ export interface RecommendResponse {
     role: string;
     systemPrompt: string;
   };
-  packs: { type: string; name: string; displayName?: string; reason?: string }[];
+  // Each pack is the FULL catalog entry (recipe, dependencies) plus the
+  // reason — operator >= v1.7.13. One call is enough to wire the agent.
+  packs: (CatalogPack & { reason?: string })[];
 }
 
 export const useCatalogClient = () => {

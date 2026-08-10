@@ -37,6 +37,10 @@ import {
   Paper,
   Radio,
   RadioGroup,
+  Table,
+  TableBody,
+  TableCell,
+  TableRow,
   TextField,
   Tooltip,
   Typography,
@@ -52,6 +56,8 @@ interface KbRef {
   name: string;
   role: string;
 }
+type SelectedPack = CatalogPack & { reason?: string };
+
 interface McpServerVal {
   name: string;
   url: string;
@@ -61,6 +67,12 @@ interface McpServerVal {
 }
 export interface GenesisValue {
   description: string;
+  /** What the platform selected, and why. In the form value — NOT
+   *  component state — so it survives a remount, is visible on the
+   *  review page, and is recorded with the agent. */
+  packs: SelectedPack[];
+  /** One-line human summary; the review page renders this readably. */
+  selection: string;
   name: string;
   displayName: string;
   emoji: string;
@@ -74,6 +86,8 @@ export interface GenesisValue {
 
 const EMPTY: GenesisValue = {
   description: '',
+  packs: [],
+  selection: '',
   name: '',
   displayName: '',
   emoji: '🤖',
@@ -98,12 +112,6 @@ export const AgentGenesisField = (
   const catalog = useCatalogClient();
   const value: GenesisValue = { ...EMPTY, ...(formData ?? {}) };
 
-  const [packsByName, setPacksByName] = React.useState<Map<string, CatalogPack>>(
-    new Map(),
-  );
-  const [selected, setSelected] = React.useState<
-    { type: string; name: string; displayName?: string; reason?: string }[]
-  >([]);
   const [thinking, setThinking] = React.useState(false);
   const [source, setSource] = React.useState<string | undefined>();
   const [error, setError] = React.useState<string | undefined>();
@@ -113,47 +121,31 @@ export const AgentGenesisField = (
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  React.useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await catalog.listPacks();
-        if (!cancelled)
-          setPacksByName(new Map(res.items.map(p => [p.name, p])));
-      } catch {
-        /* packs map is an enhancement; recommend still works without it */
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [catalog]);
-
   const set = (patch: Partial<GenesisValue>) => onChange({ ...value, ...patch });
 
-  // Expand a pack selection into the compose wiring. ONE gateway entry
-  // serves every registration (credentials injected gateway-side), so
-  // tool entries dedupe on URL.
-  const composeFrom = (
-    sel: { type: string; name: string }[],
-  ): GenesisValue['compose'] => {
+  // Expand the selection into compose wiring using ONLY the packs
+  // themselves — each carries its recipe/dependencies (operator >=
+  // v1.7.13), so there is no second lookup that can lag or fail and
+  // leave the agent silently unwired. ONE gateway entry serves every
+  // registration (credentials injected gateway-side), so tools dedupe
+  // on URL.
+  const composeFrom = (sel: SelectedPack[]): GenesisValue['compose'] => {
     const kbs: KbRef[] = [];
     const mcp: McpServerVal[] = [];
     const addTool = (name: string, recipe?: CatalogPack['recipe']) => {
-      if (!recipe || mcp.some(m => m.url === recipe.url)) return;
+      if (!recipe?.url || mcp.some(m => m.url === recipe.url)) return;
       const e: McpServerVal = { name, url: recipe.url, type: recipe.type || 'http' };
       if (recipe.authHeaderValue) e.authHeaderValue = recipe.authHeaderValue;
       if (recipe.envFromSecret) e.envFromSecret = recipe.envFromSecret;
       mcp.push(e);
     };
-    for (const s of sel) {
-      const p = packsByName.get(s.name);
-      if (s.type === 'kb') {
-        if (!kbs.some(k => k.name === s.name))
-          kbs.push({ name: s.name, role: 'knowledge-pool' });
-      } else if (s.type === 'tool') {
-        addTool(s.name, p?.recipe);
-      } else if (s.type === 'skill' && p) {
+    for (const p of sel) {
+      if (p.type === 'kb') {
+        if (!kbs.some(k => k.name === p.name))
+          kbs.push({ name: p.name, role: 'knowledge-pool' });
+      } else if (p.type === 'tool') {
+        addTool(p.name, p.recipe);
+      } else if (p.type === 'skill') {
         for (const d of p.dependencies ?? []) {
           if (!d.available) continue;
           if (d.kind === 'mcpServer' && d.gatewayUrl) {
@@ -168,14 +160,20 @@ export const AgentGenesisField = (
     return { knowledgeBaseRefs: kbs, mcpServers: mcp };
   };
 
+  const summarize = (sel: SelectedPack[], c: GenesisValue['compose']) =>
+    sel.length === 0
+      ? 'nothing selected from the catalog'
+      : `${sel.map(p => `${p.type}:${p.name}`).join(' · ')}  →  wires ` +
+        `${c.mcpServers.length} tool endpoint(s), ${c.knowledgeBaseRefs.length} knowledge base(s)`;
+
   const suggest = async () => {
     if (!value.description.trim()) return;
     setThinking(true);
     setError(undefined);
     try {
       const rec: RecommendResponse = await catalog.recommend(value.description);
-      setSelected(rec.packs);
       setSource(rec.source);
+      const compose = composeFrom(rec.packs);
       onChange({
         ...value,
         name: rec.identity.name,
@@ -183,7 +181,9 @@ export const AgentGenesisField = (
         emoji: rec.identity.emoji || '🤖',
         role: rec.identity.role,
         systemPrompt: rec.identity.systemPrompt,
-        compose: composeFrom(rec.packs),
+        packs: rec.packs,
+        selection: summarize(rec.packs, compose),
+        compose,
       });
     } catch (e) {
       setError((e as Error).message);
@@ -193,9 +193,9 @@ export const AgentGenesisField = (
   };
 
   const removePack = (name: string) => {
-    const next = selected.filter(s => s.name !== name);
-    setSelected(next);
-    set({ compose: composeFrom(next) });
+    const next = value.packs.filter(p => p.name !== name);
+    const compose = composeFrom(next);
+    set({ packs: next, compose, selection: summarize(next, compose) });
   };
 
   const ready = value.name && value.systemPrompt;
@@ -272,23 +272,98 @@ export const AgentGenesisField = (
               )}
             </Box>
 
-            <Box mt={1.5} display="flex" gridGap={6} flexWrap="wrap">
-              {selected.map(s => (
-                <Tooltip key={s.name} arrow title={s.reason ?? ''}>
-                  <Chip
-                    size="small"
-                    label={`${s.type}: ${s.displayName || s.name}`}
-                    style={typeChipStyle[s.type]}
-                    onDelete={() => removePack(s.name)}
-                  />
-                </Tooltip>
-              ))}
-              {selected.length === 0 && (
-                <Typography variant="caption" color="textSecondary">
-                  No catalog packs matched — the agent starts with runtime
-                  skill discovery only.
+            <Box mt={2}>
+              <Typography variant="subtitle2">
+                Selected from the catalog ({value.packs.length})
+              </Typography>
+              {value.packs.length === 0 && (
+                <Typography variant="body2" color="error">
+                  Nothing matched this description. The agent would be created
+                  with no tools or knowledge — reword the description and press
+                  Suggest again, or continue knowingly (it still discovers
+                  skills at runtime).
                 </Typography>
               )}
+              {value.packs.length > 0 && (
+                <Table size="small">
+                  <TableBody>
+                    {value.packs.map(p => (
+                      <TableRow key={`${p.type}:${p.name}`}>
+                        <TableCell style={{ width: 64 }}>
+                          <Chip size="small" label={p.type} style={typeChipStyle[p.type]} />
+                        </TableCell>
+                        <TableCell>
+                          <Typography variant="body2">
+                            <strong>{p.displayName || p.name}</strong>
+                            {p.version ? ` · v${p.version}` : ''}
+                          </Typography>
+                          <Typography variant="caption" color="textSecondary">
+                            {p.reason || 'selected'}
+                          </Typography>
+                        </TableCell>
+                        <TableCell align="right" style={{ width: 80 }}>
+                          <Button size="small" onClick={() => removePack(p.name)}>
+                            remove
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </Box>
+
+            <Box mt={2}>
+              <Typography variant="subtitle2">
+                What this wires into the agent
+              </Typography>
+              <Typography variant="caption" color="textSecondary">
+                Exactly what lands in the AgentWorkstation spec — verify it
+                before Create.
+              </Typography>
+              <Table size="small">
+                <TableBody>
+                  {value.compose.mcpServers.map(m => (
+                    <TableRow key={`w-mcp-${m.name}`}>
+                      <TableCell style={{ width: 64 }}>
+                        <Chip size="small" label="tool" style={typeChipStyle.tool} />
+                      </TableCell>
+                      <TableCell>
+                        <Typography variant="body2">{m.name}</Typography>
+                        <Typography variant="caption" color="textSecondary">
+                          {m.url}
+                          {m.envFromSecret ? ` · secret: ${m.envFromSecret}` : ''}
+                        </Typography>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {value.compose.knowledgeBaseRefs.map(k => (
+                    <TableRow key={`w-kb-${k.name}`}>
+                      <TableCell style={{ width: 64 }}>
+                        <Chip size="small" label="kb" style={typeChipStyle.kb} />
+                      </TableCell>
+                      <TableCell>
+                        <Typography variant="body2">{k.name}</Typography>
+                        <Typography variant="caption" color="textSecondary">
+                          role: {k.role}
+                        </Typography>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {value.compose.mcpServers.length === 0 &&
+                    value.compose.knowledgeBaseRefs.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={2}>
+                          <Typography variant="caption" color="textSecondary">
+                            No tools or knowledge bases wired. Skills still
+                            discover at runtime; a skill whose backing service
+                            is not deployed contributes nothing here.
+                          </Typography>
+                        </TableCell>
+                      </TableRow>
+                    )}
+                </TableBody>
+              </Table>
             </Box>
 
             <Box mt={2}>
