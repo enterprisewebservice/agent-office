@@ -50,5 +50,6 @@
  */
 export { AgentBindingsCard } from './AgentBindingsCard';
 export { BindingPanel } from './BindingPanel';
-export { agentComposerFieldExtension } from './plugin';
+export { agentComposerFieldExtension, agentGenesisFieldExtension } from './plugin';
 export { AgentComposerField } from './AgentComposerField';
+export { AgentGenesisField } from './AgentGenesisField';

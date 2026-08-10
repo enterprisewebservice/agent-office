@@ -88,6 +88,22 @@ export interface CatalogPackList {
   count: number;
 }
 
+// POST /catalog/recommend (operator >= v1.7.12) — the one-step
+// composer's brain. `source` is honest about which engine answered:
+// "model" (recommender endpoint, constrained to the catalog) or
+// "fallback" (deterministic keyword scoring).
+export interface RecommendResponse {
+  source: 'model' | 'fallback';
+  identity: {
+    name: string;
+    displayName: string;
+    emoji?: string;
+    role: string;
+    systemPrompt: string;
+  };
+  packs: { type: string; name: string; displayName?: string; reason?: string }[];
+}
+
 export const useCatalogClient = () => {
   const discoveryApi = useApi(discoveryApiRef);
   const fetchApi = useApi(fetchApiRef);
@@ -139,5 +155,27 @@ export const useCatalogClient = () => {
     [discoveryApi, fetchApi],
   );
 
-  return useMemo(() => ({ listSkills, listPacks }), [listSkills, listPacks]);
+  const recommend = useCallback(
+    async (description: string): Promise<RecommendResponse> => {
+      const base = await discoveryApi.getBaseUrl('proxy');
+      const res = await fetchApi.fetch(`${base}/agent-office-catalog/recommend`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ description }),
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(
+          `recommend failed: HTTP ${res.status} ${text.slice(0, 200)}`,
+        );
+      }
+      return (await res.json()) as RecommendResponse;
+    },
+    [discoveryApi, fetchApi],
+  );
+
+  return useMemo(
+    () => ({ listSkills, listPacks, recommend }),
+    [listSkills, listPacks, recommend],
+  );
 };

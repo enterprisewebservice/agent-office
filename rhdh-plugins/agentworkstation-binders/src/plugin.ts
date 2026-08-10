@@ -33,6 +33,7 @@ import { createPlugin } from '@backstage/core-plugin-api';
 import { createScaffolderFieldExtension } from '@backstage/plugin-scaffolder-react';
 import { scaffolderPlugin } from '@backstage/plugin-scaffolder';
 import { AgentComposerField } from './AgentComposerField';
+import { AgentGenesisField } from './AgentGenesisField';
 
 export const agentworkstationBindersPlugin = createPlugin({
   id: 'agentworkstation-binders',
@@ -47,5 +48,16 @@ export const agentComposerFieldExtension = scaffolderPlugin.provide(
   createScaffolderFieldExtension({
     component: AgentComposerField,
     name: 'AgentComposer',
+  }),
+);
+
+// The one-step creator (v0.0.10): `ui:field: AgentGenesis` on the
+// genesis template's single object property. Describe the job, pick
+// the brain, Create — identity and wiring come from
+// /catalog/recommend + /catalog/packs.
+export const agentGenesisFieldExtension = scaffolderPlugin.provide(
+  createScaffolderFieldExtension({
+    component: AgentGenesisField,
+    name: 'AgentGenesis',
   }),
 );
