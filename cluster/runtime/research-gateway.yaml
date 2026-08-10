@@ -39,7 +39,7 @@ spec:
     pod, sharing the paired browser node-host VM via per-agent
     Chromium profiles.
   image: quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/openclaw:v2026.7.1
-  skillsImage: quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/agent-office-skills:v0.0.7-lock
+  skillsImage: quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/agent-office-skills:v0.0.8-lock
   nodeHostRef:
     name: fedora-black-zebra-36
     namespace: default

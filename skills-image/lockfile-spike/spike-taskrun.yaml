@@ -53,7 +53,7 @@ spec:
           - name: SKILL_TAG
             value: v0.1.0
           - name: GIT_TARBALL
-            value: https://codeload.github.com/enterprisewebservice/agent-office/tar.gz/refs/heads/main
+            value: https://codeload.github.com/enterprisewebservice/agent-office/tar.gz/ffd7bbb2257044eb818ca13b54a8ce0919d5adea
         script: |
           #!/usr/bin/env python3
           import base64, gzip, hashlib, io, json, os, re, ssl, sys, tarfile
