@@ -50,7 +50,7 @@ spec:
         echo "=== drive the REAL openclaw-agent template (scaffolder API) ==="
         cat >/tmp/body.json <<EOF
         {
-          "templateRef": "template:default/openclaw-agent",
+          "templateRef": "template:default/openclaw-agent-advanced",
           "values": {
             "name": "$NAME", "displayName": "IT E2E Agent", "emoji": "🧪",
             "description": "Ephemeral integration-test agent (auto-removed).",

@@ -110,7 +110,7 @@ type CatalogLocation struct {
 // via the openclaw-agent Software Template.
 func (c *Client) CreateAgent(values map[string]interface{}) (string, error) {
 	req := TaskRequest{
-		TemplateRef: "template:default/openclaw-agent",
+		TemplateRef: "template:default/openclaw-agent-advanced",
 		Values:      values,
 	}
 

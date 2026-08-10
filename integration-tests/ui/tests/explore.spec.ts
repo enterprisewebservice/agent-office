@@ -8,7 +8,7 @@
 import { test } from '@playwright/test';
 
 test('explore openclaw-agent wizard', async ({ page }) => {
-  await page.goto('/create/templates/default/openclaw-agent', {
+  await page.goto('/create/templates/default/openclaw-agent-advanced', {
     waitUntil: 'domcontentloaded',
   });
   await page.waitForTimeout(4000);

@@ -59,7 +59,7 @@ test('create the Genesis PM agent via the openclaw-agent wizard', async ({
 }) => {
   test.setTimeout(9 * 60 * 1000);
 
-  await page.goto('/create/templates/default/openclaw-agent', {
+  await page.goto('/create/templates/default/openclaw-agent-advanced', {
     waitUntil: 'domcontentloaded',
   });
 

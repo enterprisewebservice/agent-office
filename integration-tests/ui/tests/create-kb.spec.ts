@@ -69,7 +69,7 @@ test('create + populate a KB via the openclaw-agent wizard', async ({
 }) => {
   test.setTimeout(10 * 60 * 1000);
 
-  await page.goto('/create/templates/default/openclaw-agent', {
+  await page.goto('/create/templates/default/openclaw-agent-advanced', {
     waitUntil: 'domcontentloaded',
   });
 

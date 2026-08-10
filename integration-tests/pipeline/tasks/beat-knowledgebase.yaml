@@ -55,7 +55,7 @@ spec:
         echo "=== drive the REAL template with createNewKnowledgeBase=true (dedicated agent + new KB) ==="
         cat >/tmp/kbbody.json <<EOF
         {
-          "templateRef": "template:default/openclaw-agent",
+          "templateRef": "template:default/openclaw-agent-advanced",
           "values": {
             "name": "$NAME", "displayName": "IT KB Agent", "emoji": "📚",
             "description": "Ephemeral integration-test agent that curates a new KB (auto-removed).",
