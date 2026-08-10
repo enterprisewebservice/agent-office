@@ -49,7 +49,7 @@ spec:
           - name: CURRENT_TAG
             value: v0.0.6
           - name: COMPOSED_TAG
-            value: v0.0.7-lock
+            value: v0.0.8-lock
           - name: SKILL_TAG
             value: v0.1.0
           - name: GIT_TARBALL
@@ -160,10 +160,19 @@ spec:
                           if os.path.isdir(os.path.join(skdir, d)))
           print(f"skills in source: {len(skills)}: {skills}")
 
+          # Build metadata files: read into artifact labels, EXCLUDED from
+          # the layer — runtime content stays exactly the /skills tree the
+          # monolith ships, which is what the equivalence gate guarantees.
+          META_FILES = {"VERSION", "requires.json"}
+
           def skill_meta(name):
-              desc, ver = "", "0.1.0"
+              desc, ver, reqs = "", "0.1.0", "[]"
               vf = os.path.join(skdir, name, "VERSION")
               if os.path.exists(vf): ver = open(vf).read().strip() or ver
+              rf = os.path.join(skdir, name, "requires.json")
+              if os.path.exists(rf):
+                  reqs = json.dumps(json.load(open(rf)).get("dependencies", []),
+                                    separators=(",", ":"), sort_keys=True)
               md = os.path.join(skdir, name, "SKILL.md")
               if os.path.exists(md):
                   txt = open(md, encoding="utf-8").read()
@@ -171,7 +180,7 @@ spec:
                       for ln in txt.split("---")[1].splitlines():
                           if ln.strip().startswith("description:"):
                               desc = ln.split(":", 1)[1].strip()[:200]
-              return ver, desc
+              return ver, desc, reqs
 
           def layer_for(name):
               buf = io.BytesIO()
@@ -179,6 +188,7 @@ spec:
                   base = os.path.join(skdir, name)
                   for dp, dns, fns in sorted(os.walk(base)):
                       for fn in sorted(fns):
+                          if dp == base and fn in META_FILES: continue
                           p = os.path.join(dp, fn)
                           arc = os.path.join("skills", name, os.path.relpath(p, base))
                           ti = tarfile.TarInfo(arc)
@@ -194,10 +204,10 @@ spec:
 
           members = {}
           for s in skills:
-              ver, desc = skill_meta(s)
+              ver, desc, reqs = skill_meta(s)
               raw, diff_id, gz = layer_for(s)
-              members[s] = {"version": ver, "desc": desc, "raw": raw,
-                            "diff_id": diff_id, "gz": gz}
+              members[s] = {"version": ver, "desc": desc, "requires": reqs,
+                            "raw": raw, "diff_id": diff_id, "gz": gz}
 
           # ---- 2. EQUIVALENCE GATE (before any push) ----
           cur_man, _ = get_manifest(CATALOG, CUR)
@@ -242,7 +252,7 @@ spec:
                          "ai.agentoffice.skill.name": s,
                          "ai.agentoffice.skill.version": m["version"],
                          "ai.agentoffice.skill.description": m["desc"],
-                         "ai.agentoffice.skill.requires": "[]"}}}
+                         "ai.agentoffice.skill.requires": m["requires"]}}}
               cfg_b = json.dumps(cfg).encode()
               put_blob(repo, m["gz"]); cfg_d = put_blob(repo, cfg_b)
               man = {"schemaVersion": 2, "mediaType": MT_MAN,

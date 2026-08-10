@@ -1,0 +1,5 @@
+{
+  "dependencies": [
+    { "kind": "mcpServer", "name": "ops-metrics" }
+  ]
+}
