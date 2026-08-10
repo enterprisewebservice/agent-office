@@ -17,10 +17,17 @@
 # github-mcp-server Deployment. So we project a second Secret with
 # the bearer-prefixed shape: see broker-token-externalsecret.yaml.
 #
-# toolPrefix: github_ — every tool name from this backend is prefixed
-# `github_` in the broker's aggregated tools/list, so an agent sees
-# `github_create_issue`, `github_create_project_v2`, etc. Useful when
-# we later add more backends (slack_*, jira_*, etc.).
+# Tool-name prefix: the broker prefixes this backend's tools `github_`
+# (agents see `github_issue_write`, etc.). The field that used to set
+# this — spec.toolPrefix — was RENAMED to spec.prefix in a newer
+# mcp-gateway operator, and the default is now derived from the
+# registration name, which for `github` yields exactly the github_
+# prefix we want; live state carries no prefix field at all. We match
+# live and set nothing. NB: the stale toolPrefix line broke ArgoCD's
+# structured-merge diff ("field not declared in schema") from June
+# until 2026-08-10, which silently disabled auto-sync for this whole
+# app — if this app ever reads sync=Unknown again, check for a schema
+# drift like that first.
 #
 # NOTE: per Kuadrant v0.6.0 design, credentialRef is used ONLY for
 # the broker's discovery connection. Per-user requests still need an
@@ -55,7 +62,6 @@ metadata:
     agentoffice.ai/display-name: "GitHub (governed)"
     agentoffice.ai/description: "Create issues, projects, and repos as a governed identity — github_* tools behind the MCP gateway; the agent never holds a GitHub token."
 spec:
-  toolPrefix: github_
   path: /mcp
   targetRef:
     group: gateway.networking.k8s.io
