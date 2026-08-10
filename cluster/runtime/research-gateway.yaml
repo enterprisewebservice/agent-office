@@ -9,6 +9,13 @@
 # the skills image under a new tag) to roll out new skills — requires operator
 # >= v1.7.5 (the AgentGateway.spec.skillsImage field). v0.0.2 adds genesis-train.
 #
+# v0.0.7-lock is the first LOCKFILE-COMPOSED catalog: assembled from the 13
+# per-skill OCI artifacts pinned in skills-image/skills-lock.yaml (one layer per
+# skill on v0.0.6's own base layers), equivalence-gated file-for-file against
+# v0.0.6 before push. Content-identical to v0.0.6; the delivery mechanism and
+# operator behavior are unchanged. Member digests are recorded in the image's
+# ai.agentoffice.skills.composed-from label.
+#
 # spec.modelAuth pins the BILLING ROUTE. OpenClaw 2026.7.x folded the
 # `openai-codex` provider into canonical `openai`, so one gateway config can
 # describe only ONE OpenAI route — subscription (OAuth via the mounted
@@ -32,7 +39,7 @@ spec:
     pod, sharing the paired browser node-host VM via per-agent
     Chromium profiles.
   image: quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/openclaw:v2026.7.1
-  skillsImage: quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/agent-office-skills:v0.0.6
+  skillsImage: quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/agent-office-skills:v0.0.7-lock
   nodeHostRef:
     name: fedora-black-zebra-36
     namespace: default

@@ -1,0 +1,302 @@
+# Phase-1 spike: per-skill OCI artifacts + lockfile-composed skills image.
+#
+# Proves the mindifact-style packaging model on the skills catalog WITHOUT
+# touching the operator, the binder plugin, or the production Konflux build:
+#
+#   1. every dir under skills-image/skills/<name>/ becomes its own OCI image
+#      quay.../agent-office-skill-<name>:v0.1.0 (single layer, OCI labels
+#      carrying name/version/description + an empty `requires` list),
+#   2. skills-lock.yaml pins each artifact by exact manifest digest,
+#   3. the runtime catalog image is COMPOSED from the lockfile: the current
+#      v0.0.6 image's own ubi-minimal base layers + one layer per pinned
+#      artifact -> pushed as agent-office-skills:v0.0.7-lock,
+#   4. EQUIVALENCE GATE (runs before any push): the union of member layers
+#      must be file-for-file identical to v0.0.6's /skills layer. Any drift
+#      aborts the run.
+#
+# Everything runs in-cluster (default-tenant, quay-push-secret), pure
+# registry-API python — no buildah/skopeo, no privileges, no laptop builds.
+# The per-skill repos deliberately reuse the convention the skill importer
+# already established (agent-office-skill-<name>, cf. cluster/skills-imported
+# annotations agentoffice.ai/source-image) at a distinct tag (v0.1.0) so the
+# old skillctl v1.0.0 packages are left untouched.
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  generateName: skills-lockfile-spike-
+  namespace: default-tenant
+spec:
+  timeout: 20m
+  taskSpec:
+    volumes:
+      - name: quay-auth
+        secret:
+          secretName: quay-push-secret
+    steps:
+      - name: build-verify-push
+        image: registry.access.redhat.com/ubi9/python-311:latest
+        volumeMounts:
+          - name: quay-auth
+            mountPath: /quay-auth
+            readOnly: true
+        env:
+          - name: QUAY
+            value: quay-quay-quay-test.apps.salamander.aimlworkbench.com
+          - name: ORG
+            value: deanpeterson
+          - name: CATALOG_REPO
+            value: agent-office-skills
+          - name: CURRENT_TAG
+            value: v0.0.6
+          - name: COMPOSED_TAG
+            value: v0.0.7-lock
+          - name: SKILL_TAG
+            value: v0.1.0
+          - name: GIT_TARBALL
+            value: https://codeload.github.com/enterprisewebservice/agent-office/tar.gz/refs/heads/main
+        script: |
+          #!/usr/bin/env python3
+          import base64, gzip, hashlib, io, json, os, re, ssl, sys, tarfile
+          import urllib.parse, urllib.request
+
+          QUAY = os.environ["QUAY"]; ORG = os.environ["ORG"]
+          CATALOG = os.environ["CATALOG_REPO"]; CUR = os.environ["CURRENT_TAG"]
+          COMPOSED = os.environ["COMPOSED_TAG"]; STAG = os.environ["SKILL_TAG"]
+          CTX = ssl._create_unverified_context()  # internal quay route, self-signed
+
+          auths = json.load(open("/quay-auth/.dockerconfigjson"))["auths"]
+          basic = next(v["auth"] for k, v in auths.items() if QUAY in k)
+          bearer = {}  # scope -> token (quay 401s Basic on /v2 paths; do the token dance)
+
+          def raw_req(method, url, body=None, headers=None):
+              # header keys Title-Cased: the route lowercases them (h2), and a
+              # plain dict() lookup is case-sensitive.
+              r = urllib.request.Request(url, data=body, method=method)
+              for k, v in (headers or {}).items(): r.add_header(k, v)
+              try:
+                  with urllib.request.urlopen(r, context=CTX) as resp:
+                      return resp.status, {k.title(): v for k, v in resp.headers.items()}, resp.read()
+              except urllib.error.HTTPError as e:
+                  return e.code, {k.title(): v for k, v in e.headers.items()}, e.read()
+
+          def token_for(challenge):
+              # challenge: Bearer realm="…",service="…",scope="repository:…:pull,push"
+              # NB: scope's value itself contains a comma — parse key="value" pairs.
+              parts = dict(re.findall(r'(\w+)="([^"]*)"', challenge))
+              realm = parts["realm"]
+              q = "&".join(f"{k}={urllib.parse.quote(parts[k])}"
+                           for k in ("service", "scope") if k in parts)
+              st, _, body = raw_req("GET", f"{realm}?{q}",
+                                    headers={"Authorization": f"Basic {basic}"})
+              assert st == 200, f"token fetch -> {st} {body[:200]}"
+              return json.loads(body).get("token") or json.loads(body)["access_token"]
+
+          import time
+          def req(method, path, body=None, ctype=None, accept=None, repo=None):
+              url = path if path.startswith("http") else f"https://{QUAY}{path}"
+              hdr = {}
+              if ctype: hdr["Content-Type"] = ctype
+              if accept: hdr["Accept"] = accept
+              if repo and repo in bearer:  # preemptive token reuse per repo
+                  hdr["Authorization"] = f"Bearer {bearer[repo]}"
+              for attempt in range(4):
+                  st, h, b = raw_req(method, url, body, hdr)
+                  if st == 401 and "Www-Authenticate" in h:
+                      t = token_for(h["Www-Authenticate"])
+                      if repo: bearer[repo] = t
+                      hdr["Authorization"] = f"Bearer {t}"
+                      st, h, b = raw_req(method, url, body, hdr)
+                  if st != 503: return st, h, b
+                  time.sleep(2 * (attempt + 1))  # router 503s on fresh repos; retry
+              return st, h, b
+
+          MT_MAN = "application/vnd.docker.distribution.manifest.v2+json"
+          MT_LIST = "application/vnd.docker.distribution.manifest.list.v2+json"
+          MT_OCI = "application/vnd.oci.image.manifest.v1+json"
+          MT_OIDX = "application/vnd.oci.image.index.v1+json"
+          ACCEPT = ", ".join([MT_MAN, MT_LIST, MT_OCI, MT_OIDX])
+
+          def get_manifest(repo, ref):
+              st, hd, body = req("GET", f"/v2/{ORG}/{repo}/manifests/{ref}", accept=ACCEPT, repo=repo)
+              assert st == 200, f"manifest {repo}:{ref} -> {st} {body[:200]}"
+              m = json.loads(body)
+              if m.get("mediaType") in (MT_LIST, MT_OIDX):
+                  d = next(x["digest"] for x in m["manifests"]
+                           if x.get("platform", {}).get("architecture") == "amd64")
+                  return get_manifest(repo, d)
+              return m, body
+
+          def get_blob(repo, digest):
+              st, _, body = req("GET", f"/v2/{ORG}/{repo}/blobs/{digest}", repo=repo)
+              assert st == 200, f"blob {digest[:19]} -> {st}"
+              return body
+
+          def put_blob(repo, data):
+              digest = "sha256:" + hashlib.sha256(data).hexdigest()
+              st, _, _ = req("HEAD", f"/v2/{ORG}/{repo}/blobs/{digest}", repo=repo)
+              if st == 200: return digest
+              st, hd, body = req("POST", f"/v2/{ORG}/{repo}/blobs/uploads/", repo=repo)
+              assert st == 202, f"upload init {repo} -> {st} {body[:200]}"
+              loc = hd["Location"]; sep = "&" if "?" in loc else "?"
+              st, _, body = req("PUT", f"{loc}{sep}digest={digest}", body=data,
+                                ctype="application/octet-stream", repo=repo)
+              if st != 201: print(f"DEBUG blob put {repo} st={st} loc={loc[:120]} body={body[:150]}")
+              assert st == 201, f"blob put {repo} -> {st} {body[:200]}"
+              return digest
+
+          def put_manifest(repo, tag, manifest_bytes, mt):
+              st, _, body = req("PUT", f"/v2/{ORG}/{repo}/manifests/{tag}",
+                                body=manifest_bytes, ctype=mt, repo=repo)
+              assert st in (201, 202), f"manifest put {repo}:{tag} -> {st} {body[:300]}"
+              return "sha256:" + hashlib.sha256(manifest_bytes).hexdigest()
+
+          # ---- 1. fetch skills source (public repo, verified TLS) ----
+          src = urllib.request.urlopen(os.environ["GIT_TARBALL"]).read()
+          with tarfile.open(fileobj=io.BytesIO(src)) as t:
+              t.extractall("/tmp/src", filter="data")
+          root = next(os.path.join("/tmp/src", d) for d in os.listdir("/tmp/src"))
+          skdir = os.path.join(root, "skills-image", "skills")
+          skills = sorted(d for d in os.listdir(skdir)
+                          if os.path.isdir(os.path.join(skdir, d)))
+          print(f"skills in source: {len(skills)}: {skills}")
+
+          def skill_meta(name):
+              desc, ver = "", "0.1.0"
+              vf = os.path.join(skdir, name, "VERSION")
+              if os.path.exists(vf): ver = open(vf).read().strip() or ver
+              md = os.path.join(skdir, name, "SKILL.md")
+              if os.path.exists(md):
+                  txt = open(md, encoding="utf-8").read()
+                  if txt.startswith("---"):
+                      for ln in txt.split("---")[1].splitlines():
+                          if ln.strip().startswith("description:"):
+                              desc = ln.split(":", 1)[1].strip()[:200]
+              return ver, desc
+
+          def layer_for(name):
+              buf = io.BytesIO()
+              with tarfile.open(fileobj=buf, mode="w") as t:
+                  base = os.path.join(skdir, name)
+                  for dp, dns, fns in sorted(os.walk(base)):
+                      for fn in sorted(fns):
+                          p = os.path.join(dp, fn)
+                          arc = os.path.join("skills", name, os.path.relpath(p, base))
+                          ti = tarfile.TarInfo(arc)
+                          data = open(p, "rb").read()
+                          ti.size = len(data); ti.mode = 0o644
+                          ti.uid = ti.gid = 0; ti.mtime = 0
+                          t.addfile(ti, io.BytesIO(data))
+              raw = buf.getvalue()
+              diff_id = "sha256:" + hashlib.sha256(raw).hexdigest()
+              gz = io.BytesIO()
+              with gzip.GzipFile(fileobj=gz, mode="wb", mtime=0) as g: g.write(raw)
+              return raw, diff_id, gz.getvalue()
+
+          members = {}
+          for s in skills:
+              ver, desc = skill_meta(s)
+              raw, diff_id, gz = layer_for(s)
+              members[s] = {"version": ver, "desc": desc, "raw": raw,
+                            "diff_id": diff_id, "gz": gz}
+
+          # ---- 2. EQUIVALENCE GATE (before any push) ----
+          cur_man, _ = get_manifest(CATALOG, CUR)
+          base_layers = cur_man["layers"][:-1]
+          cur_cfg = json.loads(get_blob(CATALOG, cur_man["config"]["digest"]))
+          base_diff_ids = cur_cfg["rootfs"]["diff_ids"][:-1]
+          skills_layer = get_blob(CATALOG, cur_man["layers"][-1]["digest"])
+
+          def tree(tar_bytes):
+              out = {}
+              with tarfile.open(fileobj=io.BytesIO(tar_bytes)) as t:
+                  for m in t.getmembers():
+                      if m.isfile():
+                          out[m.name.lstrip("./")] = hashlib.sha256(
+                              t.extractfile(m).read()).hexdigest()
+              return out
+
+          current_tree = {k: v for k, v in tree(gzip.decompress(skills_layer)
+                          if skills_layer[:2] == b"\x1f\x8b" else skills_layer).items()
+                          if k.startswith("skills/")}
+          composed_tree = {}
+          for s in skills: composed_tree.update(tree(members[s]["raw"]))
+          missing = sorted(set(current_tree) - set(composed_tree))
+          extra = sorted(set(composed_tree) - set(current_tree))
+          changed = sorted(k for k in current_tree
+                           if k in composed_tree and current_tree[k] != composed_tree[k])
+          if missing or extra or changed:
+              print("EQUIVALENCE: FAIL"); print("missing:", missing[:10])
+              print("extra:", extra[:10]); print("changed:", changed[:10]); sys.exit(1)
+          print(f"EQUIVALENCE: PASS ({len(current_tree)} files identical)")
+
+          # ---- 3. push member artifacts ----
+          lock = []
+          for s in skills:
+              m = members[s]; repo = f"agent-office-skill-{s}"
+              cfg = {"architecture": "amd64", "os": "linux",
+                     "created": "2026-01-01T00:00:00Z",
+                     "history": [{"created": "2026-01-01T00:00:00Z",
+                                  "created_by": f"agent-office skill {s}"}],
+                     "rootfs": {"type": "layers", "diff_ids": [m["diff_id"]]},
+                     "config": {"Labels": {
+                         "ai.agentoffice.skill.name": s,
+                         "ai.agentoffice.skill.version": m["version"],
+                         "ai.agentoffice.skill.description": m["desc"],
+                         "ai.agentoffice.skill.requires": "[]"}}}
+              cfg_b = json.dumps(cfg).encode()
+              put_blob(repo, m["gz"]); cfg_d = put_blob(repo, cfg_b)
+              man = {"schemaVersion": 2, "mediaType": MT_MAN,
+                     "config": {"mediaType": "application/vnd.docker.container.image.v1+json",
+                                "size": len(cfg_b), "digest": cfg_d},
+                     "layers": [{"mediaType": "application/vnd.docker.image.rootfs.diff.tar.gzip",
+                                 "size": len(m["gz"]),
+                                 "digest": "sha256:" + hashlib.sha256(m["gz"]).hexdigest()}]}
+              man_b = json.dumps(man).encode()
+              dg = put_manifest(repo, STAG, man_b, MT_MAN)
+              lock.append({"name": s, "version": m["version"],
+                           "ref": f"{QUAY}/{ORG}/{repo}:{STAG}", "digest": dg})
+              print(f"pushed {repo}:{STAG} @ {dg[:19]}")
+
+          # ---- 4. compose catalog image from the lock ----
+          comp_layers = list(base_layers)
+          comp_diff_ids = list(base_diff_ids)
+          for e in lock:
+              s = e["name"]; m = members[s]
+              gz_d = put_blob(CATALOG, m["gz"])  # reupload into catalog repo
+              comp_layers.append({"mediaType": "application/vnd.docker.image.rootfs.diff.tar.gzip",
+                                  "size": len(m["gz"]), "digest": gz_d})
+              comp_diff_ids.append(m["diff_id"])
+          comp_cfg = {"architecture": "amd64", "os": "linux",
+                      "created": "2026-01-01T00:00:00Z",
+                      "history": [{"created": "2026-01-01T00:00:00Z",
+                                   "created_by": f"lockfile compose layer {i}"}
+                                  for i in range(len(comp_diff_ids))],
+                      "rootfs": {"type": "layers", "diff_ids": comp_diff_ids},
+                      "config": {"Labels": {
+                          "ai.agentoffice.skills.composed-from": json.dumps(
+                              [{"name": e["name"], "digest": e["digest"]} for e in lock]),
+                          "ai.agentoffice.skills.lock-equivalent-to": CUR}}}
+          comp_cfg_b = json.dumps(comp_cfg).encode()
+          comp_cfg_d = put_blob(CATALOG, comp_cfg_b)
+          comp_man = {"schemaVersion": 2, "mediaType": MT_MAN,
+                      "config": {"mediaType": "application/vnd.docker.container.image.v1+json",
+                                 "size": len(comp_cfg_b), "digest": comp_cfg_d},
+                      "layers": comp_layers}
+          comp_b = json.dumps(comp_man).encode()
+          comp_dg = put_manifest(CATALOG, COMPOSED, comp_b, MT_MAN)
+          print(f"\ncomposed {CATALOG}:{COMPOSED} @ {comp_dg}")
+
+          # ---- 5. emit the lockfile ----
+          print("\n===== skills-lock.yaml =====")
+          print(f"# Pinned skill artifacts composing {QUAY}/{ORG}/{CATALOG}:{COMPOSED}")
+          print(f"# Equivalence-gated against {CATALOG}:{CUR} (content-identical /skills tree).")
+          print("skills:")
+          for e in lock:
+              print(f"  - name: {e['name']}")
+              print(f"    version: {e['version']}")
+              print(f"    ref: {e['ref']}")
+              print(f"    digest: {e['digest']}")
+          print("composed:")
+          print(f"  ref: {QUAY}/{ORG}/{CATALOG}:{COMPOSED}")
+          print(f"  digest: {comp_dg}")
+          print("===== end =====")
