@@ -60,6 +60,34 @@ export interface CatalogSkillList {
   count: number;
 }
 
+// One row of the unified /catalog/packs index (operator >= v1.7.11):
+// every composable thing — skill, tool, knowledge base — as a typed
+// pack sharing the pack-manifest vocabulary
+// (name/version/description/requires). Tools carry the exact
+// mcpServers entry that consumes them; nothing is hardcoded client-side.
+export interface CatalogPack {
+  type: 'skill' | 'tool' | 'kb';
+  name: string;
+  displayName?: string;
+  description?: string;
+  version?: string;
+  tier?: string;
+  requires?: string[];
+  dependencies?: CatalogSkillDependency[];
+  recipe?: {
+    url: string;
+    type: string;
+    authHeaderValue?: string;
+    envFromSecret?: string;
+  };
+  gatewayRef?: string;
+}
+
+export interface CatalogPackList {
+  items: CatalogPack[];
+  count: number;
+}
+
 export const useCatalogClient = () => {
   const discoveryApi = useApi(discoveryApiRef);
   const fetchApi = useApi(fetchApiRef);
@@ -90,5 +118,26 @@ export const useCatalogClient = () => {
     [discoveryApi, fetchApi],
   );
 
-  return useMemo(() => ({ listSkills }), [listSkills]);
+  const listPacks = useCallback(
+    async (opts: { query?: string; type?: string } = {}): Promise<CatalogPackList> => {
+      const base = await discoveryApi.getBaseUrl('proxy');
+      const url = new URL(`${base}/agent-office-catalog/packs`);
+      if (opts.query) url.searchParams.set('query', opts.query);
+      if (opts.type) url.searchParams.set('type', opts.type);
+      const res = await fetchApi.fetch(url.toString(), {
+        method: 'GET',
+        headers: { Accept: 'application/json' },
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(
+          `packs list failed: HTTP ${res.status} ${text.slice(0, 200)}`,
+        );
+      }
+      return (await res.json()) as CatalogPackList;
+    },
+    [discoveryApi, fetchApi],
+  );
+
+  return useMemo(() => ({ listSkills, listPacks }), [listSkills, listPacks]);
 };

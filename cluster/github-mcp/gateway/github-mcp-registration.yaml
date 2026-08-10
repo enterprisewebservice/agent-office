@@ -37,6 +37,23 @@ metadata:
     app.kubernetes.io/name: github-mcp-server
     app.kubernetes.io/component: registration
     app.kubernetes.io/managed-by: agent-office-gitops
+  annotations:
+    # client-recipe: the exact spec.tools.mcpServers entry an
+    # AgentWorkstation needs to consume this registration. Served by
+    # the operator's /catalog/packs endpoint (>= v1.7.11) so composers
+    # offer this tool as a searchable catalog item instead of shipping
+    # a hardcoded preset. The recipe is data owned HERE, beside the
+    # registration it describes — change the wiring, and every
+    # composer picks it up without a plugin release.
+    #
+    # This github backend is the one registration whose client also
+    # sends an Authorization header (the gateway separately rewrites
+    # it per-call from the ESO-rotated installation token, see
+    # backend-auth-policy.yaml) — hence authHeaderValue/envFromSecret
+    # here while most registrations need only the bare gateway URL.
+    agentoffice.ai/client-recipe: '{"url":"http://mcp-gateway-data-science-gateway-class.agent-office.svc.cluster.local/mcp","type":"http","authHeaderValue":"Bearer ${GITHUB_PERSONAL_ACCESS_TOKEN}","envFromSecret":"github-mcp-installation-token"}'
+    agentoffice.ai/display-name: "GitHub (governed)"
+    agentoffice.ai/description: "Create issues, projects, and repos as a governed identity — github_* tools behind the MCP gateway; the agent never holds a GitHub token."
 spec:
   toolPrefix: github_
   path: /mcp
