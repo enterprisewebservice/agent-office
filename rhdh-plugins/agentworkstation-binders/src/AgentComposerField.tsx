@@ -81,7 +81,11 @@ import AddIcon from '@material-ui/icons/Add';
 import MenuBookIcon from '@material-ui/icons/MenuBook';
 import { FieldExtensionComponentProps } from '@backstage/plugin-scaffolder-react';
 import { useProxiedK8s } from './strategies/useProxiedK8s';
-import { useCatalogClient, CatalogSkillEntry } from './strategies/useCatalogClient';
+import {
+  useCatalogClient,
+  CatalogSkillEntry,
+  CatalogSkillDependency,
+} from './strategies/useCatalogClient';
 
 // ---- value shape (what the skeleton consumes) -----------------------
 
@@ -224,6 +228,48 @@ export const AgentComposerField = (
     };
   }, [catalog]);
 
+  // ---- dependency resolution (phase 2) ------------------------------
+  // A dependency is MET when the compose value already fulfills it:
+  //   mcpServer      -> some mcpServers entry points at the shared
+  //                     gateway URL the catalog served for it (ONE
+  //                     entry serves every registration — credentials
+  //                     are injected gateway-side on the tool-call
+  //                     path, so fulfillment dedupes on the URL);
+  //   knowledgeBase  -> some knowledgeBaseRefs entry names it.
+  const depState = (d: CatalogSkillDependency): 'met' | 'addable' | 'missing' => {
+    if (d.kind === 'mcpServer') {
+      if (value.mcpServers.some(m => d.gatewayUrl && m.url === d.gatewayUrl)) {
+        return 'met';
+      }
+      return d.available ? 'addable' : 'missing';
+    }
+    if (value.knowledgeBaseRefs.some(r => r.name === d.name)) return 'met';
+    return d.available ? 'addable' : 'missing';
+  };
+
+  const addDependency = (d: CatalogSkillDependency) => {
+    if (depState(d) !== 'addable') return;
+    if (d.kind === 'mcpServer' && d.gatewayUrl) {
+      onChange({
+        ...value,
+        mcpServers: [
+          ...value.mcpServers,
+          { name: 'mcp-gateway', url: d.gatewayUrl, type: 'http' },
+        ],
+      });
+      return;
+    }
+    if (d.kind === 'knowledgeBase') {
+      onChange({
+        ...value,
+        knowledgeBaseRefs: [
+          ...value.knowledgeBaseRefs,
+          { name: d.name, role: 'knowledge-pool' },
+        ],
+      });
+    }
+  };
+
   // ---- KB handlers --------------------------------------------------
   const isKbAttached = (name: string) =>
     value.knowledgeBaseRefs.some(r => r.name === name);
@@ -308,7 +354,13 @@ export const AgentComposerField = (
           />
         )}
         {tab === 'skill' && (
-          <SkillSection loading={skillLoading} error={skillError} skills={skills} />
+          <SkillSection
+            loading={skillLoading}
+            error={skillError}
+            skills={skills}
+            depState={depState}
+            onAddDep={addDependency}
+          />
         )}
         {tab === 'mcp' && (
           <McpSection
@@ -434,7 +486,9 @@ const SkillSection: React.FC<{
   loading: boolean;
   error?: string;
   skills: CatalogSkillEntry[];
-}> = ({ loading, error, skills }) => {
+  depState: (d: CatalogSkillDependency) => 'met' | 'addable' | 'missing';
+  onAddDep: (d: CatalogSkillDependency) => void;
+}> = ({ loading, error, skills, depState, onAddDep }) => {
   if (loading) {
     return (
       <Box display="flex" justifyContent="center" my={3}>
@@ -474,6 +528,52 @@ const SkillSection: React.FC<{
           </Typography>
         )}
       </Box>
+      {skills.some(s => (s.dependencies ?? []).length > 0) && (
+        <Box mt={2}>
+          <Typography variant="subtitle2" gutterBottom>
+            Prerequisites
+          </Typography>
+          <Typography variant="caption" color="textSecondary">
+            These skills declare platform resources their procedure calls
+            for. Add what's missing here and the agent is wired for them at
+            creation — one gateway entry covers every governed tool
+            registration.
+          </Typography>
+          {skills
+            .filter(s => (s.dependencies ?? []).length > 0)
+            .map(s => (
+              <Box key={s.name} display="flex" alignItems="center" flexWrap="wrap" gridGap={8} mt={1}>
+                <Typography variant="body2" style={{ minWidth: 160 }}>
+                  {s.displayName ?? s.name}
+                </Typography>
+                {(s.dependencies ?? []).map(d => {
+                  const st = depState(d);
+                  const label = `${d.kind === 'mcpServer' ? 'tools' : 'kb'}: ${d.name}`;
+                  if (st === 'met') {
+                    return (
+                      <Chip key={d.name} size="small" label={`✓ ${label}`}
+                        style={{ backgroundColor: '#e6f4ea' }} />
+                    );
+                  }
+                  if (st === 'addable') {
+                    return (
+                      <Chip key={d.name} size="small" clickable
+                        label={`+ ${label}`} color="primary" variant="outlined"
+                        onClick={() => onAddDep(d)} />
+                    );
+                  }
+                  return (
+                    <Tooltip key={d.name}
+                      title={`${d.name} is not deployed on this cluster — the ${d.kind === 'mcpServer' ? 'tool registration' : 'knowledge base'} does not exist yet. The skill will discover it once it ships.`}
+                      arrow>
+                      <Chip size="small" label={`✗ ${label}`} disabled variant="outlined" />
+                    </Tooltip>
+                  );
+                })}
+              </Box>
+            ))}
+        </Box>
+      )}
     </Box>
   );
 };

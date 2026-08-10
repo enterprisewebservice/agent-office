@@ -38,6 +38,21 @@ export interface CatalogSkillEntry {
   contentSha256?: string;
   tool?: string;
   requires?: string[];
+  dependencies?: CatalogSkillDependency[];
+}
+
+// Serve-time-enriched projection of Skill.spec.dependencies
+// (operator >= v1.7.10). `available` reflects live cluster state;
+// `gatewayUrl` is set for available mcpServer deps — ONE shared
+// gateway endpoint serves every registration (credentials are
+// injected gateway-side on the tool-call path), so fulfillment
+// dedupes to a single mcpServers entry pointing at that URL.
+export interface CatalogSkillDependency {
+  kind: 'mcpServer' | 'knowledgeBase';
+  name: string;
+  optional?: boolean;
+  available: boolean;
+  gatewayUrl?: string;
 }
 
 export interface CatalogSkillList {
