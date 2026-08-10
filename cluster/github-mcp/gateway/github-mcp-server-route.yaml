@@ -34,5 +34,11 @@ spec:
             type: PathPrefix
             value: /mcp
       backendRefs:
-        - name: github-mcp-server
+        # group/kind/weight are API-server defaults, spelled out so
+        # ArgoCD's compare sees git == live (omitting them left the app
+        # permanently OutOfSync once the compare revived post-032ffc6).
+        - group: ""
+          kind: Service
+          name: github-mcp-server
           port: 8080
+          weight: 1
