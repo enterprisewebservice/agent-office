@@ -476,6 +476,36 @@ export const AgentGenesisField = (
                                 the skill stays inert until it is.
                               </Typography>
                             )}
+                            {/* The dependency graph, which is NOT the same as
+                                containment: parkforge-terrain requires
+                                parkforge-core, but core does not contain it.
+                                Reported, never auto-installed — mindifact
+                                treats requires as a presence check — so an
+                                unmet edge is named and left to the user. */}
+                            {(p.packRequires ?? []).length > 0 && (
+                              <Typography
+                                variant="caption"
+                                component="div"
+                                color="textSecondary"
+                              >
+                                requires{' '}
+                                {(p.packRequires ?? []).map((r, i) => (
+                                  <span key={r.name}>
+                                    {i > 0 ? ', ' : ''}
+                                    <span
+                                      style={{
+                                        color: r.satisfied ? undefined : '#a15c07',
+                                        fontWeight: r.satisfied ? undefined : 600,
+                                      }}
+                                    >
+                                      {r.name}
+                                      {r.range ? ` ${r.range}` : ''}
+                                      {r.satisfied ? '' : ' (not installed)'}
+                                    </span>
+                                  </span>
+                                ))}
+                              </Typography>
+                            )}
                             {/* A parent pack is a container: picking
                                 parkforge-brain installs five packs and six
                                 skills, and one row saying "parkforge-brain"

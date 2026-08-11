@@ -95,6 +95,17 @@ export interface CatalogPack {
   /** Leaf skills a pack ships, by short name. Advisory — the
    *  authoritative edge is `member` on each skill row. */
   skills?: string[];
+  /** The Maven-style pack->pack dependency graph with version ranges
+   *  (operator >= v1.7.23). Separate from `dependencies`, which are
+   *  cluster resources. Reported, never auto-resolved — mindifact
+   *  treats requires as a presence check. */
+  packRequires?: CatalogPackRequirement[];
+}
+
+export interface CatalogPackRequirement {
+  name: string;
+  range?: string;
+  satisfied: boolean;
 }
 
 export interface CatalogPackList {
