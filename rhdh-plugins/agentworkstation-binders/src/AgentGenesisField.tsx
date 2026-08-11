@@ -172,11 +172,30 @@ export const AgentGenesisField = (
     return { knowledgeBaseRefs: kbs, mcpServers: mcp };
   };
 
-  const summarize = (sel: SelectedPack[], c: GenesisValue['compose']) =>
-    (sel?.length ?? 0) === 0
-      ? 'nothing selected from the catalog'
-      : `${sel.map(p => `${p.type}:${p.name}`).join(' · ')}  →  wires ` +
-        `${c.mcpServers.length} tool endpoint(s), ${c.knowledgeBaseRefs.length} knowledge base(s)`;
+  // Counts skills alongside tools and KBs. Counting only what compose
+  // produces made a skill-only pick summarise as "wires 0 tool
+  // endpoint(s), 0 knowledge base(s)" — true of the spec, and wrong
+  // about the agent.
+  const summarize = (sel: SelectedPack[], c: GenesisValue['compose']) => {
+    const list = Array.isArray(sel) ? sel : [];
+    if (list.length === 0) return 'nothing selected from the catalog';
+    const skills = list.filter(p => p.type === 'skill').length;
+    const parts = [
+      skills ? `${skills} skill(s)` : '',
+      c.mcpServers.length ? `${c.mcpServers.length} tool endpoint(s)` : '',
+      c.knowledgeBaseRefs.length
+        ? `${c.knowledgeBaseRefs.length} knowledge base(s)`
+        : '',
+    ].filter(Boolean);
+    const unmet = list
+      .flatMap(p => p.dependencies ?? [])
+      .filter(d => !d.available).length;
+    return (
+      `${list.map(p => `${p.type}:${p.name}`).join(' · ')}  →  ` +
+      `${parts.join(', ')}` +
+      (unmet ? ` · ${unmet} prerequisite(s) not deployed` : '')
+    );
+  };
 
   const suggest = async () => {
     if (!value.description.trim()) return;
@@ -239,6 +258,10 @@ export const AgentGenesisField = (
             color="primary"
             disabled={thinking || !value.description.trim()}
             onClick={suggest}
+            // nowrap + a floor wide enough for the longer label: the
+            // button is a flex sibling of a full-width TextField, so
+            // without these "Re-suggest" wraps mid-word.
+            style={{ whiteSpace: 'nowrap', minWidth: 132, height: 56 }}
           >
             {thinking ? <CircularProgress size={20} /> : ready ? 'Re-suggest' : 'Suggest'}
           </Button>
@@ -333,11 +356,59 @@ export const AgentGenesisField = (
                 What this wires into the agent
               </Typography>
               <Typography variant="caption" color="textSecondary">
-                Exactly what lands in the AgentWorkstation spec — verify it
-                before Create.
+                Everything the agent ends up with — spec fields plus what it
+                picks up at runtime. Verify it before Create.
               </Typography>
               <Table size="small">
                 <TableBody>
+                  {/* Skills attach by runtime discovery rather than a spec
+                      field, so they used to be missing here entirely — which
+                      made a skill-only recommendation read as "nothing
+                      happened". Show them, and name any prerequisite the
+                      cluster is missing instead of hinting at it. */}
+                  {value.packs
+                    .filter(p => p.type === 'skill')
+                    .map(p => {
+                      const unmet = (p.dependencies ?? []).filter(
+                        d => !d.available,
+                      );
+                      return (
+                        <TableRow key={`w-skill-${p.name}`}>
+                          <TableCell style={{ width: 64 }}>
+                            <Chip
+                              size="small"
+                              label="skill"
+                              style={typeChipStyle.skill}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Typography variant="body2">
+                              {p.displayName || p.name}
+                            </Typography>
+                            <Typography variant="caption" color="textSecondary">
+                              attaches by runtime discovery
+                              {p.installed === false
+                                ? ` · installs from ${p.registry || 'the registry'} on create`
+                                : ''}
+                            </Typography>
+                            {unmet.length > 0 && (
+                              <Typography
+                                variant="caption"
+                                component="div"
+                                style={{ color: '#a15c07' }}
+                              >
+                                needs{' '}
+                                {unmet
+                                  .map(d => `${d.name} (${d.kind})`)
+                                  .join(', ')}{' '}
+                                — not deployed on this cluster, so that part of
+                                the skill stays inert until it is.
+                              </Typography>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                   {value.compose.mcpServers.map(m => (
                     <TableRow key={`w-mcp-${m.name}`}>
                       <TableCell style={{ width: 64 }}>
@@ -365,14 +436,18 @@ export const AgentGenesisField = (
                       </TableCell>
                     </TableRow>
                   ))}
-                  {value.compose.mcpServers.length === 0 &&
+                  {/* Only when there is genuinely nothing. Previously this
+                      fired whenever compose was empty, so a perfectly good
+                      skill-only pick announced that nothing was wired. */}
+                  {value.packs.length === 0 &&
+                    value.compose.mcpServers.length === 0 &&
                     value.compose.knowledgeBaseRefs.length === 0 && (
                       <TableRow>
                         <TableCell colSpan={2}>
                           <Typography variant="caption" color="textSecondary">
-                            No tools or knowledge bases wired. Skills still
-                            discover at runtime; a skill whose backing service
-                            is not deployed contributes nothing here.
+                            Nothing selected. The agent is still created — it
+                            just starts with its identity and no catalog
+                            capabilities.
                           </Typography>
                         </TableCell>
                       </TableRow>

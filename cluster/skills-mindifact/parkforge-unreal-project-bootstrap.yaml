@@ -1,0 +1,320 @@
+# ParkForge skills, imported from the mindifact registry pack
+# parkforge-brain@1.6.0. Generated from the pack's SKILL.md bodies —
+# regenerate rather than hand-editing.
+apiVersion: agentoffice.ai/v1alpha1
+kind: Skill
+metadata:
+  name: parkforge-unreal-project-bootstrap
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/managed-by: agent-office
+    app.kubernetes.io/part-of: parkforge-brain
+    agentoffice.ai/skill-tier: mindifact
+    agentoffice.ai/pack: parkforge-core
+  annotations:
+    agentoffice.ai/registry: mindifact.ai
+    agentoffice.ai/pack-ref: parkforge-brain@1.6.0
+    agentoffice.ai/pack-member: parkforge-core
+spec:
+  displayName: "ParkForge \u2014 Unreal Project Bootstrap"
+  description: "Prime a fresh Unreal project with the ParkForge brain \u2014 install the pack's verbs,\
+    \ wire the plugins, fill the world profile, stand up the landscape, and prove the loop live with one\
+    \ measured stroke. Use this the moment the user mentions a new Unreal project, setting up ParkForge,\
+    \ priming a project, a fresh world, a second park, a scratch project, installing the brain, installing\
+    \ the verbs, \"get the pack into this project\", \"make this ParkForge-ready\", \"bootstrap the world\"\
+    , or running pack.py aga"
+  version: 1.6.0
+  dependencies:
+  - kind: mcpServer
+    name: unreal
+  source:
+    inline: "---\nname: unreal-project-bootstrap\ndescription: Prime a fresh Unreal project with the ParkForge\
+      \ brain \u2014 install the pack's verbs, wire the plugins, fill the world profile, stand up the\
+      \ landscape, and prove the loop live with one measured stroke. Use this the moment the user mentions\
+      \ a new Unreal project, setting up ParkForge, priming a project, a fresh world, a second park, a\
+      \ scratch project, installing the brain, installing the verbs, \"get the pack into this project\"\
+      , \"make this ParkForge-ready\", \"bootstrap the world\", or running pack.py against an Unreal directory.\
+      \ Use it even when only one step seems needed \u2014 especially then, because the failure this skill\
+      \ prevents is the partial install that half-works \u2014 verbs copied but plugins missing, init_unreal\
+      \ never templated, the profile left on FILL_ME, numpy absent from the engine's embedded Python.\
+      \ While this skill applies, never hand-copy files into Content/Python, never edit the .uproject\
+      \ by hand for something the installer does, and never improvise scripted Landscape creation \u2014\
+      \ every step runs through the numbered rails below, and every rail names its verification.\n---\n\
+      \n# Project bootstrap: from empty project to first measured stroke\n\nA ParkForge world is not \"\
+      an Unreal project with some scripts in it\". It is a\nproject whose `.uproject` exposes the MCP\
+      \ toolset plugins, whose\n`Content/Python` carries the verb packages and a pack-managed\n`init_unreal.py`\
+      \ that registers them at editor start, whose\n`ParkForgeData/world_profile.json` records the world's\
+      \ measured constants,\nand whose landscape matches that profile. Miss any one of those and you get\n\
+      the worst kind of failure: an install that LOOKS clean and dies three calls\ndeep in a live session.\
+      \ So the bootstrap is eight rails, run in order, each\nwith a named verification \u2014 and the\
+      \ last rail is a real stroke, predicted\nbefore it is made and removed after it is measured, so\
+      \ the bootstrap ends\nwith proof, not hope.\n\n**Who does what.** The installer is `brainpack/pack.py`\
+      \ in the meshforge repo\n(canonical home: `<repo>/brainpack/pack.py`);\nthe pack is the tarball\
+      \ it built (`dist/parkforge-brain-v<version>.tar.gz`).\nThe v1.1 installer's `--unreal` side does\
+      \ four things this skill depends on:\n\n1. **copies the verb packages** into `Content/Python/` (`parkforge`,\n\
+      \   `parkforge_terrain`), per the pack manifest's `unreal_install` entries,\n2. **templates `Content/Python/init_unreal.py`**\
+      \ \u2014 the registration\n   bootstrap, stamped with the ownership marker `# ParkForge pack-managed`.\n\
+      \   A file WITHOUT that marker belongs to the project: the installer reports\n   it and never touches\
+      \ it (delete the marker line to take ownership),\n3. **`.uproject` plugin surgery** \u2014 ensures\
+      \ `ModelContextProtocol`,\n   `AllToolsets`, `ToolsetRegistry`, and `PythonScriptPlugin` are present\n\
+      \   and Enabled, writing a `.uproject.bak` of the original BEFORE the first\n   changed byte and\
+      \ rewriting nothing when nothing changed. A `.uproject`\n   that does not parse as JSON is REFUSED\
+      \ loudly (file and any existing\n   `.bak` left byte-identical), and so is anything other than exactly\
+      \ one\n   `.uproject` in the project directory \u2014 both print an\n   `ERROR \u2026 REFUSING plugin\
+      \ wiring` line and make the install exit nonzero\n   (`install FAILED: .uproject plugin wiring`)\
+      \ after its other steps finish,\n4. **writes the world-profile TEMPLATE** to\n   `ParkForgeData/world_profile.json`\
+      \ \u2014 only when none exists; an existing\n   profile is the project's measured record and is\
+      \ never overwritten. The\n   template's shape IS the schema the verbs' loader validates\n   (`parkforge/world_profile.py`):\
+      \ every required key is present, so the\n   loader's only complaint about an untouched template\
+      \ is the FILL_ME\n   strings sitting in number-typed slots \u2014 replace those and `load()`\n \
+      \  accepts; it never complains about a missing key unless someone\n   hand-deleted one. Every world-anchored\
+      \ value is the string `FILL_ME (\u2026)`, with\n   the reference park's value inside the parenthesis\
+      \ as documentation,\n   never as a default; universal values (the T10 class-check string, the\n\
+      \   ribbon mesh and defaults, the verify sampling) ship real, and\n   `state_dir` is filled at install\
+      \ time with `<project>/Saved/ParkForge`.\n\nIt also accepts **`--engine-pip <engine-root>`**, which\
+      \ pip-installs\nnumpy+pillow into the EDITOR's embedded Python (rail 3) as part of the\ninstall\
+      \ \u2014 `<engine-root>` is the directory that CONTAINS\n`Binaries/ThirdParty/Python3`, i.e. `<UE_5.8>/Engine`\
+      \ on a stock install,\nnot the folder above it. Without the flag the installer prints the manual\n\
+      command as a next step. If the `.uproject` wiring refused or the engine pip\nfailed, install finishes\
+      \ its other steps and then exits nonzero with\n`install FAILED: <which step>` \u2014 an exit code\
+      \ you must read, not assume.\n\nYour own agent workspace (CLAUDE.md, skills, `.mcp.json`, brain/)\
+      \ comes from\n`install --workspace`; this skill is about the `--unreal` side, and both\nflags may\
+      \ ride one invocation when you are standing up both at once.\n\n**Two homes, one canon.** The brain's\
+      \ canonical home is the meshforge repo\n(`<repo>/brain`). Everything under\n`<project>/Content/Python`\
+      \ is an **install artifact**: a fix applied there\ndies on the next install. Patch the canon, rebuild\
+      \ the pack, reinstall \u2014\nnever patch the artifact.\n\n**The harness.** `brain/evals/harness.py`\
+      \ (shipped in the pack's evals\ncompartment, next to `verify_pack.py`) checks the mechanical gates\
+      \ from the\nfilesystem: run\n\n    /usr/bin/python3 brain/evals/harness.py --project <project>\n\
+      \nafter rail 2 and again whenever a rail says so; add `--live` once the\neditor is up to run eval\
+      \ 0 too. It prints `[MANUAL]` lines for the human\nsteps and never fakes them as passes.\n\n## The\
+      \ eight rails \u2014 in order, every bootstrap\n\n**Rail 1 \u2014 Preconditions. The editor is CLOSED\
+      \ and you know your paths.**\nCollect from the user, verbatim, never guessed:\n- the absolute path\
+      \ to the UE 5.8 project (the directory holding the\n  `.uproject`) \u2014 and whether it is a scratch\
+      \ project or a world they care\n  about; evals run on scratch projects ONLY,\n- the absolute path\
+      \ to the pack tarball,\n- the absolute path to the installer `pack.py` \u2014 the canonical home\
+      \ above\n  when the meshforge checkout is present; a pack-only environment (eval 2's\n  setup) hands\
+      \ it to you, and if neither applies, ask \u2014 never guess a path\n  to a program you are about\
+      \ to run,\n- the engine root, if known (unlocks `--engine-pip` in rail 2; without it\n  rail 3 runs\
+      \ by hand).\n\nThe editor must be closed for this project. Two hard reasons: the `.uproject`\nsurgery\
+      \ is silently lost if the editor holds the file and rewrites it on\nexit, and toolsets register\
+      \ only when the editor **starts after**\nregistration exists (CONNECTION.md) \u2014 an install under\
+      \ a running editor\nproduces a clean-looking report and a dead toolset list.\n*Verification:* `ls\
+      \ <project>/*.uproject` shows exactly one file (the\ninstaller refuses plugin wiring and exits nonzero\
+      \ otherwise); `pgrep -fl\nUnrealEditor` shows no process for this project. If one is running, **stop\n\
+      and ask the user to close it** \u2014 never kill or restart an editor yourself\n(house rule: no\
+      \ surprise restarts).\n\n**Rail 2 \u2014 Install, and READ the report.**\nOne command:\n\n    /usr/bin/python3\
+      \ <meshforge>/brainpack/pack.py install \\\n        --pack <tarball> --unreal <project> [--engine-pip\
+      \ <engine-root>]\n\nRead every line of the report, not just the exit code. A clean v1.1\n`--unreal`\
+      \ report shows five things, all prefixed `unreal:`:\n- one `installed verbs/<pkg> -> Content/Python/<pkg>`\
+      \ line per verb package,\n- `wrote pack-managed init_unreal.py` (or `up to date` / `refreshed\n\
+      \  (pack-managed)`); the line `is unmarked \u2026 left untouched` means the\n  project owns that\
+      \ file \u2014 confirm with the user that it still registers\n  the toolsets before proceeding,\n\
+      - the plugin surgery outcome: `added plugin entries: \u2026` and/or `flipped\n  Enabled=true on:\
+      \ \u2026` plus `previous <name>.uproject saved as\n  <name>.uproject.bak` \u2014 or `already lists\
+      \ all required plugins (no\n  rewrite)`. An `ERROR \u2026 REFUSING plugin wiring` line means a malformed\n\
+      \  `.uproject`: stop, have the user fix or restore it, rerun install,\n- `wrote world profile TEMPLATE`\
+      \ \u2014 or `world profile exists -- never\n  overwritten`, which on a re-install of a measured\
+      \ world is the CORRECT\n  outcome, not a problem,\n- the engine-pip result (`engine pip OK`) if\
+      \ `--engine-pip` was given,\n  otherwise the printed one-time command for rail 3.\n\nAny `MISSING`,\
+      \ any traceback, any `install FAILED` exit, any line you did\nnot expect \u2192 stop and fix before\
+      \ rail 3; do not \"continue and see\".\n*Verification:* the report itself, plus\n`harness.py --project\
+      \ <project>` \u2014 gates `uproject-plugins`,\n`init-unreal-marker`, and `verbs-installed` must\
+      \ be PASS now.\n`profile-filled` is EXPECTED to fail until rails 4\u20135 complete; say so out\n\
+      loud when you show the table.\n\n**Rail 3 \u2014 Engine pip. The editor's Python is not your Python.**\n\
+      The editor embeds its own interpreter\n(`Engine/Binaries/ThirdParty/Python3`); the ParkForge core\
+      \ needs numpy and\nPillow inside THAT one, and no local test can prove it. If rail 2 ran with\n\
+      `--engine-pip` and reported `engine pip OK`, this happened already.\nOtherwise run the CONNECTION.md\
+      \ command verbatim:\n\n    \"<engine>/Engine/Binaries/ThirdParty/Python3/Mac/bin/python3\" -m pip\
+      \ install numpy pillow\n\n*Verification:*\n`\"<engine>/Engine/Binaries/ThirdParty/Python3/Mac/bin/python3\"\
+      \ -c \"import numpy, PIL; print(numpy.__version__)\"`\nprints a version. The symptom of skipping\
+      \ this rail is pinned: every\nTerrainTools verb fails with `core is not importable: No module named\n\
+      'numpy'` while every local test stays green.\n\n**Rail 4 \u2014 Fill the world profile WITH the\
+      \ user.**\n`<project>/ParkForgeData/world_profile.json` is the versioned record of the\nworld's\
+      \ constants \u2014 in `ParkForgeData/` precisely because it is neither\noperational state (`Saved/ParkForge/`,\
+      \ which you never edit by hand) nor\nimportable content (T11: data under `Content/` wakes the reimport\
+      \ watcher).\nIts shape is the exact schema the verbs' loader validates; the template as\nv1.1 writes\
+      \ it (parenthetical text abridged here):\n\n```json\n{\n  \"_readme\": [\"\u2026fill by measuring;\
+      \ underscore-prefixed keys are comments\u2026\"],\n  \"name\": \"FILL_ME (human name of this world)\"\
+      ,\n  \"heightmap\": {\n    \"n\":               \"FILL_ME (int, heightmap samples per side; reference\
+      \ park: 253)\",\n    \"origin_x\":        \"FILL_ME (float, world X of heightmap pixel (0,0); reference\
+      \ park: -5950.7)\",\n    \"origin_y\":        \"FILL_ME (float, world Y of heightmap pixel (0,0);\
+      \ reference park: -12654.3)\",\n    \"units_per_pixel\": \"FILL_ME (float, world units per heightmap\
+      \ pixel; reference park: 100.0)\",\n    \"z_scale\":         \"FILL_ME (float, Landscape actor Z\
+      \ scale; one height step = z_scale/128; reference park: 100.0)\"\n  },\n  \"landscape\": { \"actor_class_contains\"\
+      : \"Landscape\" },\n  \"holders\": {\n    \"reseat_instanced\": [\"FILL_ME (HISM holder labels the\
+      \ delta re-seat moves after a heightmap import; \u2026)\"],\n    \"ribbon_label\":     \"FILL_ME\
+      \ (spline-mesh path holder label; reference park: PebblePath)\",\n    \"skip_labels\": []\n  },\n\
+      \  \"ribbon\": {\n    \"material\": \"FILL_ME (/Game/... path material; reference park: /Game/Maps/M_PebblePath2.M_PebblePath2)\"\
+      ,\n    \"mesh\": \"/Engine/BasicShapes/Plane.Plane\",\n    \"default_width\": 300.0, \"default_step\"\
+      : 100.0, \"default_lift\": 1.5\n  },\n  \"state_dir\": \"<real, set at install time: <project>/Saved/ParkForge>\"\
+      ,\n  \"verify\": { \"grid\": 9, \"margin_px\": 10, \"trace_z\": 12000.0, \"probes\": [] }\n}\n```\n\
+      \nThe values in parentheses are the reference park (`welcometotomorrow`) \u2014\n**documentation,\
+      \ never silently-working defaults**: every FILL_ME must be\nreplaced with a real JSON value chosen\
+      \ with, or measured for, THIS world\n(trap T5 is why \u2014 the original park's constants were measured,\
+      \ not\nassumed). The `_readme` may stay; the harness ignores underscore-prefixed\nkeys. Fill in\
+      \ this order, in conversation with the user:\n\n- **`name`** \u2014 the world's human name.\n- **The\
+      \ `heightmap` block.** The footprint comes from the landscape they\n  want: side = (n \u2212 1)\
+      \ \xD7 units_per_pixel. For a **brand-new world this\n  block defines the landscape you are about\
+      \ to CREATE** in rail 5, so pick\n  `n` from this table (the rail-5 recipe uses section size 63,\
+      \ 2\xD72\n  sections per component, C\xD7C components \u2014 the only shapes it produces, so\n \
+      \ n = 126\xB7C + 1):\n\n  | n | components C | side at upp=100 |\n  |---|---|---|\n  | 127 | 1 |\
+      \ 126 m |\n  | 253 (reference) | 2 | 252 m |\n  | 379 | 3 | 378 m |\n  | 505 | 4 | 504 m |\n\n \
+      \ Say the arithmetic out loud (\"252 m a side = n 253 at 100 units per\n  pixel\") so the user can\
+      \ catch a slip. Keep `units_per_pixel` and\n  `z_scale` at the reference 100.0 unless the user has\
+      \ a reason: every\n  later measurement quantizes at `z_scale / 128` (0.78125 units at 100).\n- **Origins\
+      \ stay FILL_ME at this rail.** Origin is only ever **measured**\n  from a real Landscape actor (rail\
+      \ 5, step 5) \u2014 a typed-in origin is a\n  guessed coordinate.\n- **The `holders` block.** `ribbon_label`:\
+      \ the holder label route ribbons\n  will build under \u2014 pick it with the user (the reference\
+      \ name\n  `PebblePath` is a fine choice for a new world too). `reseat_instanced`:\n  for a brand-new\
+      \ empty world the honest value is `[]` \u2014 there are no HISM\n  holders to re-seat yet; add labels\
+      \ as the world grows. `skip_labels`\n  ships `[]`.\n- **`ribbon.material`** \u2014 a material asset\
+      \ path that exists for THIS\n  project. A fresh Blank project has no materials yet:\n  `/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial`\
+      \ is a\n  legitimate stand-in (referencing engine assets is fine; EDITING them is\n  the T9 sin),\
+      \ swapped for a project material later. The mesh and\n  width/step/lift defaults ship real \u2014\
+      \ leave them.\n- **`state_dir`** is already real \u2014 the installer set it to\n  `<project>/Saved/ParkForge`.\
+      \ Confirm it points inside THIS project (a\n  profile copied from another project is how strokes\
+      \ end up in the wrong\n  world's Saved); never edit that directory by hand.\n- `verify` ships real;\
+      \ `probes: []` is honest for a fresh world \u2014 probes\n  are added when there is something (a\
+      \ plaza rim, a pad) to guard.\n\n*Verification:* every FILL_ME except the two origins replaced with\
+      \ a real\nvalue. The `profile-filled` harness gate still FAILS here (on\n`heightmap.origin_x`) \u2014\
+      \ that is correct AT THIS RAIL and wrong after rail 5.\n\n**Rail 5 \u2014 The landscape. One manual\
+      \ recipe, zero improvisation.**\n**Creating a Landscape actor is THE one step in this pipeline not\
+      \ yet proven\nscriptable.** Do not improvise a scripted creation: no LandscapeSubsystem\nexperiments,\
+      \ no forum snippets, no \"let me just try one thing\" inside a user\nproject \u2014 a wrong landscape-side\
+      \ scripting move has already bricked a\nstartup map once (the paint-layer assert; see terrain-strokes\
+      \ hard limits).\nIf scripted creation matters, that is a **factory brief** (`brain/factory/`)\n\
+      to be built and proven on a disposable project \u2014 propose it, do not attempt\nit here. The recipe\
+      \ below is a one-time setup of a handful of clicks: the\nsanctioned exception to the no-manual-work\
+      \ rule, stated as such.\n\nThe recipe runs inside the editor; if the editor is not open yet, run\
+      \ rail\n6's launch-and-wait first, then return here \u2014 rail 5 is not complete until\nthe measured\
+      \ origin is in the profile.\n\n**Know what this first launch can and cannot give you.** The parkforge\n\
+      toolsets CANNOT be live yet: `parkforge.toolsets` reads the world profile\nat import time, a FILL_ME\
+      \ origin fails the loader's type check, and the\nwhole registration dies with it at editor start\
+      \ \u2014 by design, so a\nhalf-filled profile can never drive a verb. `list_toolsets` showing the\n\
+      ENGINE toolsets (from the AllToolsets plugin \u2014 the name ending in\n`ActorTools` among them)\
+      \ but nothing under `parkforge.` is the expected,\nhealthy state of this launch, not a rail-2 failure.\
+      \ Every parkforge verb \u2014\n`whats_here` included \u2014 waits for the definitive launch in rail\
+      \ 6.\n\n1. Select **Landscape mode \u2192 Manage \u2192 New Landscape**.\n2. Set **Section Size\
+      \ = 63\xD763 quads**, **Sections Per Component = 2\xD72**,\n   **Number of Components = C\xD7C**\
+      \ from the rail-4 table. The panel's\n   **Overall Resolution must read n\xD7n exactly** (253\xD7\
+      253 for the\n   reference shape). If it does not, stop and fix the numbers \u2014 never\n   create-and-hope.\n\
+      3. Set **Scale X = Y = units_per_pixel** (100) and **Z = z_scale** (100),\n   exactly the profile's\
+      \ numbers. Location wherever the user wants the\n   world (0, 0, 0 is fine). Leave the material\
+      \ None for now \u2014 if one is set\n   later it goes through the `landscape_material` property\
+      \ (T10), never by\n   hand-editing engine assets.\n4. **Create**, then save the level.\n5. **Measure\
+      \ the origin \u2014 never assume which corner the actor sits at.**\n   With MCP answering (rail\
+      \ 6's poll): `list_toolsets`, find the ENGINE\n   toolset whose name ends in `ActorTools` (live\
+      \ even while parkforge\n   registration is refused \u2014 see the paragraph above), `describe_toolset`\n\
+      \   it, and use its find/list verb to read the Landscape actor's location.\n   Read-only, exact\
+      \ names from the live listing, never guessed; the bridge\n   (CONNECTION.md's fallback transport)\
+      \ is the alternative read path if the\n   listing offers no usable verb. Then:\n   - If the listing\
+      \ offers a bounds verb, use it: min corner = bounds\n     origin \u2212 box extent, in X and Y \u2014\
+      \ definitive. Write those as\n     `origin_x` / `origin_y`, and check the side (2 \xD7 extent) equals\n\
+      \     (n \u2212 1) \xD7 units_per_pixel within one pixel.\n   - Otherwise write the actor's location\
+      \ as the PROVISIONAL origin and say\n     so out loud: rail 6 confirms the corner with `whats_here`\
+      \ probes the\n     moment ViewportTools is live, and a wrong corner there means\n     correcting\
+      \ the profile plus one more announced restart (the verbs bind\n     the profile at import; a live\
+      \ editor never re-reads it).\n   Real JSON numbers replace the FILL_ME strings either way.\n\n*Verification:*\
+      \ `harness.py --project <project>` \u2014 `profile-filled` is now\nPASS; and the measured footprint\
+      \ (far corner minus origin) equals\n(n \u2212 1) \xD7 units_per_pixel within one pixel \u2014 checked\
+      \ here when a bounds\nverb supplied it, otherwise by rail 6's corner probes.\n\n**Rail 6 \u2014\
+      \ Launch the editor with the profile pinned, and wait for MCP on :8000.**\nThe verbs resolve their\
+      \ world profile through `$PARKFORGE_PROFILE` first\n(the loader's documented order, `parkforge/world_profile.py`);\
+      \ its baked-in\ndefault path is the REFERENCE park's profile. So for any project that is\nnot `welcometotomorrow`,\
+      \ launching without the override silently binds the\nfresh world's verbs to the reference park's\
+      \ constants \u2014 and writes\noperational state into the WRONG project's `Saved/ParkForge` (a\n\
+      single-writer violation on the real game). Launch through the engine\nbinary so the variable rides\
+      \ the environment (`open` drops env vars):\n\n    PARKFORGE_PROFILE=\"<project>/ParkForgeData/world_profile.json\"\
+      \ \\\n        \"<engine>/Binaries/Mac/UnrealEditor\" \"<project>/<name>.uproject\"\n\n(`<engine>`\
+      \ is the same root `--engine-pip` takes. Re-priming the reference\npark itself needs no override\
+      \ \u2014 its profile IS the default.) Then wait for\nthe MCP endpoint:\n\n    curl -s -o /dev/null\
+      \ -w '%{http_code}' -X POST http://127.0.0.1:8000/mcp\n\nANY HTTP status is \"answered\" \u2014\
+      \ the endpoint may 4xx a bare probe and that\nstill proves the server is up; connection-refused\
+      \ means keep polling. A\nfirst launch compiles shaders and can take minutes: wait, and never restart\n\
+      the editor to hurry it (no surprise restarts).\n\n**This rail runs twice on a fresh world, by design.**\
+      \ The FIRST launch\nexists so rail 5's recipe and measurement can happen; the parkforge\ntoolsets\
+      \ stay absent in it (rail 5 says why). Once `profile-filled` is\ngreen, that running editor is STALE\
+      \ \u2014 toolsets register only at editor\nSTART, so the definitive launch must begin after the\
+      \ profile is complete.\nAnnounce it, ask the user to close the editor (or for their explicit yes\
+      \ to\na restart \u2014 never a surprise), then run the same launch command again.\n\n*Verification:*\
+      \ the poll returns an HTTP status code; the launch command\nwith its `PARKFORGE_PROFILE=` prefix\
+      \ is quoted in the transcript (for a\nnon-reference project); and, for the definitive launch, `list_toolsets`\n\
+      shows all three parkforge names \u2014 endings `TerrainTools`, `RouteTools`,\n`ViewportTools`. If\
+      \ rail 5 wrote a PROVISIONAL origin, confirm the corner\nNOW, before eval 0: `whats_here(origin_x\
+      \ + 10, origin_y + 10)` must report\nthe Landscape, `whats_here(origin_x \u2212 10, origin_y \u2212\
+      \ 10)` must not, and at\nfar = origin + (n \u2212 1) \xD7 units_per_pixel the probes flip (inside\
+      \ far \u2212 10\nreports it, outside far + 10 does not). A wrong corner \u2192 correct the\nprofile,\
+      \ then one more announced restart \u2014 the verbs bound the wrong\nnumbers at import and a live\
+      \ editor never re-reads them.\n\n**Rail 7 \u2014 Eval 0. The gate, not a formality.**\nRun the pack\
+      \ health check:\n`/usr/bin/python3 brain/evals/verify_pack.py` from the installed workspace\n(or\
+      \ `harness.py --project <project> --live`, which runs it for you and\nprints the full gate table).\
+      \ It must end `EVAL 0 PASS`. On failure, map the\nmessage to its rail \u2014 never to an improvised\
+      \ fix:\n\n| eval 0 says | broken rail |\n|---|---|\n| `toolset MISSING from editor` | when the ENGINE\
+      \ toolsets list but nothing under `parkforge.` does, check the profile FIRST: an editor started\
+      \ while any FILL_ME remained (or with a profile the loader refuses) kills parkforge registration\
+      \ at import \u2014 finish rails 4\u20135, then the announced relaunch. Engine toolsets missing too\
+      \ \u2192 rail 2 (init_unreal / plugins) or rail 6 (editor started before registration \u2014 relaunch\
+      \ it, with the user's consent) |\n| `core is not importable: No module named 'numpy'` | rail 3 |\n\
+      | `world profile not found` / `missing required key(s)` | rail 4/5 \u2014 restore the template's\
+      \ keys (the shipped template carries every required key, so a MISSING key means a hand-edit; `wrongly\
+      \ typed key(s)` naming an origin means FILL_ME strings remain \u2014 rail 5 unfinished). If a filled,\
+      \ untouched-shape profile still refuses, template and loader have drifted: that is a missing pack\
+      \ artifact (eval 2 scoring rule), a factory fix, never an on-the-spot schema edit |\n| connection\
+      \ refused / no response | rail 6 |\n\nRe-registering toolsets by hand in a live editor is not a\
+      \ fix (T12 strands a\ndead class in the registry); the fix is the rail.\n*Verification:* the literal\
+      \ `EVAL 0 PASS` line. Do not proceed to rail 8\nwithout it.\n\n**Rail 8 \u2014 First stroke: prediction\
+      \ before action, then back to flat.**\nThis is operator contract rule 1 made into a ritual. In order:\n\
+      \n1. `list_toolsets`, then `describe_toolset` on the full TerrainTools and\n   ViewportTools names\
+      \ \u2014 exactly per the terrain-strokes preamble; every\n   dotted verb below is one `call_tool`\
+      \ invocation.\n2. Anchor: `ViewportTools.look_at` (ask the user to aim at the ground if it\n   reports\
+      \ no hit). Read the anchor x, y, then `whats_here(x, y)` and read\n   the ground height **h0**.\
+      \ Read the current stroke count **k** from the\n   stroke-listing verb (`list_strokes`) \u2014 the\
+      \ prediction and step 6's\n   return-to-baseline check both compare against a measured k, never\
+      \ a\n   remembered one.\n3. Write the prediction DOWN, in the transcript, before the call:\n\n \
+      \      PREDICTION: raise_here(x=<ax>, y=<ay>, radius=400, height=60)\n       expect: 1 new stroke\
+      \ id; height at anchor h0+60 = <number>,\n               within \xB1(z_scale/128) = \xB10.78125;\
+      \ delta_grid_max 60\n               within the same quantization; stroke count <k>+1.\n\n   (radius\
+      \ 400 / height +60 is the pinch row from terrain-strokes \u2014 small on\n   purpose.)\n4. Make\
+      \ the call. Read the returned numbers and STATE them next to the\n   prediction. If any measured\
+      \ number differs from its prediction by more\n   than one quantization step: **STOP** \u2014 report\
+      \ both numbers, remove the\n   stroke, and treat it as a bootstrap defect (a wrong origin or profile,\n\
+      \   usually), not something to stroke around.\n5. `ViewportTools.capture_view` to an absolute path\
+      \ in your scratchpad;\n   show the frame.\n6. `TerrainTools.remove_stroke(id)`: verify the anchor\
+      \ height returns to h0\n   within one quantization step and the stroke count returns to its\n  \
+      \ pre-stroke value. **The smoke stroke never stays** \u2014 the world ends the\n   bootstrap exactly\
+      \ as the landscape left it.\n7. State the final numbers: stroke count (`list_strokes` again), route\n\
+      \   count (`RouteTools.list_routes` \u2014 0 on a fresh world), anchor height.\n   The bootstrap\
+      \ is complete; from here, every ground edit belongs to the\n   terrain-strokes skill.\n\n*Verification:*\
+      \ the prediction block and the measured block, side by side,\nin the transcript, plus the removal\
+      \ numbers.\n\n## The failure catechism\n\n- **Every rail names its verification; a rail whose verification\
+      \ is not in\n  the transcript did not happen.** No rail may be skipped silently \u2014\n  skipping\
+      \ is a decision the user makes, out loud, and the skipped rail's\n  name goes in the final report.\n\
+      - **An install under a running editor looks clean and is broken.**\n  Registration happens at editor\
+      \ start; the `.uproject` surgery loses to the\n  editor's own save. Rail 1 exists because the failure\
+      \ gives no error.\n- **\"numpy is on the machine\" is the wrong interpreter.** The engine embeds\n\
+      \  its own Python; only rail 3's readback proves anything.\n- **FILL_ME is not a default, it is\
+      \ a landmine \u2014 and the parenthetical is\n  documentation, not a value.** Copying the reference\
+      \ park's numbers out of\n  the FILL_ME text without measuring is exactly the failure the template's\n\
+      \  design forbids. The harness's `profile-filled` gate exists so a\n  half-filled profile can never\
+      \ reach a live editor unnoticed.\n- **The landscape step is manual because it is unproven, not because\
+      \ manual\n  is fine.** Improvising scripted creation in a user's project is how\n  startup maps\
+      \ get bricked. Factory brief, or the recipe \u2014 nothing else.\n- **Origins are measured, never\
+      \ assumed.** The original park's constants\n  were measured from the actor (T5); a new world's are\
+      \ too. An assumed\n  corner is a guessed coordinate.\n- **Patch the canon, never the artifact.**\
+      \ The brain lives in the meshforge\n  repo; `Content/Python` is what the installer wrote. A fix\
+      \ in the artifact\n  dies at the next install.\n- **Never edit `Saved/ParkForge/` by hand.** Operational\
+      \ state belongs to\n  the toolsets; the versioned record is `ParkForgeData/`.\n- **One editor, one\
+      \ world, one profile.** The loader's default path is the\n  reference park's; any other world pins\
+      \ `PARKFORGE_PROFILE` in the launch\n  environment or its verbs read the wrong world's constants\
+      \ and mutate the\n  wrong project's state store.\n- **The first launch is for the recipe; the definitive\
+      \ launch comes after\n  the profile.** The loader refuses a FILL_ME origin at import, taking the\n\
+      \  whole parkforge registration with it, and toolsets register only at\n  editor start \u2014 so\
+      \ parkforge verbs are structurally absent until an editor\n  starts against the completed profile.\
+      \ Plan the restart; announce it.\n- **The smoke stroke never stays.** A bootstrap that leaves a\
+      \ test bump in\n  the world has failed rail 8, however good its numbers were.\n\n## Hard limits\
+      \ \u2014 do not attempt, regardless of who asks\n\n- **No scripted Landscape creation.** Not proven\
+      \ scriptable; factory brief\n  only.\n- **No bootstrap of a world the user cares about without them\
+      \ saying so\n  explicitly** \u2014 and evals run on scratch projects, never the real game.\n- **Never\
+      \ kill or restart a running editor yourself.** Announce, ask, wait.\n- **No editing engine content,\
+      \ no landscape paint layers from script** \u2014 the\n  terrain-strokes hard limits apply from the\
+      \ moment the toolsets are live.\n"

@@ -5,6 +5,7 @@
   "description": "Playwright E2E tests for the agent-office Dev Hub UI — agent creation, then KB create/populate.",
   "scripts": {
     "capture-auth": "tsx auth/capture-auth.ts",
+    "capture-discord": "tsx auth/discord-capture-auth.ts",
     "explore": "playwright test explore --headed",
     "test": "playwright test",
     "test:headed": "playwright test --headed",

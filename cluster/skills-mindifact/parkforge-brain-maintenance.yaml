@@ -1,0 +1,280 @@
+# ParkForge skills, imported from the mindifact registry pack
+# parkforge-brain@1.6.0. Generated from the pack's SKILL.md bodies —
+# regenerate rather than hand-editing.
+apiVersion: agentoffice.ai/v1alpha1
+kind: Skill
+metadata:
+  name: parkforge-brain-maintenance
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/managed-by: agent-office
+    app.kubernetes.io/part-of: parkforge-brain
+    agentoffice.ai/skill-tier: mindifact
+    agentoffice.ai/pack: parkforge-core
+  annotations:
+    agentoffice.ai/registry: mindifact.ai
+    agentoffice.ai/pack-ref: parkforge-brain@1.6.0
+    agentoffice.ai/pack-member: parkforge-core
+spec:
+  displayName: "ParkForge \u2014 Brain Maintenance"
+  description: "Promote what the runs learned into the brain pack \u2014 and therefore into the plugin\
+    \ \u2014 without ever bypassing the factory gate. Use it the moment anyone says \"promote learnings\"\
+    , \"update the brain\", \"what did we learn\", \"the pack is out of date\", \"record this lesson\"\
+    , \"publish a new pack version\", \"fold that back into the skill\", \"add a trap for that\", \"the\
+    \ operator keeps making that mistake\", \"cut a release\", \"bump the pack\", \"why isn't that in\
+    \ the pack yet\", or asks what the last few ParkForge se"
+  version: 1.6.0
+  dependencies:
+  - kind: mcpServer
+    name: unreal
+  source:
+    inline: "---\nname: brain-maintenance\ndescription: Promote what the runs learned into the brain pack\
+      \ \u2014 and therefore into the plugin \u2014 without ever bypassing the factory gate. Use it the\
+      \ moment anyone says \"promote learnings\", \"update the brain\", \"what did we learn\", \"the pack\
+      \ is out of date\", \"record this lesson\", \"publish a new pack version\", \"fold that back into\
+      \ the skill\", \"add a trap for that\", \"the operator keeps making that mistake\", \"cut a release\"\
+      , \"bump the pack\", \"why isn't that in the pack yet\", or asks what the last few ParkForge sessions\
+      \ should change. Use it even when the change looks like a one-word fix to a skill \u2014 especially\
+      \ then, because the failure this skill prevents is the quiet hand-edit that ships knowledge nobody\
+      \ attacked. While this skill applies, never hand-edit a verb, never write a trap or a skill line\
+      \ straight from a session's conclusions, never bump a version without rebuilding and running the\
+      \ evals, and never delete a memory entry that has not been classified `wrong` \u2014 every promotion\
+      \ runs through the numbered loop below.\n---\n\n# Brain maintenance: the learnings flywheel\n\n\
+      The pack has three stores and they have different laws. **Memory** is the only\nfree-write surface:\
+      \ any runtime agent may add a dated entry, and the capture\nconvention (`CAPTURE.md`) says it must.\
+      \ **Knowledge** \u2014 skills, traps, verbs,\ncontracts \u2014 is gated: it changes only through\
+      \ a `brain/factory` brief that runs\nauthor \u2192 adversary, because knowledge that no one attacked\
+      \ is just an opinion\nwith a filename. **Releases** are versioned: a pack ships only when the evals\n\
+      pass, and the plugin ships the same version as the pack.\n\nThis skill is the bridge between store\
+      \ one and store two. It is also the only\nsanctioned way to close that loop: an agent that edits\
+      \ `TRAPS.md` because a\nsession went badly has skipped the gate, and the gate is the product.\n\n\
+      **The tool.** `promote.py` reports candidates, records decisions, and bumps the\nversion. It cannot\
+      \ write a skill, a trap, a verb, a contract, or a memory file\n\u2014 every write goes through one\
+      \ guard that allows exactly two paths, the ledger\nand `pack.json`, and that guard checks what a\
+      \ path *resolves* to, not just what\nit is spelled. If you find yourself wanting a `--promote` flag,\
+      \ that want is\nthe thing the design refuses.\n\n**Setup \u2014 three commands, in this order.**\
+      \ Run them from the repo root and copy\nthem literally; do not improvise paths.\n\n**S1. Find the\
+      \ repo** \u2014 the directory holding `brainpack/pack.json`:\n\n```\ncd \"$(git rev-parse --show-toplevel)\"\
+      \ && ls brainpack/pack.json\n```\n\nExpected output: the single line `brainpack/pack.json`. If `ls`\
+      \ errors, you are\nin the wrong repo \u2014 stop and say so rather than searching around.\n\n**S2.\
+      \ Locate `promote.py` and bind it.** It is **not** on `$PATH` and **not** at\nthe repo root: `/usr/bin/python3\
+      \ promote.py --report` fails with\n`can't open file '<repo>/promote.py': [Errno 2] No such file\
+      \ or directory`.\nIt lives in the flywheel bundle beside this skill, and an integrated repo also\n\
+      carries a copy next to `pack.py`:\n\n```\nPROMOTE=\"$(ls brainpack/promote.py flywheel/promote.py\
+      \ 2>/dev/null | head -1)\"; echo \"PROMOTE=$PROMOTE\"\n```\n\nExpected output: one line, e.g. `PROMOTE=brainpack/promote.py`.\
+      \ If it prints\n`PROMOTE=` with nothing after it, the flywheel bundle is not installed in this\n\
+      repo \u2014 say exactly that and stop. Do not hand-roll the diff. Use `\"$PROMOTE\"`\nin every command\
+      \ below.\n\n**S3. Establish the baseline:**\n\n```\n/usr/bin/python3 \"$PROMOTE\" --report\n```\n\
+      \nExpected first three lines (shape, not values):\n\n```\nbaseline   parkforge-brain v1.1.0  built\
+      \ 2026-08-06 10:39:17  (23 memory files)\n           /path/to/dist/parkforge-brain-v1.1.0.tar.gz\n\
+      pack.json  version 1.1.0\n```\n\n- Exit 0 with that header: proceed to rail 1.\n- Exit non-zero\
+      \ with `no published pack found to diff against`: there is no\n  baseline. Build one (`/usr/bin/python3\
+      \ brainpack/pack.py build`), say that\n  you did, and re-run \u2014 a promotion pass with no baseline\
+      \ is a guess about\n  what is already shipped.\n- Any line on stderr containing `tampered`: the\
+      \ baseline manifest carries\n  memory keys that a real build cannot produce. **Stop.** Rebuild the\
+      \ baseline\n  from source and say why; do not classify against tampered evidence.\n\nSay the baseline\
+      \ name, version and built date out loud in your reply.\nEverything below is relative to that pack,\
+      \ not to your sense of what changed.\n\n## The promotion loop \u2014 six rails, in order\n\n###\
+      \ Rail 1 \u2014 Report. Never work from memory of what changed.\n\n```\n/usr/bin/python3 \"$PROMOTE\"\
+      \ --report\n```\n\nIt diffs every memory entry's sha256 against the packed `memory/` compartment\n\
+      of the last published pack and prints, newest first:\n\n- `NEW` \u2014 an entry that has never shipped.\
+      \ Capture entries (`run_*.md`, tagged\n  `[capture]`) land here; they are the flywheel's raw input.\n\
+      - `CHANGED` \u2014 a shipped entry whose content moved.\n- `DELETED` \u2014 packed in the baseline,\
+      \ gone from the canonical memory dir.\n- a footer: `candidates: N (n new, n changed, n deleted)\
+      \ | unchanged: N |\n  unclassified: N`.\n\nEach candidate prints as three lines \u2014 state, id\
+      \ and tags; the one-line\nsummary; then the decision or `unclassified`:\n\n```\n  NEW      parkforgebrain:run_2026-08-06_hill\
+      \ [capture]\n           Raised a mound left of the shed; the second grade doubled the tilt\n   \
+      \        unclassified   (2026-08-06 10:12)\n```\n\nIt scans two kinds of source: the canonical memory\
+      \ dir named in `pack.json`\n(label `canon`), and every operator workspace (`~/ParkForgeBrain` by\
+      \ default,\nlabel `parkforgebrain`; `--operator DIR` for others, `--no-operator` for\ncanonical\
+      \ memory only). The workspace's Claude memory dir is derived exactly\nthe way `pack.py install --workspace`\
+      \ derives it. A `NEW` entry under an\noperator label is a learning from a live ParkForge run that\
+      \ has never been near\nthe repo \u2014 the whole reason this loop exists.\n\nQuote the footer numbers\
+      \ in your reply. Two things to get right when you do:\n\n- `unchanged` counts **files per source**,\
+      \ not distinct learnings. Two sources\n  holding the same 23 entries report `unchanged: 46`. Say\
+      \ \"46 across 2 sources\"\n  rather than implying 46 learnings.\n- If there are zero candidates,\
+      \ say so and stop: the pack is current, and there\n  is nothing to promote. Do not proceed to rail\
+      \ 2 to \"check anyway\".\n\n### Rail 2 \u2014 Classify every candidate honestly, one at a time.\n\
+      \n```\n/usr/bin/python3 \"$PROMOTE\" --classify <ID> --as {memory|trap|rail|verb|wrong} --note \"\
+      ...\"\n```\n\n**Ids: copy them verbatim from the `--report` output.** They look like\n`<origin>:<file\
+      \ stem>` \u2014 `canon:lesson_rig_validation`,\n`parkforgebrain:run_2026-08-06_hill`. A bare stem\
+      \ works when it is\nunambiguous; if it is not, the tool exits non-zero with\n`ambiguous id ... --\
+      \ matches ...` and writes nothing. Do not invent an origin\nlabel: the operator label is derived\
+      \ from the workspace directory name, so it\nis `parkforgebrain`, not `operator` or `op-memory`.\n\
+      \n`--note` is optional to the tool and **mandatory here**: one line, and it must\nquote the number\
+      \ or the id the decision rests on. A note that could be written\nwithout reading the entry is not\
+      \ a note.\n\n**Before you classify anything, print the existing trap titles** \u2014 once per\n\
+      pass, not once per entry:\n\n```\ngrep '^## T' brain/traps/TRAPS.md\n```\n\nExpected: one line per\
+      \ trap, `## T1 \u2026` through `## T16 \u2026` as of pack v1.1.0.\nThat list is what \"already covered\"\
+      \ means below; a promotion argued without it\nis a guess. For a candidate you are leaning towards\
+      \ `rail`, also read the\n`SKILL.md` it would change \u2014 the same duplicate test applies there,\
+      \ and only\nreading it tells you whether the rule is absent or merely too weakly worded.\n\nDecide\
+      \ the kind with these questions, in this order, and take the first that\nanswers **yes**:\n\n| ask\
+      \ | kind | where it lands | who writes it |\n|---|---|---|---|\n| Does a **later** entry or run\
+      \ state the opposite, or did the entry's own claim get disproved? | `wrong` | nowhere \u2014 delete\
+      \ the memory entry | you (memory is free-write) |\n| Does it name a failure that HAPPENED **and**\
+      \ quote a measured number **and** state a rule that would have prevented it? | `trap` | `brain/traps/TRAPS.md`,\
+      \ as `## T<next>` | a factory brief |\n| Does it change what an agent should DO \u2014 a step, a\
+      \ threshold, a branch, a refusal \u2014 inside an existing skill, **with a number that sets the\
+      \ threshold**? | `rail` | that skill's `SKILL.md` | a factory brief |\n| Does it need new or changed\
+      \ CODE (a verb, a toolset, a script)? | `verb` | `brain/verbs/\u2026` | the factory CORE track,\
+      \ tests gated |\n| Anything else \u2014 including every unmeasured entry | `memory` | stays where\
+      \ it is | nobody |\n\n**`wrong` means disproved, never merely unproven.** An entry that was never\n\
+      measured is *not* `wrong`; it is `memory` that has not earned a promotion yet.\n`wrong` is the only\
+      \ classification that authorises deleting a learning, and\ndeletion is the one irreversible move\
+      \ in this loop \u2014 so it needs a citation:\nname the entry or run that contradicts it, in `--note`.\
+      \ If you cannot name\none, the answer to row 1 is no.\n\nThree mechanical filters on top of the\
+      \ table:\n\n- **No numbers, no promotion.** An entry with no measured values \u2014 no ids, no\n\
+      \  heights, no grades, no counts \u2014 cannot become a trap or a rail. Classify it\n  `memory`\
+      \ and say it is waiting on a run that measures it. (T7: every\n  operation returns measured numbers,\
+      \ never a bare success.) This is the same\n  rule as rows 2 and 3 above; it is repeated because\
+      \ it is the one most often\n  waived under pressure.\n- **Check for a duplicate before promoting.**\
+      \ Against the `## T` list you just\n  printed, and the target skill. Already covered \u2192 `memory`.\
+      \ Covered but worded\n  so weakly that the run still failed \u2192 that IS a `rail`, and a patch.\n\
+      - **One entry can only be one kind.** An entry that is half a trap and half a\n  verb is two learnings\
+      \ badly written: classify it `memory`, and say which two\n  entries the next capture should split\
+      \ it into.\n\nExpected output per call (exit 0): a `recorded` line, the meaning of the kind,\nthen\
+      \ \u2014 for `trap`, `rail`, `verb` and `wrong` only \u2014 one line naming who is\nallowed to make\
+      \ the change, and finally the ledger path:\n\n```\nrecorded  parkforgebrain:run_2026-08-06_hill\
+      \ -> trap\n          a failure with a rule -> brain/traps/TRAPS.md, via a factory brief\n      \
+      \    write the edit as a brain/factory brief and run the author -> adversary gate; promote.py will\
+      \ not write it.\nledger    /path/to/repo/brainpack/promotion-ledger.json\n```\n\nA `memory` classification\
+      \ omits the third line. A re-classification adds\n`  (was <kind>)` to line one. Any exit other than\
+      \ 0 means **nothing was\nrecorded** \u2014 fix the id or the kind and run it again.\n\nRe-classifying\
+      \ is allowed and cheap: the ledger keeps the old decision in\n`history`. If an entry changes after\
+      \ you classify it, `--status` marks the\ndecision `STALE` and it counts as unclassified again \u2014\
+      \ reclassify it rather\nthan shipping a decision about text that no longer exists.\n\nState the\
+      \ tally when the rail is done: how many of each kind.\n\n### Rail 3 \u2014 Draft the edit as a factory\
+      \ brief. Never as a file edit.\n\nFor every `trap` and `rail` candidate, write the change as a brief\
+      \ in\n`brain/factory/`, named `brief-<kind>-<slug>.md` (e.g.\n`brief-trap-stale-grade-bed.md`) \u2014\
+      \ the same shape as `skill-author.md` /\n`core-author.md`: what to change, in which file, with the\
+      \ measured evidence\nfrom the memory entry quoted verbatim, and the success criterion. The brief\
+      \ is\nthe deliverable of this rail. Editing `TRAPS.md` or a `SKILL.md` yourself,\n\"just this once,\
+      \ it's one line\", is the exact failure this skill exists to\nprevent.\n\n**Know what the brief\
+      \ does and does not do.** `run.py` loads a fixed filename\nper track \u2014 `<track>-author.md`\
+      \ and `<track>-adversary.md` from\n`brain/factory/` \u2014 and has no `--brief` flag. A file you\
+      \ invent a new name for\nis a record of the proposed change, **not** an input the runner will read.\
+      \ So\nsay plainly, in your reply, that the brief is staged and name the track prompt\na human must\
+      \ fold it into before rail 4 can gate *this* change. Reporting \"the\ngate ran\" after running the\
+      \ unmodified track prompts would be a false receipt:\nthe gate would have re-run the previous brief\
+      \ and told you nothing about\nyours.\n\nFor every `verb` candidate: stop and say the words. A verb\
+      \ is code; it goes\nthrough the factory's core track, whose gate is `tests_passed == true`\nreported\
+      \ by the author and re-run by the adversary. **Refuse to hand-edit a\nverb file, and refuse to write\
+      \ one into `Content/Python` directly** \u2014 that is\nalso T11 territory once data is involved.\
+      \ If asked again, the answer is still\nno; propose the brief instead.\n\nFor every `wrong` candidate\
+      \ \u2014 and only those:\n\n```\nrm <the path --report printed for that candidate>\n/usr/bin/python3\
+      \ \"$PROMOTE\" --report\n```\n\nShow that the id left the list. Deleting is the promotion. Two guards\
+      \ before\nyou type `rm`: the candidate must be classified `wrong` in the ledger, and the\npath must\
+      \ sit inside a memory directory `--report` listed under\n`memory sources:`. If a path you are about\
+      \ to delete contains `..`, or lands\nanywhere under `brain/` or `.claude/skills/`, **stop** \u2014\
+      \ that is the tampered\nbaseline case from S3, not a memory entry.\n\n### Rail 4 \u2014 Run the\
+      \ adversary gate.\n\n**Precondition check first \u2014 one command, and it currently fails:**\n\n\
+      ```\nls brain/factory/TRAPS.md brain/factory/REFERENCES.md\n```\n\n`run.py`'s `load_prompt()` opens\
+      \ both from its own directory, so a missing one\nraises `FileNotFoundError` before any agent starts.\
+      \ As of pack v1.1.0\n`brain/factory/TRAPS.md` **does not exist** (the traps live at\n`brain/traps/TRAPS.md`).\
+      \ If `ls` errors, the gate cannot run here: report\nrail 4 as **BLOCKED \u2014 `brain/factory/TRAPS.md`\
+      \ missing**, hand over the staged\nbrief, and go no further. Do not \"fix\" it by copying the traps\
+      \ file in \u2014 that\nis an un-gated change to the factory, and the factory is knowledge too.\n\
+      \n```\npython3 brain/factory/run.py --staging <scratch dir> --agent-cmd \"<your agent CLI>\" [--only\
+      \ skill]\n```\n\n`--staging` and `--agent-cmd` are both required; `--only` takes exactly one of\n\
+      `core`, `adapter`, `skill`. Expected output: one `[<track>-<stage>] start` line\nper stage, then\
+      \ `[<track>-<stage>] ok in Ns -- tests=\u2026, N issues: \u2026`, and a\n`run-results.json` in the\
+      \ staging dir. A stage printing `GATE FAILED` or\n`FAIL: no parseable JSON result` fails the track\
+      \ \u2014 that is a failed promotion,\nnot a retryable glitch; say so.\n\nAuthor \u2192 adversary,\
+      \ sequential within a track, fail-closed:\n\n- the core author must report `tests_passed=true`;\n\
+      - the adversary re-runs those tests first, and a failure there fails the track\n  before any review\
+      \ happens;\n- the skill adversary walks the canonical user requests mechanically, and any\n  step\
+      \ needing the reviewer's own judgment is a defect it must fix in place.\n\nIntegration is **not**\
+      \ an agent step: a human (or the strongest available\nmodel) promotes the staged output into the\
+      \ repo. Say that plainly when you\nhand the staged result over. If the gate cannot run in this environment,\
+      \ the\npromotion is **not done** \u2014 the brief is ready and the gate is pending. Say\nthat, and\
+      \ do not bump a version on top of ungated knowledge.\n\n### Rail 5 \u2014 Version, rebuild, evaluate\
+      \ \u2014 in that order.\n\n```\n/usr/bin/python3 \"$PROMOTE\" --bump {patch|minor|major}\n```\n\n\
+      | bump | when | example |\n|---|---|---|\n| `patch` | a trap added or sharpened, a typo, a wording\
+      \ fix that changes no step | a new `## T17` |\n| `minor` | a new rail (a skill's loop gains a step\
+      \ or a branch), a new skill, a new verb | `grade_route` gets a stale-bed refusal |\n| `major` |\
+      \ the INSTALL contract changes \u2014 compartment names, install destinations, the boot file's shape,\
+      \ anything an already-installed workspace would have to be reinstalled for | verbs move out of `Content/Python`\
+      \ |\n\n**That table is convention; the tool cannot check it.** Be exact about the\ndivision of labour,\
+      \ because it decides what you are allowed to claim:\n\n- **The tool enforces the format.** The current\
+      \ `pack.json` version must match\n  `^\\d+\\.\\d+\\.\\d+$` with no leading zeros. `1.2`, `v1.2.3`,\
+      \ `1.2.3-rc1`,\n  `01.2.3`, `1.2.3.4`, `1.2.3+build` and `\"\"` are all refused. There is no\n \
+      \ pre-release or build-metadata lane \u2014 if someone asks for `1.2.0-rc1`, the\n  answer is that\
+      \ the pack has no such concept.\n- **The tool enforces the arithmetic.** `patch` \u2192 `X.Y.Z+1`;\
+      \ `minor` \u2192\n  `X.Y+1.0`; `major` \u2192 `X+1.0.0` \u2014 the lower fields **reset to zero**,\
+      \ they do\n  not carry. `0.9.9 --minor` \u2192 `0.10.0`, not `1.0.0`.\n- **The tool enforces one\
+      \ target.** More than one `\"version\": \"<current>\"` in\n  `pack.json` and it refuses rather than\
+      \ guess which is the pack version.\n- **Nothing enforces the choice between patch, minor and major.**\
+      \ `--bump`\n  will happily patch-bump an install-contract break. Justify your choice out\n  loud\
+      \ against the table, in one sentence, naming the row.\n\nOn refusal: exit code **2**, one `REFUSED:\
+      \ \u2026` line on **stderr**, and\n`pack.json` is left byte-for-byte unchanged with no ledger entry\
+      \ written. Fix\nthe version by hand and re-run; never edit around the refusal.\n\nOn success: exit\
+      \ 0 and\n\n```\npack.json version 1.1.0 -> 1.1.1  (patch)\nnext: brainpack/pack.py build   (then\
+      \ the plugin bundle, then the evals, then commit -- in that order)\n```\n\nOnly the version string\
+      \ changes; the rest of `pack.json` is preserved\nbyte-for-byte. The bump is also appended to the\
+      \ ledger's `releases`, so\n`--status` shows it afterwards \u2014 that is your receipt that it happened\
+      \ once.\n**Bump exactly once per release**: `--bump` reads the current `pack.json`, so\nrunning\
+      \ it twice ships a version nothing was ever built at. If `--report`\nalready shows `pack.json version`\
+      \ ahead of the baseline version, the bump has\nhappened \u2014 go straight to the rebuild.\n\nThen,\
+      \ in order:\n\n1. `/usr/bin/python3 brainpack/pack.py build` \u2014 rebuild the pack. State the\n\
+      \   printed file count and compartment count.\n2. Rebuild the plugin bundle and keep its version\
+      \ EQUAL to `pack.json`'s \u2014\n   pack and plugin are one release, and a plugin whose\n   `.claude-plugin/plugin.json`\
+      \ says a different version is a lie about what\n   is inside it. Then `claude plugin validate <plugin\
+      \ dir>`; it must print\n   `\u2714 Validation passed`.\n3. Evals. Run every one that CAN run here,\
+      \ and name the ones that cannot:\n   - `/usr/bin/python3 brainpack/test_harness.py` and\n     `/usr/bin/python3\
+      \ \"$(dirname \"$PROMOTE\")/test_promote.py\"` \u2014 pure, no\n     editor needed. Both must end\
+      \ `OK`; a trailing `FAILED (\u2026)` is a red eval.\n     Run the promote suite under `/usr/bin/python3`\
+      \ specifically: that is the\n     interpreter the gateway uses, and it is the one the stdlib-only,\n\
+      \     3.9-compatible constraint exists for.\n   - `pack.py install --pack dist/<pack>.tar.gz --workspace\
+      \ <scratch ws>`\n     then `pack.py verify --workspace <scratch ws>` \u2014 manifest hashes, skill\n\
+      \     frontmatter, contract presence.\n   - `brainpack/evals/harness.py --project <scratch project>`\
+      \ \u2014 the fresh-world\n     install contract.\n   - `brainpack/evals/verify_pack.py` \u2014 eval\
+      \ 0, and it needs the editor open\n     with MCP on :8000.\n   - `claude plugin eval <plugin dir>`\
+      \ if the plugin carries eval cases; it\n     adds a no-plugin baseline arm, so report both arms,\
+      \ not just the score.\n\n**An eval that could not run is not a pass.** Report it as BLOCKED with\
+      \ the\nreason, exactly the way `harness.py` prints `[MANUAL]` steps it refuses to\ncount. A release\
+      \ with a blocked eval needs the human to say go.\n\n### Rail 6 \u2014 State the numbers, then commit.\n\
+      \nOnly after rails 1\u20135. The closing message states, as numbers:\n\n- candidates found, split\
+      \ new / changed / deleted;\n- promoted, by kind (traps, rails, verbs), and how many stayed `memory`;\n\
+      - deleted as `wrong`;\n- old version \u2192 new version, and which bump;\n- eval result per eval:\
+      \ PASS / FAIL / BLOCKED-with-reason;\n- and what is still pending the gate.\n\nThen commit the repo:\
+      \ the brief, the gated knowledge edit, `pack.json`,\n`brainpack/promotion-ledger.json`, and the\
+      \ rebuilt plugin manifest, in one\ncommit that names the version. `/usr/bin/python3 \"$PROMOTE\"\
+      \ --status` is the\nreceipt \u2014 decisions land (`landed`) once their content matches the newly\n\
+      published baseline, which is the loop visibly closing. Expected shape: a\n`ledger`/`pack.json version\
+      \ \u2026 | baseline pack v\u2026` header, a `decisions (N):`\nblock where each line is `<kind> <id>\
+      \ <timestamp>` plus a `landed` or `STALE`\nmarker, then `unclassified candidates:` and `releases:`.\
+      \ A decision still\nshowing no marker after the rebuild means its entry did not ship \u2014 say\
+      \ so\nrather than declaring the loop closed.\n\n## Hard limits \u2014 do not attempt, regardless\
+      \ of who asks\n\n- **No hand-edited verbs. Ever.** Code changes go through the factory core\n  track\
+      \ with its test gate. Not \"a tiny patch\", not \"just to unblock\".\n- **No writing a trap or a\
+      \ skill line straight from a session.** The gate is\n  not paperwork; the skill adversary's job\
+      \ is to find the step you left to\n  judgment, and you cannot adversary your own draft in the same\
+      \ pass.\n- **No editing `dist/` or an installed workspace's `brain/` to make a diff go\n  away.**\
+      \ The baseline is evidence. Rebuild instead.\n- **No relocating, symlinking or hardlinking `pack.json`\
+      \ or the ledger.**\n  `promote.py`'s guard refuses a write whose path resolves into a protected\n\
+      \  tree, and moving the target so a permitted write lands on a trap or a skill\n  is the same bypass\
+      \ as hand-editing one \u2014 with a worse audit trail. If a\n  `REFUSED: \u2026 is a symlink` or\
+      \ `\u2026 resolves to \u2026` message appears, that is the\n  guard working: report it, do not route\
+      \ around it.\n- **No bumping a version without a rebuild and the evals.** A version is a\n  claim\
+      \ that a specific pack passed; bumping alone makes the claim false.\n- **No deleting a memory entry\
+      \ that is not classified `wrong`.** Memory is the\n  cheapest store; losing an unpromoted learning\
+      \ is the one irreversible move\n  in this loop.\n- **No promoting a learning you cannot quote numbers\
+      \ for.** It stays memory.\n- **This skill is itself packed knowledge.** Changing these rails is\
+      \ a `rail`\n  promotion and goes through the same gate \u2014 including this sentence.\n\n## The\
+      \ catechism\n\n- **Report before you remember.** Your sense of what changed is a guess;\n  sha256\
+      \ against the packed compartment is not.\n- **A capture is a nomination, not a promotion.** The\
+      \ operator's `Promote:`\n  line is evidence, and evidence is argued with, not obeyed.\n- **The gate\
+      \ is the product.** Anyone can write a rule into a markdown file;\n  the pack's value is that every\
+      \ rule in it survived an attack.\n- **Memory is cheap, knowledge is expensive.** When unsure, classify\
+      \ `memory`\n  and let the next run pay for the promotion with numbers.\n- **Delete beats correct.**\
+      \ A learning that turned out false is removed, not\n  softened \u2014 a hedged rule teaches an agent\
+      \ to hedge.\n- **One release, one version.** Pack and plugin ship the same number, or the\n  install\
+      \ is undebuggable a month later.\n- **An unrun eval is a red eval.** Say BLOCKED. Never round it\
+      \ up to pass.\n\n## Reference\n\n- `CAPTURE.md` \u2014 the capture convention the operator follows,\
+      \ and the exact\n  paragraph the pack installer emits into the workspace boot contract.\n- `brain/contracts/operator.md`\
+      \ \u2014 the runtime contract this loop upholds:\n  prediction before action, one mutating call\
+      \ per instruction, \"this needs a\n  new verb\" is a factory job, never an improvisation.\n- `brain/factory/ORCHESTRATION.md`\
+      \ \u2014 the tracks, the gates, and why\n  integration is a human step.\n- `brain/traps/TRAPS.md`\
+      \ \u2014 T1\u2013T16, the existing scar tissue. Read it before\n  classifying anything as a new\
+      \ trap.\n"

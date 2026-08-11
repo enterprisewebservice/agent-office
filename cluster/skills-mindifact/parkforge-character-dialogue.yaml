@@ -1,0 +1,120 @@
+# ParkForge skills, imported from the mindifact registry pack
+# parkforge-brain@1.6.0. Generated from the pack's SKILL.md bodies —
+# regenerate rather than hand-editing.
+apiVersion: agentoffice.ai/v1alpha1
+kind: Skill
+metadata:
+  name: parkforge-character-dialogue
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/managed-by: agent-office
+    app.kubernetes.io/part-of: parkforge-brain
+    agentoffice.ai/skill-tier: mindifact
+    agentoffice.ai/pack: parkforge-characters
+  annotations:
+    agentoffice.ai/registry: mindifact.ai
+    agentoffice.ai/pack-ref: parkforge-brain@1.6.0
+    agentoffice.ai/pack-member: parkforge-characters
+spec:
+  displayName: "ParkForge \u2014 Character Dialogue"
+  description: "Give a game character a face that talks \u2014 project mouth and eye decals onto a mesh\
+    \ that has no facial geometry, drive them from a material parameter collection, derive a viseme track\
+    \ from the dialogue audio, and trigger the whole thing in game. Use this whenever lip sync, visemes,\
+    \ mouth shapes, talking NPCs, or face decals come up, and especially when someone says the talking\
+    \ looks \"choppy\", \"robotic\", or \"not smooth\" \u2014 the usual diagnosis is wrong and the fix\
+    \ is rarely more mouth artwork. Also "
+  version: 1.6.0
+  dependencies:
+  - kind: mcpServer
+    name: unreal
+  source:
+    inline: "---\nname: character-dialogue\ndescription: Give a game character a face that talks \u2014\
+      \ project mouth and eye decals onto a mesh that has no facial geometry, drive them from a material\
+      \ parameter collection, derive a viseme track from the dialogue audio, and trigger the whole thing\
+      \ in game. Use this whenever lip sync, visemes, mouth shapes, talking NPCs, or face decals come\
+      \ up, and especially when someone says the talking looks \"choppy\", \"robotic\", or \"not smooth\"\
+      \ \u2014 the usual diagnosis is wrong and the fix is rarely more mouth artwork. Also use it when\
+      \ a face works on a stationary character but not one that moves.\n---\n\n# Character dialogue: a\
+      \ face that talks\n\nGenerated creature meshes almost never have facial geometry \u2014 no jaw,\
+      \ no blend\nshapes, often not even a mouth-shaped hole. The face gets painted on. That makes\ntalking\
+      \ a *texture* problem rather than a rigging one, which is good news: it is\ncheap, it is scriptable,\
+      \ and it survives the mesh being re-rigged.\n\n```\nface onto the mesh  \u2192  drive it globally\
+      \  \u2192  derive the track  \u2192  trigger it\n    (decals)            (parameter collection)\
+      \   (from audio)      (in game)\n```\n\nFour stages. The third is where quality actually lives,\
+      \ and the one people skip\nby hand-keying.\n\n## Stage 1 \u2014 Put the face on\n\nTwo approaches,\
+      \ and the choice is usually made for you:\n\n**Decal projection** works on any mesh, needs no UV\
+      \ authoring, and can be moved\nand resized after the fact. This is the right default for a generated\
+      \ creature.\n\n**Material on face geometry** is cheaper at runtime and cannot bleed onto\nanything\
+      \ else, but requires the mesh to *have* a face to texture.\n\nThe trap with decals is that a `DecalActor`\
+      \ placed in the level is a world\nobject \u2014 it stays where you put it while the character walks\
+      \ away. **If the\ncharacter moves, the face must be a `DecalComponent` on the character**, not an\n\
+      actor in the level. A face that works perfectly on a stationary test character\nand vanishes the\
+      \ moment anything moves is this, every time.\n\n`references/face-decals.md` covers placing them,\
+      \ transferring a face between two\nrigs of the same mesh, and what to parent them to.\n\n## Stage\
+      \ 2 \u2014 Drive it from a parameter collection\n\nA `MaterialParameterCollection` holding one scalar\
+      \ per feature (`MouthIndex`,\n`EyeIndex`) is the simplest thing that works, and the material reads\
+      \ those to\npick a cell out of a sprite sheet.\n\n**A collection is global.** This has two consequences\
+      \ and they are both large:\n\n- Nothing needs binding. A sequence can drive the face with *zero*\
+      \ object\n  bindings, so it keeps working when the character is re-imported, re-rigged,\n  duplicated,\
+      \ or spawned at runtime. This is why the approach is robust.\n- **Every face reading that collection\
+      \ animates together.** Two characters\n  sharing a collection will lip-sync in unison. That is fine\
+      \ for one character\n  and wrong for a crowd \u2014 per-character faces need a dynamic material\
+      \ instance\n  per character instead, and that is a real rewrite, so decide early.\n\nThe flipbook\
+      \ lookup, for a 4-column sheet:\n\n```\ncell  = floor(Index + 0.49)      # +0.49 so a value of exactly\
+      \ N lands on N\ncol   = fmod(cell, 4)\nrow   = floor(cell / 4)\nUV    = (col, row) * cellSize +\
+      \ uv * cellSize\n```\n\nThe `+0.49` matters: a parameter arriving as `2.9999` should still be cell\
+      \ 3.\n\n## Stage 3 \u2014 Derive the track from the audio\n\n**This is the stage that decides whether\
+      \ it looks good.** Hand-keying produces a\ntrack that is dense where the animator was paying attention\
+      \ and sparse where\nthey got bored, and that reaches for whichever mouth shape is nearest to hand.\n\
+      \nThe audio already contains the answer at every frame. Loudness gives jaw\nopenness; spectral tilt\
+      \ gives whether the lips are rounded or spread. That is\nenough to tell an \"oo\" from an \"ah\"\
+      \ from an \"ee\", which is exactly the\ndistinction a hand-keyed track loses.\n\nRun `scripts/visemes.py`;\
+      \ it needs only numpy and prints the numbers that tell\nyou whether the result is any good. `references/viseme-derivation.md`\
+      \ explains\nwhat it measures and \u2014 more importantly \u2014 the calibration mistake that will\n\
+      otherwise produce a confidently wrong track.\n\n### When someone says the talking is choppy\n\n\
+      Resist the obvious conclusion. \"Choppy\" sounds like *not enough mouth shapes*,\nand it is almost\
+      \ never that.\n\n**Measure first.** Count how many distinct shapes the track actually uses, and\n\
+      how many changes per second there are *while speech is happening*:\n\n```\nshapes used      : 5\
+      \ of 9 on the sheet\nchanges/sec      : 3.1 while speaking\ntime on one shape: 51%\n```\n\nThat\
+      \ is a sparse, monotonous track on a perfectly good sprite sheet \u2014 four of\nthe drawings are\
+      \ never once called for. Commissioning more art would have\nchanged nothing.\n\nRough targets for\
+      \ speech: **around 6 changes per second while speaking**, a\nmedian hold near 130 ms, and most of\
+      \ the palette in use. Below ~3/sec it reads\nas frozen. Average the rate over the whole clip and\
+      \ a long pause will hide an\nunder-animated mouth, so split speaking from silence.\n\n**Discrete\
+      \ mouth pops are not the problem.** Traditional 2D animation is\nentirely discrete \u2014 a shape\
+      \ held for two to four frames, then a hard cut \u2014 and\nit reads beautifully. Rate and variety\
+      \ are what make it work, not blending. Do\nnot reach for a cross-fade in the material before fixing\
+      \ the track; it is more\nwork and treats a symptom.\n\nKeep the track on **constant** interpolation.\
+      \ Cubic on a discrete flipbook makes\na smooth curve sweep `floor()` through shapes that were never\
+      \ keyed, flashing\nposes the animator never chose. Worth fixing, but note that this defect is\n\
+      subtle in practice \u2014 if it is the *only* thing you fix, expect the person who\ncomplained to\
+      \ see no difference, and say so rather than claiming a win.\n\n## Stage 4 \u2014 Trigger it in game\n\
+      \nA `LevelSequenceActor` in the level, `Play` on its sequence player. Three\nbehaviours will look\
+      \ like bugs:\n\n- **`Play()` on an already-playing player does nothing.** Press the button\n  twice\
+      \ and the second press is silently ignored. If replaying matters, `Stop`\n  first or check `IsPlaying`.\n\
+      - **`Stop()` rewinds to the start**; `StopAtCurrentTime()` is the one that\n  halts in place. `Stop`\
+      \ is what you want for \"reset so it can be replayed\".\n- **Stopping the sequence freezes the parameter\
+      \ collection** at whatever value\n  it last wrote \u2014 so the mouth stays open mid-word. Always\
+      \ reset the parameters\n  to rest when you stop.\n\nFor proximity interaction, use **hysteresis**:\
+      \ trigger inside one radius, end\noutside a larger one. Matched thresholds make the character stutter\
+      \ between\nstates when the player stands exactly on the boundary.\n\nIf the character walks around,\
+      \ ending the conversation means more than stopping\nthe audio \u2014 release whatever froze their\
+      \ movement, stop the sequence so it can\nreplay, and put the face back to rest. Missing any one\
+      \ of the three leaves a\nstate that looks broken and cannot be recovered without restarting.\n\n\
+      Authoring the interaction graph itself is scriptable; see the\n`unreal-blueprint-scripting` skill\
+      \ rather than writing node-placement\ninstructions for a human.\n\n## Verification\n\n**Verify at\
+      \ a fidelity where you could tell.** For a face, that means rendering\nthe character front *and*\
+      \ three-quarter \u2014 a decal floating off the surface, or\nprojecting onto the ground behind them,\
+      \ looks perfect head-on.\n\n**Compare before and after as images.** A filmstrip of the actual mouth\
+      \ shapes\nacross a couple of seconds, old above new, settles an argument about whether a\nchange\
+      \ helped far faster than any statistic. It also catches the case where a\ntrack is technically denser\
+      \ but visually identical.\n\n**Confirm the audio and the track are aligned** before trusting either.\n\
+      Cross-correlate frames where the mouth is closed against frames where the audio\nis silent; the\
+      \ peak should sit at lag zero. A track that is right but offset\nlooks like a track that is wrong.\n\
+      \n## Bundled scripts\n\n| script | what it does |\n|---|---|\n| `scripts/visemes.py` | derives a\
+      \ viseme track from a dialogue recording and reports shapes used, changes/sec and hold times. `python\
+      \ visemes.py line.wav track.txt` \u2014 needs 16-bit mono PCM (`ffmpeg -i in.wav -ac 1 -ar 16000\
+      \ -c:a pcm_s16le out.wav`) and numpy. |\n\n## Reference files\n\n- `references/viseme-derivation.md`\
+      \ \u2014 what the analyser measures, the\n  per-speaker calibration that makes it work, and how\
+      \ to check the result\n- `references/face-decals.md` \u2014 decal placement, moving it between rigs\
+      \ of the\n  same mesh, and what to attach it to\n"

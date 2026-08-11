@@ -1,0 +1,122 @@
+# Genesis demo — github-MCP smoke beat (genesis-github-mcp).
+#
+# Regression guard for the github-MCP-through-the-gateway path. It catches
+# the failure that took this whole stack down once:
+#
+#   The Red Hat MCP Gateway Router (mark3labs/mcp-go v0.53.0) opens its
+#   upstream session with an incomplete `Accept: application/json` header
+#   (no text/event-stream). github-mcp-server's Streamable HTTP transport
+#   strictly enforces the spec and rejects that with HTTP 400, so the broker
+#   can never establish a session and silently drops the entire github
+#   toolset — agents then fail every call with "4xx for initialize POST,
+#   likely a legacy SSE server". The fix is the in-pod `accept-proxy` sidecar
+#   that rewrites Accept to advertise both content types
+#   (cluster/github-mcp/accept-proxy-config.yaml).
+#
+# Three layers, fastest/most-precise first so a failure pinpoints the break:
+#   LAYER 1 — structural: the Deployment carries the accept-proxy sidecar
+#             (and, as a best-practice warn, is pinned by digest not :latest).
+#   LAYER 2 — the exact regression: a POST with the Router's bad
+#             `Accept: application/json` to the Service MUST return 200
+#             (the proxy normalized it). Straight 400 here = the fix regressed.
+#   LAYER 3 — end-to-end: a real agent reads a real issue via github MCP
+#             through the broker and echoes the title; any transport error
+#             (4xx / legacy-SSE / missing-session) fails the beat.
+#
+# Idempotent + read-only: creates nothing, tears down nothing.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: genesis-github-mcp
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/part-of: agent-office-genesis-demo
+spec:
+  description: Smoke-test github MCP — accept-proxy header normalization + an agent github tool call through the broker.
+  params:
+    - name: gh-owner
+      type: string
+      default: enterprisewebservice
+    - name: gh-repo
+      type: string
+      default: genesis-tracker
+    - name: issue-number
+      type: string
+      # Preferred issue to read end-to-end; falls back to the repo's first
+      # issue if this one no longer exists (e.g. after a teardown/recreate).
+      default: "8"
+    - name: worker-agent
+      type: string
+      default: genesis-worker
+    - name: gateway
+      type: string
+      default: research-gateway
+    - name: target-namespace
+      type: string
+      default: agent-office
+    - name: oc-download-url
+      type: string
+      default: "http://downloads.openshift-console.svc.cluster.local:80/amd64/linux/oc.tar"
+  steps:
+    - name: smoke
+      image: registry.access.redhat.com/ubi9/ubi:latest
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        curl -sL "$(params.oc-download-url)" -o /tmp/oc.tar && tar -x -C /tmp -f /tmp/oc.tar oc
+        OC=/tmp/oc
+        OWNER="$(params.gh-owner)"; REPO="$(params.gh-repo)"; ISSUE="$(params.issue-number)"
+        AGENT="$(params.worker-agent)"; GW="$(params.gateway)"; NS="$(params.target-namespace)"
+        SVC="github-mcp-server.${NS}.svc.cluster.local:8080"
+
+        echo "=== LAYER 1: the accept-proxy sidecar is deployed (the fix) ==="
+        CONTAINERS=$($OC get deploy github-mcp-server -n "$NS" -o jsonpath='{range .spec.template.spec.containers[*]}{.name} {end}')
+        echo "  containers: $CONTAINERS"
+        case "$CONTAINERS" in
+          *accept-proxy*) echo "  ✓ accept-proxy sidecar present" ;;
+          *) echo "  FAIL: accept-proxy sidecar missing — the github-MCP Accept-header fix is not deployed"; exit 1 ;;
+        esac
+        IMG=$($OC get deploy github-mcp-server -n "$NS" -o jsonpath='{range .spec.template.spec.containers[?(@.name=="mcp-server")]}{.image}{end}')
+        case "$IMG" in
+          *@sha256:*) echo "  ✓ github-mcp-server pinned by digest" ;;
+          *) echo "  WARN: github-mcp-server is not digest-pinned ($IMG) — :latest can silently drift to a stricter build" ;;
+        esac
+
+        echo "=== LAYER 2: regression — the Router's bad 'Accept: application/json' must NOT 400 ==="
+        TOK=$($OC get secret github-mcp-broker-token -n "$NS" -o jsonpath='{.data.AUTHORIZATION}' | base64 -d)
+        [ -n "$TOK" ] || { echo "  FAIL: github-mcp-broker-token has no AUTHORIZATION value"; exit 1; }
+        INIT='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"genesis-github-mcp-beat","version":"1"}}}'
+        CODE=$(curl -s -o /dev/null -w '%{http_code}' -X POST "http://${SVC}/mcp" \
+          -H "Authorization: ${TOK}" -H "Content-Type: application/json" \
+          -H "Accept: application/json" -d "$INIT")
+        echo "  POST initialize with Accept: application/json -> HTTP $CODE"
+        [ "$CODE" = "200" ] || { echo "  FAIL: expected 200 (proxy normalizes the header), got $CODE — accept-proxy regressed"; exit 1; }
+        echo "  ✓ accept-proxy normalizes the Router's incomplete Accept header (200)"
+
+        echo "=== LAYER 3: end-to-end — an agent reads a real issue via github MCP through the broker ==="
+        GWPOD=$($OC get pods -n "$NS" -l agentoffice.ai/gateway="$GW" --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}')
+        [ -n "$GWPOD" ] || { echo "  FAIL: no Running pod for gateway $GW"; exit 1; }
+        gettitle(){ curl -s -H "Authorization: ${TOK}" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/$OWNER/$REPO/issues/$1" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("title",""))' 2>/dev/null || true; }
+        TRUTH=$(gettitle "$ISSUE")
+        if [ -z "$TRUTH" ]; then
+          ISSUE=$(curl -s -H "Authorization: ${TOK}" "https://api.github.com/repos/$OWNER/$REPO/issues?state=all&per_page=1&direction=asc" | python3 -c 'import sys,json;d=json.load(sys.stdin);print(next((str(x["number"]) for x in d if "pull_request" not in x),""))' 2>/dev/null || true)
+          TRUTH=$(gettitle "$ISSUE")
+        fi
+        [ -n "$TRUTH" ] || { echo "  FAIL: no readable issue in $OWNER/$REPO to exercise github MCP"; exit 1; }
+        echo "  reading issue #$ISSUE (ground-truth title: $TRUTH)"
+        MSG="Use the github_issue_read tool to read issue #$ISSUE in $OWNER/$REPO. Report ONLY the exact issue title, nothing else."
+        $OC exec -n "$NS" "$GWPOD" -c openclaw -- openclaw agent --agent "$AGENT" --message "$MSG" --json --timeout 150 >/tmp/a.json 2>&1 || true
+        OUT=$(python3 -c 'import sys,json;raw=open("/tmp/a.json").read();i=raw.find("{");d=json.loads(raw[i:]);print(d["result"]["payloads"][0]["text"])' 2>/dev/null || cat /tmp/a.json)
+        echo "  agent said: ${OUT:0:220}"
+        case "$OUT" in
+          *"4xx for initialize"*|*"legacy SSE"*|*"failed to create session"*|*"Missing session"*|*"Bad credentials"*)
+            echo "  FAIL: github-MCP transport/auth error — the broker cannot reach github-mcp-server"; exit 1 ;;
+        esac
+        if echo "$OUT" | grep -qiF "$TRUTH"; then
+          echo "  ✓ agent returned the real issue title via github MCP through the broker"
+        else
+          echo "  FAIL: agent did not return the expected title '$TRUTH'"; exit 1
+        fi
+
+        echo
+        echo "PASS — github MCP healthy: accept-proxy present + normalizing (200), agent read issue #$ISSUE end-to-end through the broker."

@@ -1,0 +1,136 @@
+# ParkForge skills, imported from the mindifact registry pack
+# parkforge-brain@1.6.0. Generated from the pack's SKILL.md bodies —
+# regenerate rather than hand-editing.
+apiVersion: agentoffice.ai/v1alpha1
+kind: Skill
+metadata:
+  name: parkforge-character-intake
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/managed-by: agent-office
+    app.kubernetes.io/part-of: parkforge-brain
+    agentoffice.ai/skill-tier: mindifact
+    agentoffice.ai/pack: parkforge-characters
+  annotations:
+    agentoffice.ai/registry: mindifact.ai
+    agentoffice.ai/pack-ref: parkforge-brain@1.6.0
+    agentoffice.ai/pack-member: parkforge-characters
+spec:
+  displayName: "ParkForge \u2014 Character Intake"
+  description: "Take a generated 3D creature mesh from raw .glb to a validated, rigged, walking character\
+    \ in Unreal Engine. Use this whenever the user is bringing a new character or creature into their\
+    \ Unreal game \u2014 auto-rigging a mesh, importing a skeletal mesh, diagnosing a character that won't\
+    \ animate or deforms wrongly, or authoring locomotion for a non-humanoid. Also use it when a character\
+    \ \"looks crumpled\", \"won't walk\", \"tears at the shoulder\", or when a rig needs validating before\
+    \ import. Covers SkinTok"
+  version: 1.6.0
+  dependencies:
+  - kind: mcpServer
+    name: unreal
+  source:
+    inline: "---\nname: character-intake\ndescription: Take a generated 3D creature mesh from raw .glb\
+      \ to a validated, rigged, walking character in Unreal Engine. Use this whenever the user is bringing\
+      \ a new character or creature into their Unreal game \u2014 auto-rigging a mesh, importing a skeletal\
+      \ mesh, diagnosing a character that won't animate or deforms wrongly, or authoring locomotion for\
+      \ a non-humanoid. Also use it when a character \"looks crumpled\", \"won't walk\", \"tears at the\
+      \ shoulder\", or when a rig needs validating before import. Covers SkinTokens auto-rigging, rig\
+      \ validation, Unreal Python import, and procedural walk-cycle generation for creatures that biped\
+      \ retargeting cannot handle.\n---\n\n# Character intake: mesh to walking character\n\nGetting a\
+      \ generated creature into a game engine has four stages, and the\nexpensive failures all come from\
+      \ skipping the validation between them. A bad\nrig is silent \u2014 it imports fine, renders fine\
+      \ standing still, and only reveals\nitself weeks later when the character tears apart the first\
+      \ time a limb rotates.\n\n```\nmesh.glb \u2192 auto-rig \u2192 VALIDATE \u2192 import + ground \u2192\
+      \ locomotion\n                         \u2191\n              the stage that pays for itself\n```\n\
+      \n## Stage 1 \u2014 Auto-rig\n\nAuto-riggers built on generative models (SkinTokens, and its predecessor\n\
+      UniRig) are **samplers, not transforms**. They emit the rig as a token sequence\nwith temperature,\
+      \ top-k and beam search. This has a consequence that changes\nthe whole approach:\n\n**A bad rig\
+      \ is a bad draw, not a broken tool.** Do not repair the output \u2014\ndraw again. Run the rigger\
+      \ several times and keep the best result. Repairing\nskin weights by hand is difficult, risks producing\
+      \ a malformed file, and\ndiscards a solver that is genuinely good at its job.\n\nTwo flags matter\
+      \ more than anything else you can tune:\n\n- `--use_postprocess` (voxel skinning) is **off by default**\
+      \ and is usually the\n  difference between a torn rig and a clean one. Voxel skinning respects the\n\
+      \  *gaps* between a limb and the body; surface-adjacency methods bleed weights\n  across them, which\
+      \ is precisely what makes a leg drag the abdomen.\n- `--use_skeleton` regenerates *skin only* against\
+      \ a skeleton already in the\n  file. This is the escape hatch when joint placement is wrong: correct\
+      \ the\n  joint positions (a cheap edit \u2014 no weight maths) and let the model redo the\n  weighting,\
+      \ which is the hard part.\n\nIf output quality varies between runs, that is the sampler working\
+      \ as designed.\nLower temperature for more typical rigs; raise beam count to search harder.\n\n\
+      ## Stage 2 \u2014 Validate before importing\n\nThis is the stage people skip, and it is the one\
+      \ that saves weeks. Validation\nsplits cleanly into two halves with very different characters.\n\
+      \n**Measure with code.** Parsing the glTF buffers gives exact per-bone weight\nshare, influence\
+      \ bounding boxes, bone lengths, and \u2014 most usefully \u2014 a render\nof every vertex coloured\
+      \ by its owning bone. Deterministic, sub-second on a\n600k-vertex mesh, no GPU. See `references/rig-validation.md`\
+      \ for what to\ncompute and, importantly, which metrics mislead.\n\n**Judge with a model.** Whether\
+      \ a region is \"a leg\" or \"half an abdomen\"\ndepends on the creature's body plan, and that does\
+      \ not reduce to a threshold.\nA quadruped, a spider and a biped need different answers from identical\n\
+      numbers. Hand-written sprawl heuristics tuned on one creature reliably flag\ninnocent torso bones\
+      \ and miss the real defect on the next.\n\nThe division is the point: code measures, the model decides.\
+      \ Give the model the\ncolour map plus the numeric table and ask for structured findings with a `fix`\n\
+      field on each \u2014 that field is what makes the loop closeable rather than merely\ndiagnostic.\n\
+      \n**Gate the import on the verdict.** A rig that fails validation should never\nreach the engine.\
+      \ This converts a multi-week discovery into a 30-second one.\n\n### When a rig fails, in order of\
+      \ what to try\n\n1. **Turn on `--use_postprocess` if it wasn't.** Voxel skinning is off by\n   default\
+      \ and is the single highest-yield change. On the creature this skill\n   was built from it took\
+      \ a rig from unusable to clean in one pass, without\n   touching anything else.\n2. **Resample.**\
+      \ Draw three to five rigs and keep the best by findings count,\n   not the first that passes \u2014\
+      \ two passing samples can differ visibly in\n   quality. Vary temperature between draws so you get\
+      \ genuinely different rigs\n   rather than a retry of the same computation.\n3. **If every draw\
+      \ puts joints in the wrong place**, correct the joint\n   *positions* by hand and re-run with `--use_skeleton`,\
+      \ which regenerates skin\n   only. Moving a joint is a cheap edit; solving skin weights is not,\
+      \ so let\n   the model keep the part it's good at.\n4. **Only then consider editing weights directly**,\
+      \ and expect it to be\n   unpleasant. Naive distance falloff reintroduces exactly the bleeding you're\n\
+      \   trying to remove.\n\nIf the mesh itself is the problem \u2014 limbs fused, geometry interpenetrating\
+      \ at\nthe joints \u2014 no rigger will save it. Fix the mesh and start again.\n\n## Stage 3 \u2014\
+      \ Import and ground\n\nImport is mostly mechanical, with one recurring trap.\n\n**Ground by the\
+      \ mesh's lowest point, not its bounds centre.** Spawning an actor\nat a bounds origin leaves the\
+      \ character floating by roughly half its height.\nCompute the offset that puts the lowest vertex\
+      \ on the floor plane:\n\n```python\no, e = actor.get_actor_bounds(False)\nactor.set_actor_location(unreal.Vector(x,\
+      \ y, floor_z - (o.z - e.z) + actor_z))\n```\n\nFor a Character blueprint the mesh also needs a relative\
+      \ offset of\n`-capsule_half_height` so the feet sit at the capsule's base rather than its\ncentre.\n\
+      \n`references/unreal-python.md` lists the API traps that cost the most time.\nRead it before writing\
+      \ Unreal Python \u2014 the failure mode is a confident guess\nthat raises an exception several calls\
+      \ deep, and there are enough of these that\nguessing is a bad strategy.\n\n## Stage 4 \u2014 Locomotion\n\
+      \nFor anything that is not a biped, **retargeting is not available**. UE5's IK\nRetargeter maps\
+      \ a source skeleton onto a target through corresponding limbs; a\nsphere with four radial limbs\
+      \ has no correspondence to a humanoid's pelvis,\nspine and two legs. Pointing the retargeter at\
+      \ it produces garbage, and no\namount of configuration fixes that.\n\nWhat does work is generating\
+      \ the cycle procedurally. A gait for a radial\ncreature is phase-offset sine waves per limb chain\
+      \ \u2014 far easier to write than\nto key by hand, and it regenerates for free when the rig changes.\n\
+      \n**Before choosing a swing axis, measure which axis is which.** Reference-pose\nspace is not world\
+      \ space, and auto-riggers orient bones arbitrarily. Determine\nthe lateral axis empirically by comparing\
+      \ the rest positions of a known-left\nand known-right limb tip: whichever coordinate separates them\
+      \ is lateral, and\nrotating a limb *around* that axis is what you want for a stride. Guessing here\n\
+      produces limbs that paddle out to the sides instead of stepping, and it looks\nplausible enough\
+      \ in a still frame to pass a careless check.\n\n`references/animation.md` has the generation approach,\
+      \ the gait phasing, and\nhow to verify the result numerically.\n\n## Verification discipline\n\n\
+      Most of the wasted effort in this pipeline traces to verifying badly rather\nthan to the work being\
+      \ hard. Three habits prevent it:\n\n**Verify at a fidelity where you could actually tell.** A render\
+      \ too small or\ntoo dark to read is not evidence. If the check cannot distinguish success from\n\
+      failure, it is not a check \u2014 re-frame it, enlarge it, or ask the human to look.\nReporting\
+      \ success from an unreadable render is worse than not checking, because\nit stops anyone else from\
+      \ looking.\n\n**Prefer a measurement that would fail loudly if you were wrong.** \"The mesh\nlooks\
+      \ fine\" is weak. \"The foot travels 93 units fore/aft and 16 laterally\" is\nstrong, because a\
+      \ wrong axis makes those numbers swap rather than merely look\noff. When a metric returns a suspiciously\
+      \ clean result \u2014 a perfect zero, no\nchange at all \u2014 suspect the metric before believing\
+      \ the result.\n\n**Introspect before writing.** For unfamiliar engine APIs, `dir(SomeClass)` and\n\
+      a quick search cost a minute; a wrong guess costs an exception several calls\ndeep plus the time\
+      \ to attribute it. This is especially true where the same\nconcept has several plausible spellings.\n\
+      \n## Bundled scripts\n\nThese are working implementations, not sketches \u2014 use them rather than\n\
+      rewriting from the descriptions above.\n\n| script | what it does |\n|---|---|\n| `scripts/rigcheck.py`\
+      \ | parses a `.glb`, computes per-bone weight share, influence bounds and seam blend, and renders\
+      \ the bone-colour map. `python rigcheck.py model.glb report.jpg` |\n| `scripts/rigjudge.py` | sends\
+      \ that map plus the numeric table to the model and returns a structured verdict with a `fix` on\
+      \ every finding. `python rigjudge.py model.glb map.jpg` |\n| `scripts/rigpose.py` | offline linear\
+      \ blend skinning \u2014 poses a limb and renders the deformation, so \"will this tear\" is answerable\
+      \ without an editor. `python rigpose.py model.glb out.jpg 50 bone_a,bone_b` |\n| `scripts/find_swing_axis.py`\
+      \ | **run this before authoring any gait.** Determines the lateral axis from limb geometry and reports\
+      \ which rotation axis actually strides. Unreal remote exec, `ExecuteFile` mode. |\n| `scripts/walkcycle.py`\
+      \ | generates a looping gait as an AnimSequence. Constants at the top control stride length, knee\
+      \ bend, body sway and cadence. |\n| `scripts/idlecycle.py` | generates a standing idle, and verifies\
+      \ the feet stay planted. Needed the moment a character can stop \u2014 a walk cycle under a stationary\
+      \ body reads as moon-walking. |\n\n`rigjudge.py` needs `ANTHROPIC_API_KEY`; the rest need only `pygltflib`,\n\
+      `numpy` and `pillow`. The Unreal scripts run through remote exec in\n`ExecuteFile` mode \u2014 `ExecuteStatement`\
+      \ rejects multi-line scripts.\n\n## Reference files\n\n- `references/rig-validation.md` \u2014 what\
+      \ to measure, which metrics mislead, and\n  how to structure the model's verdict\n- `references/unreal-python.md`\
+      \ \u2014 API traps, correct call shapes, and what is\n  simply not exposed\n- `references/animation.md`\
+      \ \u2014 procedural gait generation and numeric verification\n"

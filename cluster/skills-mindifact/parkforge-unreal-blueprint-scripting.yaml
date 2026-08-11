@@ -1,0 +1,119 @@
+# ParkForge skills, imported from the mindifact registry pack
+# parkforge-brain@1.6.0. Generated from the pack's SKILL.md bodies —
+# regenerate rather than hand-editing.
+apiVersion: agentoffice.ai/v1alpha1
+kind: Skill
+metadata:
+  name: parkforge-unreal-blueprint-scripting
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/managed-by: agent-office
+    app.kubernetes.io/part-of: parkforge-brain
+    agentoffice.ai/skill-tier: mindifact
+    agentoffice.ai/pack: unreal-scripting
+  annotations:
+    agentoffice.ai/registry: mindifact.ai
+    agentoffice.ai/pack-ref: parkforge-brain@1.6.0
+    agentoffice.ai/pack-member: unreal-scripting
+spec:
+  displayName: "ParkForge \u2014 Unreal Blueprint Scripting"
+  description: "Author Unreal Engine Blueprints from Python \u2014 build and wire event-graph nodes, add\
+    \ components to a Blueprint class, create Enhanced Input actions and key mappings, and compile and\
+    \ verify the result. Use this whenever work in Unreal would otherwise mean telling a human which nodes\
+    \ to place and which pins to drag, or when you catch yourself writing \"now open the Blueprint and\
+    \ add a Branch node\". Also use it for reading an existing Blueprint's graph to understand what it\
+    \ does before changing it. U"
+  version: 1.6.0
+  dependencies:
+  - kind: mcpServer
+    name: unreal
+  source:
+    inline: "---\nname: unreal-blueprint-scripting\ndescription: Author Unreal Engine Blueprints from\
+      \ Python \u2014 build and wire event-graph nodes, add components to a Blueprint class, create Enhanced\
+      \ Input actions and key mappings, and compile and verify the result. Use this whenever work in Unreal\
+      \ would otherwise mean telling a human which nodes to place and which pins to drag, or when you\
+      \ catch yourself writing \"now open the Blueprint and add a Branch node\". Also use it for reading\
+      \ an existing Blueprint's graph to understand what it does before changing it. UE 5.8+ exposes a\
+      \ full graph-authoring API that older guidance and most tutorials say does not exist \u2014 check\
+      \ here before concluding something must be done by hand.\n---\n\n# Scripting Unreal Blueprints\n\
+      \nMost advice about Unreal automation says graph authoring is not exposed to\nPython, so agents\
+      \ fall back on writing instructions for a human: *place an AI\nMoveTo, drag from Success back to\
+      \ the input.* That guidance is out of date.\nUE 5.8 ships `BlueprintGraphEditor` and `BlueprintGraphPinLibrary`,\
+      \ which\ntogether create nodes, set pin values, connect pins, compile, and report\nerrors. Anything\
+      \ you were about to describe in prose, you can build.\n\nThis matters beyond convenience. Hand-wiring\
+      \ instructions fail in ways that are\nmiserable to debug remotely \u2014 the human cannot find the\
+      \ node, the context menu\nfilters it out, a pin silently refuses a connection \u2014 and none of\
+      \ that is\nvisible to you. A script either compiles or names the node that failed.\n\n```\nprobe\
+      \ names  \u2192  create  \u2192  dump pins  \u2192  wire  \u2192  compile  \u2192  read back\n \
+      \                            \u2191                                    \u2191\n                \
+      \    pin names differ by       the check that catches\n                    version; one look   \
+      \      a connection that silently\n                    is cheaper than a guess   did not take\n\
+      ```\n\n## Check what is exposed before assuming\n\nAvailability moves between versions, so introspect\
+      \ rather than trusting any\nlist \u2014 including this one:\n\n```python\n[n for n in dir(unreal)\
+      \ if \"BlueprintGraph\" in n]\nsorted(m for m in dir(unreal.BlueprintGraphEditor) if not m.startswith(\"\
+      _\"))\n```\n\n`references/graph-api.md` has the call shapes, the exact spellings, and the\ntraps\
+      \ that cost the most time. Read it before writing graph code \u2014 the failure\nmode is a confident\
+      \ guess that raises several calls deep, and there are enough\nof these that guessing is a bad strategy.\n\
+      \n## Finding node names\n\n`create_node_from_name` takes an internal `Category|Name` string, not\
+      \ the\ndisplay name. Discover them:\n\n```python\ned = unreal.BlueprintGraphEditor.get_graph_editor_by_name(bp,\
+      \ \"EventGraph\")\navail = ed.list_available_nodes([])          # ~41,000 entries\n[a for a in avail\
+      \ if \"getactorofclass\" in a.lower()]   # -> Actor|GetActorOfClass\n```\n\nSearch lowercased and\
+      \ without spaces \u2014 the internal names are unspaced\n(`Utilities|Operators|LessEqual(<=)`, `Sequencer|Player|Play`).\
+      \ A display name\nyou'd read in the editor (\"Get Actor Of Class\") will not match.\n\n**When several\
+      \ entries share a name, address the function by path instead.**\nThree separate `Rendering|Material|SetScalarParameterValue`\
+      \ entries exist \u2014\n`create_node_from_name` silently takes whichever comes first, which may\
+      \ be the\nmaterial-instance one when you wanted the parameter-collection one:\n\n```python\ned.add_call_function_node(\"\
+      /Script/Engine.KismetMaterialLibrary:SetScalarParameterValue\")\n```\n\nThat form is unambiguous.\
+      \ Prefer it for anything in a library.\n\n## Wiring\n\nConnect by looking pins up by name, never\
+      \ by holding a handle:\n\n```python\nBEL, PL = unreal.BlueprintEditorLibrary, unreal.BlueprintGraphPinLibrary\n\
+      \ndef pin(node, name):\n    for p in BEL.list_all_pins(node):\n        if str(PL.get_pin_name(p))\
+      \ == name:\n            return p\n    raise KeyError(\"%s has no pin %r (has: %s)\"\n          \
+      \         % (BEL.get_node_title(node), name,\n                      [str(PL.get_pin_name(p)) for\
+      \ p in BEL.list_all_pins(node)]))\n```\n\n**Pin objects are proxies for native pins.** Any edit\
+      \ that reconstructs a node\ninvalidates every handle taken before it, and a stale handle fails quietly.\n\
+      Re-looking-up costs nothing; caching costs an afternoon.\n\nThe `KeyError` above is deliberate:\
+      \ it prints the pin names the node actually\nhas, which turns a wrong guess into a one-line fix\
+      \ rather than an investigation.\n\nTwo ordering rules that are not obvious and both fail silently:\n\
+      \n- **Set type-determining pins before connecting anything.** `GetActorOfClass`\n  derives its output\
+      \ type from its `ActorClass` pin. Setting that after wiring\n  retypes a pin that already has a\
+      \ link, and the link is dropped.\n- **On a wildcard operator, connect the typed side first, then\
+      \ set the\n  literal.** A fresh `LessEqual` node is `Timespan <= Timespan`; feeding it a\n  float\
+      \ promotes it, after which `\"400.0\"` means what you want.\n\n## Verify by reading the graph back\n\
+      \n`try_create_connection` returning `True` means the call was accepted, not that\nthe graph says\
+      \ what you think. Compile, then walk the exec chain:\n\n```python\nBEL.compile_blueprint(bp)\nerrs\
+      \ = ed.list_nodes_with_errors()\nif not errs:\n    unreal.EditorAssetLibrary.save_asset(path)\n\
+      ```\n\nSave only on a clean compile \u2014 leaving a broken graph saved is worse than\nleaving it\
+      \ unsaved, because the next run starts from a worse place.\n`scripts/bpdump.py` prints a graph as\
+      \ an indented exec trace with pin literals,\nwhich is the artifact to check against what you intended.\
+      \ It is also the fastest\nway to understand a Blueprint someone else wrote before you touch it.\n\
+      \n## Write scripts that can be re-run\n\nGraph building fails partway \u2014 a wrong pin name, a\
+      \ refused connection \u2014 and\nleaves debris. A script that deletes its own previous output before\
+      \ rebuilding\nis re-runnable after any failure; one that does not needs hand-cleanup in the\neditor,\
+      \ which is exactly what you were avoiding.\n\n```python\nMINE_CLASS = {\"K2Node_IfThenElse\", \"\
+      K2Node_VariableGet\", \"K2Node_VariableSet\"}\nMINE_FN = {\"GetActorOfClass\", \"GetDistanceTo\"\
+      , \"Play\"}\nstale = [n for n in ed.list_all_nodes()\n         if n.get_class().get_name() in MINE_CLASS\n\
+      \         or (n.get_class().get_name() == \"K2Node_CallFunction\" and title(n) in MINE_FN)]\ned.remove_nodes(stale)\n\
+      ```\n\n**Identify pre-existing nodes structurally, not by title.** If your script adds\na `Delay`\
+      \ and the graph already had one, title matching will eat the user's\nnode on the second run. Find\
+      \ theirs by its role instead \u2014 \"the Delay that AI\nMoveTo feeds\" \u2014 and capture it *before*\
+      \ creating anything:\n\n```python\nfor p in BEL.list_all_pins(moveto):\n    if str(PL.get_pin_name(p))\
+      \ in (\"OnSuccess\", \"OnFail\"):\n        for cp in PL.list_connected_pins(p):\n            orig_delay\
+      \ = PL.get_owning_node(cp)\n```\n\n## Editing someone else's Blueprint\n\nYou are usually modifying\
+      \ a graph a person authored and still has opinions\nabout. Two courtesies that are also correctness\
+      \ requirements:\n\n- **Do not modify a Blueprint while it is open with unsaved graph edits** \u2014\
+      \ ask\n  first, or expect their work to be clobbered. Call\n  `BEL.refresh_open_editors_for_blueprint(bp)`\
+      \ after writing so an open editor\n  shows the truth.\n- **Insert into existing chains rather than\
+      \ rebuilding them.** Break the one\n  link you need (`PL.break_single_pin_link`), splice your nodes\
+      \ in, reconnect.\n  Rebuilding a user's loop from scratch loses tuning they cared about and is\n\
+      \  harder to review.\n\n## Components and input assets\n\nAdding components to a Blueprint *class*\
+      \ (so every instance gets them) goes\nthrough `SubobjectDataSubsystem`, not the actor API. Compiling\
+      \ re-instances\nplaced level actors, so they pick the new components up. See\n`references/graph-api.md`.\n\
+      \nEnhanced Input has its own set of version-specific traps \u2014 in 5.8 the authored\nmappings\
+      \ are not where they look like they are, `unreal.Key` cannot be\nconstructed the obvious way, and\
+      \ an action with no trigger fires every frame\nthe key is held. `references/enhanced-input.md` covers\
+      \ those.\n\n## Bundled scripts\n\n| script | what it does |\n|---|---|\n| `scripts/bpdump.py` |\
+      \ prints a Blueprint's graphs as indented exec traces with pin literals and connections. Run it\
+      \ before editing an unfamiliar Blueprint, and again afterwards to verify. |\n\n## Reference files\n\
+      \n- `references/graph-api.md` \u2014 call shapes, exact spellings, component authoring,\n  and the\
+      \ traps that cost the most time\n- `references/enhanced-input.md` \u2014 creating input actions\
+      \ and key mappings from\n  Python, and the trigger default that will bite you\n"

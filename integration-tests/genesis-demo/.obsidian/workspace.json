@@ -1,24 +1,24 @@
 {
   "main": {
-    "id": "02147042aba82365",
+    "id": "c8f5835129993e79",
     "type": "split",
     "children": [
       {
-        "id": "d041fe1d61043b33",
+        "id": "d4d22e1bab15c4e0",
         "type": "tabs",
         "children": [
           {
-            "id": "22f4e28e42997770",
+            "id": "855e15d66816aeec",
             "type": "leaf",
             "state": {
               "type": "markdown",
               "state": {
-                "file": "01 - A model is a function with adjustable beliefs.md",
+                "file": "VIDEO-SCRIPT.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "01 - A model is a function with adjustable beliefs"
+              "title": "VIDEO-SCRIPT"
             }
           }
         ]
@@ -27,15 +27,15 @@
     "direction": "vertical"
   },
   "left": {
-    "id": "4d16501c5adc295c",
+    "id": "aa937395116164bc",
     "type": "split",
     "children": [
       {
-        "id": "a2c2c07dea395582",
+        "id": "d4e163d0787a3919",
         "type": "tabs",
         "children": [
           {
-            "id": "6fe9f67bbd8c0ab5",
+            "id": "e5b21b7f8e8c4b66",
             "type": "leaf",
             "state": {
               "type": "file-explorer",
@@ -48,7 +48,7 @@
             }
           },
           {
-            "id": "15701d6a38c83256",
+            "id": "af0193860520d51e",
             "type": "leaf",
             "state": {
               "type": "search",
@@ -65,7 +65,7 @@
             }
           },
           {
-            "id": "873ab55cf17c46a5",
+            "id": "7fbb74e345619978",
             "type": "leaf",
             "state": {
               "type": "bookmarks",
@@ -81,20 +81,20 @@
     "width": 300
   },
   "right": {
-    "id": "cd848d80a7658f14",
+    "id": "5cbd78b34e25658d",
     "type": "split",
     "children": [
       {
-        "id": "91e77105be289a2d",
+        "id": "e92a19ea01986099",
         "type": "tabs",
         "children": [
           {
-            "id": "e444dd6ae4d48cf0",
+            "id": "37bc8ec59f76167b",
             "type": "leaf",
             "state": {
               "type": "backlink",
               "state": {
-                "file": "01 - A model is a function with adjustable beliefs.md",
+                "file": "VIDEO-SCRIPT.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -104,25 +104,25 @@
                 "unlinkedCollapsed": true
               },
               "icon": "links-coming-in",
-              "title": "Backlinks for 01 - A model is a function with adjustable beliefs"
+              "title": "Backlinks for VIDEO-SCRIPT"
             }
           },
           {
-            "id": "98a68d6ea04496bc",
+            "id": "5af8f2c5f060a37b",
             "type": "leaf",
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "01 - A model is a function with adjustable beliefs.md",
+                "file": "VIDEO-SCRIPT.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               },
               "icon": "links-going-out",
-              "title": "Outgoing links from 01 - A model is a function with adjustable beliefs"
+              "title": "Outgoing links from VIDEO-SCRIPT"
             }
           },
           {
-            "id": "76991dd31008b3b6",
+            "id": "fd42901f1f558abc",
             "type": "leaf",
             "state": {
               "type": "tag",
@@ -137,7 +137,7 @@
             }
           },
           {
-            "id": "6ee86af333913299",
+            "id": "c4a116b5e02baead",
             "type": "leaf",
             "state": {
               "type": "all-properties",
@@ -151,18 +151,18 @@
             }
           },
           {
-            "id": "53baeca8507aaf25",
+            "id": "9c74a4cb4653de87",
             "type": "leaf",
             "state": {
               "type": "outline",
               "state": {
-                "file": "01 - A model is a function with adjustable beliefs.md",
+                "file": "VIDEO-SCRIPT.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
               },
               "icon": "lucide-list",
-              "title": "Outline of 01 - A model is a function with adjustable beliefs"
+              "title": "Outline of VIDEO-SCRIPT"
             }
           }
         ]
@@ -183,10 +183,10 @@
       "bases:Create new base": false
     }
   },
-  "active": "22f4e28e42997770",
+  "active": "855e15d66816aeec",
   "lastOpenFiles": [
-    "00 - Start here.md",
-    "01 - A model is a function with adjustable beliefs.md",
-    "02 - The data and the hidden truth.md"
+    "README.md",
+    "VIDEO-SCRIPT.md",
+    "VIDEO-SCRIPT-RECORDING.md"
   ]
 }

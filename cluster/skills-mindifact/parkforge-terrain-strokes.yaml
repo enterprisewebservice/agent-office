@@ -1,0 +1,415 @@
+# ParkForge skills, imported from the mindifact registry pack
+# parkforge-brain@1.6.0. Generated from the pack's SKILL.md bodies —
+# regenerate rather than hand-editing.
+apiVersion: agentoffice.ai/v1alpha1
+kind: Skill
+metadata:
+  name: parkforge-terrain-strokes
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/managed-by: agent-office
+    app.kubernetes.io/part-of: parkforge-brain
+    agentoffice.ai/skill-tier: mindifact
+    agentoffice.ai/pack: parkforge-terrain
+  annotations:
+    agentoffice.ai/registry: mindifact.ai
+    agentoffice.ai/pack-ref: parkforge-brain@1.6.0
+    agentoffice.ai/pack-member: parkforge-terrain
+spec:
+  displayName: "ParkForge \u2014 Terrain Strokes"
+  description: "Edit the ground in the Unreal park \u2014 every change to terrain height goes through\
+    \ this skill, and so does every path, because paths are routes, data records the ribbon rebuilds from.\
+    \ Use it the moment the user mentions landscaping, terrain, sculpting, grading, digging, a path, a\
+    \ trail, a route, a mound, a hill, a berm, a bump, a knoll, a hollow, a dip, a pond, a terrace, a\
+    \ pad, a fence, a railing, a barrier, flattening, smoothing, boxing a trail in, or says anything like\
+    \ \"make a hill\", \"raise the"
+  version: 1.6.0
+  dependencies:
+  - kind: mcpServer
+    name: unreal
+  source:
+    inline: "---\nname: terrain-strokes\ndescription: Edit the ground in the Unreal park \u2014 every\
+      \ change to terrain height goes through this skill, and so does every path, because paths are routes,\
+      \ data records the ribbon rebuilds from. Use it the moment the user mentions landscaping, terrain,\
+      \ sculpting, grading, digging, a path, a trail, a route, a mound, a hill, a berm, a bump, a knoll,\
+      \ a hollow, a dip, a pond, a terrace, a pad, a fence, a railing, a barrier, flattening, smoothing,\
+      \ boxing a trail in, or says anything like \"make a hill\", \"raise the ground\", \"lower this bit\"\
+      , \"flatten a spot\", \"smooth that out\", \"this ground is lumpy\", \"get rid of that bump\", \"\
+      undo that hill\", \"the path is floating\", \"the slabs step\", \"make a path from here to the pond\"\
+      , \"connect these with a trail\", \"get rid of the path\", \"fence it in\", \"boxed in on both sides\
+      \ by fencing\", \"put a railing along the path\", \"get rid of the fence\", \"make the path wider\"\
+      , \"there's a hole in the path\", or \"the path looks wrong\". Use it even for a one-off tiny bump\
+      \ \u2014 especially then, because the failure this skill prevents is the quick freehand edit. Also\
+      \ use it when someone asks to paint the landscape \u2014 read the hard-limits section before going\
+      \ anywhere near paint layers. While this skill applies, never sculpt by hand in the editor, never\
+      \ write an ad-hoc heightmap script, never guess a coordinate, and never create or delete a path\
+      \ outside the route verbs, and never fake or skip fencing outside the fence verbs \u2014 when a\
+      \ request needs a capability no verb has, name the gap out loud before doing anything, because silent\
+      \ substitution is this skill's named failure \u2014 all ground, path and fence edits run through\
+      \ the numbered loop below.\n---\n\n# Terrain strokes: ground edits as data\n\nThe terrain here is\
+      \ not a canvas. It is the evaluated result of a base height\nfield plus an ordered stack of **stroke\
+      \ records** kept in `strokes.json` by\nthe ParkForge TerrainTools toolset: every edit is one record\
+      \ with an id and\nnumbers, listable, measurable, cleanly removable. This design exists for two\n\
+      hard reasons: the project owner cannot use workflows that end in fiddly\nmanual editor work, and\
+      \ an agent once burned an entire session theorising\nfrom screenshots. So: generate from data, measure\
+      \ everything, keep every edit\nreversible. Paths obey the same law in a second store: **route records**\n\
+      owned by RouteTools, from which the path ribbon rebuilds after every terrain\nstroke (\"Routes\"\
+      \ below).\n\n**How verbs are called.** The Unreal MCP server exposes exactly three tools:\n`list_toolsets`,\
+      \ `describe_toolset`, and `call_tool`. Every dotted verb here\n\u2014 `TerrainTools.remove_stroke(id)`,\
+      \ `RouteTools.define_route(...)` \u2014 is\nshorthand for ONE `call_tool` invocation:\n`call_tool(toolset_name=\"\
+      <full toolset name>\", tool_name=\"<verb>\",\narguments={...})`; no tool named after a verb exists.\
+      \ If those three MCP\ntools are deferred in your harness, load them before anything else.\n\n**Before\
+      \ your first call of a session**, in this order:\n\n1. Use the six registered toolset names, verbatim\
+      \ \u2014 these exact strings\n   go in `toolset_name`, every time:\n   - `parkforge.toolsets.viewport.ViewportTools`\n\
+      \   - `parkforge.toolsets.terrain_tools.TerrainTools`\n   - `parkforge.toolsets.routes_tools.RouteTools`\n\
+      \   - `parkforge.toolsets.fence_tools.FenceTools`\n   - `parkforge.toolsets.scene_tools.SceneTools`\n\
+      \   - `parkforge.toolsets.park_tools.ParkTools`\n   A short name does NOT resolve \u2014 a fresh\
+      \ operator burned a whole model\n   turn calling `toolset_name=\"ViewportTools\"`, watching it fail,\
+      \ and only\n   then listing. Do not rediscover these names by trial: they are pinned\n   here so\
+      \ your first call works. Call `list_toolsets` once to CONFIRM all\n   six are registered \u2014\
+      \ if the live listing spells a name differently,\n   the live listing wins, and say in your reply\
+      \ that it did.\n2. If no registered name ends in `TerrainTools`, **stop**. Tell the user the\n \
+      \  ParkForge TerrainTools toolset is not loaded and no ground edit is\n   possible until it is \u2014\
+      \ do not substitute editor sculpting, an ad-hoc\n   heightmap script, or any other toolset. If nothing\
+      \ ends in `RouteTools`,\n   route verbs are unavailable: say so, do stroke-only work, and never\
+      \ fake\n   a path with `raise_here` or an ad-hoc spline script. If nothing ends\n   in `FenceTools`,\
+      \ fence verbs are unavailable: SAY SO before doing\n   anything else the instruction asks \u2014\
+      \ and never substitute a bare\n   route, scattered meshes, or silence for a fence request (the refusal\n\
+      \   rail in rail 2 names this exact failure).\n3. `describe_toolset` on all the full names and use\
+      \ the exact tool and\n   parameter names it returns \u2014 guessed parameter names are the number-one\n\
+      \   source of exceptions several calls deep. Never invent a verb that is not\n   listed. If the\
+      \ listing spells an operation differently from the tables\n   below (say `raise_mound` for `raise_here`),\
+      \ the live listing wins \u2014 match\n   verbs by their descriptions, and say in your reply that\
+      \ you did.\n\nThe ViewportTools replies are prose strings, not structured fields: read the\ncoordinates\
+      \ and actor names out of the text and quote them, never paraphrase\na number. The two exceptions\
+      \ are `probe_line` and `probe_grid`, which reply\nin compact JSON \u2014 quote their summary numbers\
+      \ the same way.\n\n**Units.** The world is centimetres: 1 m = 100 units. Users speak metres; the\n\
+      verbs take units. Multiply by 100, and say the conversion out loud\n(\"2 m = 200 units\") so the\
+      \ user can catch a slip.\n\n## The operating loop \u2014 seven rails, 0 through 6, in order, every\
+      \ instruction\n\nRun these for **each** user instruction about the ground. No skipping, no\nreordering,\
+      \ no batching several instructions into one pass.\n\n**Rail 0 \u2014 Recon budget. Ask the level\
+      \ BEFORE probing it; then act.**\nRecon in this loop is priced in MODEL TURNS, not editor seconds:\
+      \ every tool\ncall costs one full turn. The first real operator session spent 20+ minutes\non roughly\
+      \ forty SERIAL `ground_height`/`whats_here` probes \u2014 one turn each \u2014\nwithout ever reaching\
+      \ a mutation, and was killed for it; a later one spent\n11 probes HUNTING a fence crossing the actor\
+      \ list would have named in one\ncall. The serial survey is the named anti-pattern of this skill.\n\
+      - \"Where is X?\" is a LOOKUP, never a hunt: `SceneTools.where_is(name)`\n  resolves landmarks and\
+      \ labels with coordinates and bounds in ONE call;\n  `SceneTools.find_actors` / `describe_area`\
+      \ list what is actually there.\n  Probes measure GROUND; queries locate THINGS. Query first, always.\n\
+      - Anchor an instruction with AT MOST ~3 probe calls: one\n  `ViewportTools.probe_line` per corridor\
+      \ (up to 200 line samples in ONE\n  call), one `ViewportTools.probe_grid` per area (a whole footprint\
+      \ in ONE\n  call), and `whats_here` only to IDENTIFY a surface \u2014 never to map heights.\n- Then\
+      \ act. If three batched probes have not told you enough to choose a\n  verb, say what is missing\
+      \ and ask \u2014 do not keep probing.\n- `ground_height` is for the single height a verb argument\
+      \ needs. Two\n  `ground_height` calls in a row means you wanted `probe_line`; a cluster\n  of them\
+      \ means you wanted `probe_grid`. Refuse the sweep, batch it.\n\n**Rail 1 \u2014 Anchor. Never guess\
+      \ coordinates.**\n- User says \"here\" / \"there\" / \"this spot\": call `ViewportTools.look_at`.\
+      \ It\n  returns the world point under the viewport camera and the actor that owns\n  that surface.\
+      \ If it reports the ray hit nothing, ask the user to aim at the\n  ground and call it again.\n-\
+      \ User gives coordinates, or you already have them from this session: call\n  `ViewportTools.whats_here(x,\
+      \ y)` anyway, to confirm what is actually at that\n  column before touching it.\n- User names a\
+      \ place (\"by the shed\", \"to the jellybean man\"): ONE call per\n  name, and that call's reply\
+      \ is the anchor. If your session-start\n  `list_toolsets` reply listed a name ending in `ActorTools`,\n\
+      \  `describe_toolset` it and use its find/list verb to get the actor's\n  location \u2014 one listing\
+      \ call that returns several actors anchors several\n  names at once. If no listed name ends in `ActorTools`,\
+      \ or the call comes\n  back \"verb REFUSED\", the lookup does not exist in this deployment: do not\n\
+      \  reach for raw Unreal Python and do not guess from memory \u2014 ask the user\n  to aim the viewport\
+      \ at the named thing and anchor it with `look_at`, one\n  call per name. Either way, do NOT follow\
+      \ the anchor with a per-endpoint\n  `whats_here`: `look_at` and the find verb both name the actor\
+      \ already,\n  and the ground under a route endpoint is measured by the `probe_line`\n  you run next\
+      \ (rail 0). `whats_here` at a named anchor only when the\n  anchor reply leaves the surface genuinely\
+      \ ambiguous.\n- User asks to remove or undo a stroke (\"undo that hill from before\"): the\n  anchor\
+      \ is a stroke **id**, not a coordinate \u2014 skip this rail and go to the\n  \"get rid of that\"\
+      \ branch below, unless you need a location to work out\n  which stroke they mean.\n- The only coordinates\
+      \ you may pass to a terrain verb are ones you read out of\n  a tool reply **this session**. Coordinates\
+      \ from memory, from an old\n  transcript, or estimated off a screenshot are guesses. Do not use\
+      \ them.\n\n**Rail 2 \u2014 One stroke, one verb.**\nMap the instruction to exactly **one** TerrainTools\
+      \ or RouteTools verb using\nthe table below, and make exactly **one** call. If the request seems\
+      \ to need\ntwo strokes, it is two instructions: do the first, show it (rails 3\u20134), then\nask.\
+      \ The only sanctioned multi-call units are the three route procedures in\n\"Routes\" below and the\
+      \ fenced-corridor procedure in \"Fences\" below \u2014 making a path (`define_route` then `grade_route`),\
+      \ removing\none completely, and changing one \u2014 each with its exact call order written\nout;\
+      \ follow that order, never improvise a different one. Quote EVERY id a verb\nreturns \u2014 stroke\
+      \ id, route id, the stroke ids `grade_route` reports \u2014 in the\nsame breath, so they survive\
+      \ in the transcript; rail 5 and the removal\nbranches need them. Terrain, route and fence verbs\
+      \ only: no raw heightmap writes,\nno editor brush, no direct landscape, spline or instanced-mesh\
+      \ API calls.\n\n\n**Refusal teeth \u2014 no silent substitution.** When an instruction contains\
+      \ a\ncapability no verb covers, NAME the impossible part BEFORE doing any\npossible part, and do\
+      \ the possible part only after saying exactly what is\nbeing skipped and why. The named anti-pattern\
+      \ is the boxed-in-trail\nincident: asked for \"a narrow trail boxed in on both sides by fencing\"\
+      , an\noperator with no fence verb silently laid a bare route \u2014 wrong shape, no\nfence, and\
+      \ the user found out by looking at the world. A fraction of an\ninstruction delivered without the\
+      \ missing fraction being named is not\npartial success; it is a wrong answer wearing a done face.\
+      \ Fencing now HAS\nverbs (FenceTools, \"Fences\" below) \u2014 the rule outlives the incident: any\n\
+      future capability gap gets the same treatment, out loud, before the first\nmutation.\n\n**Rail 3\
+      \ \u2014 Read the returned numbers and STATE them.**\nEvery verb replies with measurements (stroke\
+      \ id, height before/after at the\nanchor, affected radius, worst walk grade, worst cross-path tilt\
+      \ \u2014 whatever\nthat verb reports). Repeat them verbatim in your reply to the user. If the\n\
+      reply is an error, or contains no numbers, **stop and say so** \u2014 do not\nproceed to a render\
+      \ and hope. Flag against these thresholds:\n\n| measurement | flag when | why this number |\n|---|---|---|\n\
+      | walk grade on any path | > 8% | comfortable walking tops out ~8%; the corridor generator itself\
+      \ targets \u2264 4.5% |\n| cross-path tilt (edge to edge) | > 25 units | the historical bug case\
+      \ was a 69-unit sideways tilt |\n| step between neighbouring path slabs | > 10 units | the historical\
+      \ bug case was a 27-unit step |\n| height change at the anchor \u2265 5\xD7 what you asked for |\
+      \ always | means an encoding/scale error, not a big hill \u2014 stop |\n\n**Rail 4 \u2014 Show the\
+      \ frame.**\n`ViewportTools.capture_view` with an **absolute** `output_path` inside your\nsession\
+      \ scratchpad directory (the one your system prompt names), e.g.\n`<scratchpad>/stroke_<id>.png`;\
+      \ default width and height are fine. Show the\nimage to the user through whatever file-sending mechanism\
+      \ your harness has \u2014\nif none, give the absolute path and repeat the rail-3 numbers. The render\
+      \ is\nfor the user's eyes and gross errors only; it never overrides the rail-3\nnumbers. Do not\
+      \ zoom a screenshot to \"measure\" anything.\n\n**Rail 5 \u2014 Wrong? Remove, never counter-sculpt.**\n\
+      If the user says it is wrong, or a rail-3 threshold tripped:\n`TerrainTools.remove_stroke(id)` with\
+      \ the exact id you quoted at rail 2 \u2014 or,\nfor an earlier session's stroke, an id just confirmed\
+      \ against the live stroke\nlist (the \"get rid of that\" branch), never an id from memory alone\
+      \ \u2014 then go\nback to rail 1 and treat the retry as a fresh instruction. **Never** add a\nsecond\
+      \ stroke to cancel, offset, or \"fix\" the first \u2014 both records stay in\nthe stack and the\
+      \ ground carries both errors forever. Subtraction is\n`remove_stroke`, nothing else \u2014 and per\
+      \ store: `remove_route` undoes a\nroute, `remove_stroke` on the ids `grade_route` returned undoes\
+      \ a grading;\nnever the other store's verb, never a counter-grade on top.\n\n**Rail 6 \u2014 Close\
+      \ out.**\nThere is no commit verb and none is needed: every mutating verb saves as it\nruns, and\
+      \ the `\"save\": {\"saved\": true}` field in its reply IS the commit\nreceipt. Close-out is accounting,\
+      \ not another call. When the instruction is\ncomplete and the user has seen the result (rail 4 ran),\
+      \ state in the same\nturn how many strokes `strokes.json` now holds \u2014 from the last reply,\
+      \ or\none `list_strokes` if no reply said \u2014 and that every mutating reply carried\n`saved:\
+      \ true`. A reply WITHOUT `saved: true` is the one alarm here: say so\nand stop, because unsaved\
+      \ work is the only work that can vanish. Do not sit\nwaiting for an approval nobody asked you to\
+      \ collect.\n\n## What each verb is for\n\n| the user says | verb | how to call it |\n|---|---|---|\n\
+      | \"how steep is it along here\", \"what's the ground like from A to B\", corridor recon before\
+      \ any path work | `probe_line` (ViewportTools \u2014 recon, rail 0, not a rail-2 stroke) | ONE call\
+      \ profiles the whole corridor: endpoints from rail-1 anchors, default 25 samples (max 200); read\
+      \ z_min/z_max/worst_grade_pct/misses from the JSON summary \u2014 this replaces the forbidden serial\
+      \ `ground_height` sweep |\n| \"is this spot flat enough\", \"survey the site\", area recon before\
+      \ a pad, pond, or mound | `probe_grid` (ViewportTools \u2014 recon, rail 0, not a rail-2 stroke)\
+      \ | ONE call measures the footprint: centre from a rail-1 anchor, half_extent covering the feature,\
+      \ default 7\xD77 (max 25\xD725); read relief and misses \u2014 never map an area with serial `whats_here`\
+      \ |\n| \"pinch\", \"bump\", \"knoll\", \"small mound\" | `raise_here` | small radius, positive height\
+      \ |\n| \"dig\", \"lower\", \"hollow\", \"dip\", \"pond\", \"sunken\" | `raise_here` | **negative**\
+      \ height \u2014 there is no `lower_here` |\n| \"hill\", \"rise\", \"berm\" | `raise_here` | large\
+      \ radius, positive height |\n| \"terrace\", \"pad\", \"level this\", \"flat spot\", \"building pad\"\
+      , \"plaza\" | `flatten_here` | levels the footprint to one height |\n| \"soften\", \"smooth\", \"\
+      too lumpy\", \"remesh-smooth\" | `smooth_here` | reduces relief in place, moves nothing sideways\
+      \ |\n| \"bed the path\", \"the path floats\", \"slabs step\", \"grade under the walk\" | `grade_route`\
+      \ if the walk is a defined route (`list_routes`), else `grade_corridor_under_path` | level ACROSS\
+      \ the width, graded ALONG the walk, one shared anchor |\n| \"make a path\", \"a trail from A to\
+      \ B\", \"connect X and Y\" | `define_route` **then** `grade_route` | anchor BOTH endpoints via ViewportTools\
+      \ (never guess), define a 3\u20136 point polyline, THEN grade so the ground beds it, state the returned\
+      \ numbers \u2014 steps in \"Routes\" below |\n| \"fence the path\", \"boxed in by fencing\", \"\
+      railing along the trail\", \"barrier both sides\" | `fence_route` (FenceTools) | the trail must\
+      \ be a route (`list_routes`); `sides=\"both\"` boxes it in; defaults offset 250 / scale 0.25 \u2014\
+      \ full flow in \"Fences\" below |\n| \"a fence along here\", \"a barrier from A to B\" with no path\
+      \ involved | `fence_line` (FenceTools) | anchor the endpoints per rail 1; points_json is one `[[x,\
+      \ y], ...]` polyline |\n| \"get rid of the fence\", \"remove the railing\" | `remove_fence` | id\
+      \ verified via `list_fences`, never from memory |\n| \"get rid of the path / trail\", \"delete the\
+      \ route\" | `remove_route` | id verified via `list_routes`; the graded bed is separate \u2014 the\
+      \ mechanical default is in \"Removing a path\" |\n| \"make the path wider / narrower\", \"move the\
+      \ path\" | remove + re-define | width and points are NOT editable in place \u2014 no such verb exists,\
+      \ never invent one; exact order in \"Changing a path\" |\n| \"there's a hole / gap in the path\"\
+      \ | `list_routes` + `recompile` FIRST | a gap between runs is the bridge span \u2014 intentional,\
+      \ refuse to fill it; the fork is in \"Holes and gaps\" |\n| \"the path looks wrong / floats since\
+      \ my edit\" | `recompile` FIRST | the ribbon auto-refits after every stroke; READ the `relay_ribbon`\
+      \ numbers before touching anything |\n| \"undo\", \"not there\", \"too much\", \"get rid of it\"\
+      \ | `remove_stroke` | with an id verified per the \"get rid of that\" branch below |\n\nDefault\
+      \ magnitudes when the user gives none (say which row you used):\n\n| word | radius (units) | height\
+      \ (units) |\n|---|---|---|\n| pinch / bump \u2014 dip is its negative | 400 | +60 / \u221260 |\n\
+      | mound / knoll \u2014 hollow is its negative | 1000 | +120 / \u2212120 |\n| hill / berm \u2014\
+      \ pond / sunken area is its negative | 2500 | +250 / \u2212250 |\n\nThree mechanical rules on top\
+      \ of the table:\n\n- **Size adjectives move one row.** \"Small hill\" uses the mound row; \"big\n\
+      \  mound\" uses the hill row; \"tiny bump\" halves the pinch row. Say which row\n  you landed on.\n\
+      - **`smooth_here` / `flatten_here` with no size given:** radius 1000. If the\n  signature requires\
+      \ a feather, use 0.25 \xD7 radius. State both numbers.\n- Never exceed \xB1250 units of height in\
+      \ one stroke unless the user gave an\n  explicit figure \u2014 and if that figure is over 500 units,\
+      \ repeat it back\n  next to the park's ~5 m total relief and get a yes before stroking. One\n  stroke\
+      \ should not double the park's relief.\n\n### \"Get rid of that\" \u2014 removal vs. new stroke\n\
+      \nA path or trail is probably a ROUTE \u2014 use the removal branch in \"Routes\"\nbelow, not this\
+      \ one. Otherwise: \"get rid of it\", \"delete that bump\", \"undo\nthe hill\", \"put it back how\
+      \ it was\" is a fork, and the wrong branch violates\nrail 5. Decide it mechanically:\n\n1. Anchor\
+      \ the feature (rail 1) if the user is pointing at it; skip the anchor\n   if they named a stroke\
+      \ whose id you quoted this session.\n2. Call the stroke-listing verb (`list_strokes`) and read the\
+      \ stack. A\n   stroke MATCHES when the anchor lies within the stroke's radius of its\n   x, y AND\
+      \ its type and sign match what the user is pointing at (bump =\n   positive raise, dip = negative\
+      \ raise). No such verb listed \u2192 a\n   TerrainTools defect: stop and say so rather than guessing\
+      \ at ids.\n3. Exactly one match \u2192 this is an undo: `remove_stroke` with that id, then\n   rails\
+      \ 3, 4 and 6 as normal.\n4. Several matches \u2192 list them to the user (id, type, height, radius)\
+      \ and ask\n   which. Do not guess.\n5. No match \u2192 the feature is baseline terrain, not a stroke.\
+      \ Removing it IS a\n   new stroke: `flatten_here` at the anchor with a radius that covers the\n\
+      \   feature \u2014 **never** a negative `raise_here` shaped by eye to cancel it.\n\n### \"The path\
+      \ is floating\" \u2014 measure the gap before grading\n\nA floating slab has two causes with different\
+      \ fixes, and one `whats_here`\ntells them apart: it reports every surface at the column, top to\
+      \ bottom,\neach with its height. Anchor on the slab edge (rail 1) and read the slab's\nheight and\
+      \ the Landscape height beneath it from that SAME reply. (If the\ncomplaint arrived right after a\
+      \ terrain edit \u2014 \"hovering since the hill\" \u2014\nthe verb-table row applies: `recompile`\
+      \ and read `relay_ribbon` BEFORE\nmeasuring; come back here only if the numbers are clean and the\
+      \ user still\nsees hover.)\n\n- Gap > 10 units \u2192 the ground is wrong. If the slab belongs to\
+      \ a defined\n  route (`list_routes`, matched by name or endpoint): FIRST `remove_stroke`\n  that\
+      \ route's old grade-stroke ids (quoted when `grade_route` ran; lost ids\n  \u2192 `references/route-internals.md`),\
+      \ THEN `grade_route(route_id)` again \u2014\n  grading on top of the stale bed is the counter-grade\
+      \ the catechism\n  forbids. No route matches: one `grade_corridor_under_path` stroke. Then\n  rails\
+      \ 3\u20136.\n- Gap \u2264 10 units \u2192 the ground already meets the slab; the ribbon has not\n\
+      \  re-fitted. Run `TerrainTools.recompile()` (the ribbon refits during the\n  pipeline; adds no\
+      \ stroke) and read the `relay_ribbon` numbers.\n\nIf `grade_corridor_under_path`'s signature takes\
+      \ a path name or id, pass the\nactor label from the `whats_here` reply. If it takes a polyline,\
+      \ read the\npoints from the path actor's spline through the actor/object toolsets \u2014 a\npolyline\
+      \ eyeballed off a screenshot is a guessed coordinate, and rail 1\nforbids it.\n\n## Routes: paths\
+      \ as data\n\nA path is not a stroke. It is a **route record** in a second store owned by\nRouteTools\
+      \ (same `call_tool` pattern): a named polyline plus width, step and\nlift. The ribbon rebuilds from\
+      \ the enabled routes automatically after EVERY\nterrain stroke \u2014 the `relay_ribbon` block in\
+      \ every pipeline report. Details:\n`references/route-internals.md`.\n\n| verb | what it does |\n\
+      |---|---|\n| `define_route(name, points_json, width=300, step=100, lift=1.5)` | records a route\
+      \ AND reruns the pipeline: the reply is a full measured report (route id, `relay_ribbon` block)\
+      \ \u2014 read it per rail 3; keep the defaults unless the user gave a width (metres \xD7 100; the\
+      \ verb rejects width \u2264 40) |\n| `list_routes()` | read-only: one line per route \u2014 id,\
+      \ name, enabled flag, width/step/lift, run count and points-PER-RUN counts. It does NOT print coordinates\
+      \ |\n| `remove_route(route_id)` | deletes record + ribbon; its grading strokes stay |\n| `set_route_enabled(route_id,\
+      \ enabled)` | hide/restore without deleting \u2014 \"turn it off for now\" |\n| `grade_route(route_id,\
+      \ half_width=0, feather=0)` | beds the ground under ONE route via new strokes; returns their ids;\
+      \ 0 = derived from route width |\n\n**Making a path** \u2014 the sanctioned rail-2 two-call unit:\n\
+      \n1. Anchor BOTH endpoints by rail 1 \u2014 at most TWO anchor calls total, one\n   per end (or\
+      \ one actor-listing call covering both). Never guess either\n   end. No per-endpoint `whats_here`:\
+      \ step 2's `probe_line` measures the\n   ground at both ends.\n2. ONE `probe_line` from anchor A\
+      \ to anchor B first (rail 0): its\n   worst_grade_pct, z range and misses tell you in one turn whether\
+      \ the\n   straight corridor works or where it needs to bend \u2014 never walk the\n   corridor with\
+      \ serial `ground_height` calls. Then the polyline of 3\u20136\n   points: the two anchors plus intermediates\
+      \ interpolated between them\n   (default 1/3 and 2/3 along \u2014 arithmetic on tool-read coordinates\
+      \ is not\n   guessing); `whats_here` each intermediate only to IDENTIFY what stands\n   there, detour\
+      \ only around something a reply actually reported. To detour:\n   move the blocked point perpendicular\
+      \ to the A\u2013B line in steps of one\n   route width (default 300 units), `whats_here` after each\
+      \ move, take the\n   first column whose reply shows clear ground; five moves without one \u2192\n\
+      \   stop and ask.\n3. `define_route(name, points_json)` \u2014 name the route from its endpoints\
+      \ in\n   snake_case (`shed_to_fountain`); `points_json` is a JSON **string** of\n   `[x, y]` pairs,\
+      \ e.g. `\"[[-200,4100],[850,3600],[1900,3050]]\"`; the shape\n   `describe_toolset` documents wins.\
+      \ Quote the route id from the reply.\n4. `grade_route(route_id)`, defaults unless told otherwise,\
+      \ so the ground\n   beds the ribbon. Quote the stroke ids it returns in the same breath as\n   the\
+      \ route id \u2014 removing the bed later needs them.\n5. Rails 3, 4, 6 on the combined result: state\
+      \ the numbers, `relay_ribbon`\n   included, show the frame, close out.\n\n**Removing a path:** `list_routes`,\
+      \ match by name or by an endpoint near a\nrail-1 anchor \u2014 no match means it is not a route\
+      \ (stroke branch above). Then\n`remove_route(route_id)`; if its reply has no ribbon numbers, `recompile`\
+      \ and\nread them there. The graded bed lives in the OTHER store and is not touched\nby `remove_route`.\
+      \ Mechanical default: if the route's grade-stroke ids are\nin this session's transcript, \"remove\
+      \ the path\" means the bed too \u2014\n`remove_stroke` each of those ids as part of the same unit;\
+      \ if they are not,\nsay the graded bed stays and ask before touching strokes (recovering lost\n\
+      ids: `references/route-internals.md`; still ambiguous, ask). Finish with\nrails 3, 4 and 6 on the\
+      \ combined result.\n\n**Changing a path (width, position, step):** there is no in-place edit \u2014\
+      \nRouteTools has no verb for it, so never invent one and never `define_route`\na second copy over\
+      \ the first. The change is a remove-and-re-define, in this\nexact order: (1) `list_routes` \u2014\
+      \ quote the route's id, name, width and run\nand point counts; (2) read the route's polyline from\
+      \ the record itself,\n`<project>/Saved/ParkForge/routes.json` (read-only \u2014 recorded data counts\n\
+      as tool-read coordinates, and `list_routes` prints only counts);\n(3) `remove_stroke` each of the\
+      \ route's grade-stroke ids (lost ids \u2192\n`references/route-internals.md`); (4) `remove_route(route_id)`;\n\
+      (5) `define_route` with the same name and points and the changed value \u2014\nwidth is metres \xD7\
+      \ 100 and must exceed 40 units; (6) `grade_route` with the\nNEW route id from step 5's reply; (7)\
+      \ rails 3, 4, 6 on the combined result.\nQuote every id at every step.\n\n**Path looks wrong after\
+      \ a terrain edit:** the ribbon auto-refits \u2014 touch\nnothing, run `recompile()` (adds no stroke),\
+      \ and READ the `relay_ribbon`\nnumbers. \"Clean\" is measured, not judged: every run reports built\
+      \ segments\nand nothing trips a rail-3 threshold. Clean but the user still sees hover \u2192\nmeasure\
+      \ it: the floating-slab branch above, starting from `whats_here` on\nthe slab edge. A rail-3 trip\
+      \ on grade or tilt \u2192 remove that route's\ngrade-stroke ids, `grade_route` again (never grade\
+      \ on top). A run that\nfailed to build \u2192 `remove_route`, re-make from step 1.\n\n**Holes and\
+      \ gaps:** \"there's a hole in the path\" is a fork decided by\nnumbers, never by eye. `recompile`\
+      \ and read the per-run `relay_ribbon`\nnumbers; `list_routes` for the run count. A run reporting\
+      \ failed or missing\nsegments \u2192 that run is broken: `remove_route`, re-make from step 1. Every\n\
+      run built clean AND the route has more than one run \u2192 the hole IS the space\nbetween runs \u2014\
+      \ the bridge span, authored on purpose: REFUSE to fill, grade,\nor bridge it with a new route; say\
+      \ it is the bridge span and change\nnothing. One clean run but the user still sees a hole \u2192\
+      \ anchor the hole\n(rail 1 `look_at`), `whats_here` there, and report what the reply actually\n\
+      names before doing anything.\n\n## Fences: barriers as data\n\nA fence is not scenery. It is a **fence\
+      \ record** in a third store owned by\nFenceTools (fully-qualified name `parkforge.toolsets.fence_tools.FenceTools`,\n\
+      same `call_tool` pattern): a source \u2014 a route id or a raw polyline \u2014 plus\nsides, offset,\
+      \ scale and gap. The `ParkForgeFence_<id>` holders rebuild from\nthe enabled records over the fresh\
+      \ terrain field after EVERY terrain stroke\n\u2014 the `relay_fences` block in every pipeline report\
+      \ \u2014 so fences ride ground\nedits instead of floating over them. The park's own perimeter holder\
+      \ named\n\"Fences\" is NOT fence-record state and rebuild verbs never touch it. When a\npath must\
+      \ PASS THROUGH it, the one sanctioned move is `cut_park_fence` \u2014\nrecords the removed instances\
+      \ in fence_cuts.json under a cut id, restorable\nexactly with `restore_park_fence(cut_id)`. Never\
+      \ improvise a deletion\nthrough any other toolset, and never fence over a crossing to hide it.\n\
+      \n| verb | what it does |\n|---|---|\n| `fence_route(route_id, sides=\"both\", offset=250, scale=0.25)`\
+      \ | fences a recorded route AND reruns the pipeline; the fence follows the route's geometry, one\
+      \ chain per run (gaps between runs \u2014 the bridge span \u2014 are never fenced across); refuses\
+      \ loudly, naming the existing route ids, when route_id does not exist |\n| `fence_line(points_json,\
+      \ sides=\"center\", offset=0, scale=0.25)` | fences along a raw polyline \u2014 a boundary or pen\
+      \ that follows no path; points must be rail-1-anchored, same law as every coordinate |\n| `list_fences()`\
+      \ | read-only: one line per record \u2014 id, name, enabled, sides/offset/scale/gap, source; a route-sourced\
+      \ fence whose route was removed shows a DANGLING marker |\n| `remove_fence(fence_id)` | deletes\
+      \ the record and its holders, reruns the pipeline; the undo story for fences |\n| `cut_park_fence(corridor_json,\
+      \ half_width=300)` | opens a recorded, restorable gap in the park's own baseline \"Fences\" holder\
+      \ where a corridor crosses it \u2014 the ONLY sanctioned way through it |\n| `restore_park_fence(cut_id)`\
+      \ | puts a cut's instances back exactly (T2 count read-back) and deletes the record |\n| `list_park_cuts()`\
+      \ | read-only: standing cuts in the baseline fence |\n\nSides and sizes, mechanically: `sides=\"\
+      both\"` boxes a trail in (one chain\neach side), `left`/`right` fence one side, `center` chains\
+      \ on the line\nitself (offset ignored). Offset is measured from the route centerline \u2014\nthe\
+      \ default 250 clears the default 300-wide ribbon's edge. One fence\nsegment is ~4180 units long\
+      \ at scale 1, so the default scale 0.25 chains\n~1045-unit panels; a record is capped at 500 instances\
+      \ and the report says\nLOUDLY when the cap truncated it. Reports lead with the fence id and\ninstance\
+      \ counts per side \u2014 quote them like every other number (rail 3).\n\n**The fenced corridor \u2014\
+      \ DEFAULT: one ParkTools call.** When the request is\n\"a trail/path between two nameable places,\
+      \ fenced\" \u2014 the instruction that\nburned three operator runs \u2014 the whole pipeline is\
+      \ ONE verb:\n\n    ParkTools.fenced_path(from_name=\"utility shed\",\n                         \
+      \ to_name=\"jelly weenie\", width=200, sides=\"both\")\n\nIt resolves both names against the live\
+      \ level (SceneTools), detours around\nblocking actors, CUTS the baseline park fence where the corridor\
+      \ crosses\n(recorded, restorable), defines, grades, fences, and traces a seat-gap\ncheck \u2014\
+      \ returning one measured report whose ids (route, strokes, fence,\ncuts) you quote for removal.\
+      \ Read the report's `notes` out loud: unknown\nnames and blocked corridors come back named, with\
+      \ nothing built. Fall back\nto the manual unit below only when the request needs per-step control\
+      \ the\ncomposite does not expose (odd widths per segment, a specific detour, one\nside fenced at\
+      \ a different offset):\n\n1. Anchor BOTH endpoints by rail 1, then ONE `probe_line` A\u2192B (rail\
+      \ 0) \u2014\n   exactly as \"Making a path\" steps 1\u20132.\n2. `define_route(name, points_json,\
+      \ width=200)` \u2014 \"narrow\" means below the\n   300 default; 200 units (2 m) still clears the\
+      \ 40-unit floor. Quote the\n   route id.\n3. `grade_route(route_id)` \u2014 quote the stroke ids\
+      \ it returns.\n4. `fence_route(route_id, sides=\"both\")` \u2014 defaults unless told otherwise.\n\
+      \   Quote the fence id and the per-side instance counts from the first line\n   of the reply.\n\
+      5. Rails 3, 4, 6 on the combined result: state the `relay_ribbon` AND\n   `relay_fences` numbers,\
+      \ show the frame, close out.\n\n**Removing a fenced path:** `remove_route` does NOT remove the fence\
+      \ \u2014 the\nfence record dangles: `list_fences` marks it DANGLING, every pipeline\nreport carries\
+      \ a loud error naming it, and its holders are retired. The\ncomplete unit is `remove_fence` for\
+      \ each fence on the route (ids via\n`list_fences`), then the \"Removing a path\" procedure above.\
+      \ If the user\nsays only \"remove the path\", ask whether the fencing goes too \u2014 do not\nguess.\n\
+      \n**Fence looks wrong after a terrain edit:** same law as the ribbon \u2014 touch\nnothing, `recompile()`,\
+      \ and READ the `relay_fences` numbers before theorising.\nWrong offset, wrong side, wrong density:\
+      \ `remove_fence` and re-`fence_route`\nwith changed parameters \u2014 there is no in-place fence\
+      \ edit, and counter-\nplacing a second fence over a bad one violates rail 5.\n\n## The failure catechism\n\
+      \nRules paid for in lost sessions. Each with its one-line why.\n\n- **Name the impossible part before\
+      \ doing the possible part.** The\n  boxed-in-trail incident: no fence verb existed, and instead\
+      \ of saying\n  so the operator delivered a bare route as if it were the answer \u2014\n  silent\
+      \ substitution turned a capability gap into a wrong world.\n\n- **Identify before theorising.**\
+      \ One `whats_here` names the actor responsible;\n  an entire session was once spent theorising about\
+      \ a rendering artifact from\n  screenshots that a single downward trace would have answered in one\
+      \ call.\n- **Batch recon; a probe call costs a model turn.** Forty serial ground\n  probes burned\
+      \ 20+ minutes without one mutation and got the session killed;\n  one `probe_line` returns the same\
+      \ corridor in one turn (rail 0).\n- **One variable at a time.** A stroke plus a camera move plus\
+      \ a material tweak\n  in one pass means the next render cannot tell you which change did what.\n\
+      - **Measurements over renders.** A 27 cm step between slabs is invisible in a\n  1600-px render\
+      \ and unmissable in a printed number.\n- **Never re-seat by tracing after an import.** Landscape\
+      \ collision refreshes\n  asynchronously, so a trace right after a heightmap apply measures the OLD\n\
+      \  ground and bakes the error into everything you move; re-seat analytically\n  from the height\
+      \ delta between the two fields (`references/pipeline-internals.md`).\n- **The delete-recreate-returns-None\
+      \ trap.** Deleting an asset and re-creating\n  it at the same path in the same editor session can\
+      \ hand you `None` from the\n  factory; check `does_asset_exist` and reuse the existing asset instead\
+      \ of\n  delete-and-recreate.\n- **The protected-property trap.** A property visible in the details\
+      \ panel is\n  not necessarily settable \u2014 `VisibleAnywhere` properties read fine and refuse\n\
+      \  writes (sometimes silently, leaving a null pointer the system then ignores);\n  if a set \"worked\"\
+      \ but nothing changed, list the property's flags, and reach\n  the value through the factory or\
+      \ subsystem that owns it.\n- **Heightfields cannot overhang.** A landscape stores one Z per X/Y\
+      \ \u2014 caves,\n  arches, tunnel mouths, and rock lips are placed static meshes; no stroke can\n\
+      \  ever produce them, so do not try to sculpt one.\n- **Gaps between runs are the bridge, not a\
+      \ bug.** A route with several runs\n  gaps on purpose (the bridge span). Never define a replacement\
+      \ route over a\n  gap or grade across it; a gap is a defect only INSIDE a single run.\n- **Never\
+      \ counter-grade a bad grade.** Remove the ids `grade_route` returned\n  and grade again \u2014 a\
+      \ second grade on top leaves both beds forever (rail 5).\n- **Importable files never live under\
+      \ `Content/`.** png/fbx/wav/tga anywhere\n  under `Content/` wakes the auto-reimport watcher and\
+      \ nags the user with\n  import dialogs; state lives in `Saved/ParkForge/`, versioned records in\n\
+      \  `<project>/ParkForgeData/`.\n\n## Hard limits \u2014 do not attempt, regardless of who asks\n\
+      \n- **No landscape paint layers from script.** Registering target layers from\n  Python bricks the\
+      \ startup map: `layer_name` is unsettable and the mismatch\n  asserts on level LOAD. Layer infos\
+      \ are a one-time GUI setup in the Paint\n  tab; after that, weightmaps are applied as generated\
+      \ data, never painted.\n- **No Mesh Terrain / MegaMesh plugin.** A full session proved it non-viable:\n\
+      \  it renders through preview actors whose channel cache never evaluates\n  (speckle at ~1 m blocks,\
+      \ in PIE too), and its modifier pointers cannot be\n  set from Python. Do not revisit without new\
+      \ information.\n- **No editing engine content.** Assets under `/Engine` stay untouched;\n  override\
+      \ parameters on the instance or a project-local child instead.\n- **No \"now do it by hand in the\
+      \ editor\".** Hand-driven detail work is not a\n  solution in this project, ever. If a step truly\
+      \ cannot be scripted, it must\n  be a one-time setup of a handful of clicks \u2014 and you must\
+      \ say so explicitly\n  and justify why it cannot be scripted.\n\n## Reference\n\n- `references/pipeline-internals.md`\
+      \ \u2014 landscape mapping constants, 16-bit\n  PNG height encoding, the apply route, corridor grading,\
+      \ the\n  stale-collision re-seat, and how paths follow the ground. Read it before\n  debugging or\
+      \ extending a toolset; never bypass the verbs because you read it.\n- `references/route-internals.md`\
+      \ \u2014 route record fields and what\n  width/step/lift mean, run and gap mechanics, how `grade_route`\
+      \ strokes\n  appear in `list_strokes`, and recovering lost grade-stroke ids.\n"
