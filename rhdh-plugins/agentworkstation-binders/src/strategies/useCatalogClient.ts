@@ -86,7 +86,15 @@ export interface CatalogPack {
   installed?: boolean;
   registry?: string;
   artifactKind?: 'meta-pack' | 'pack' | 'skill';
+  /** Registry namespace — the family boundary (e.g. meshforge). */
+  namespace?: string;
   member?: string;
+  /** Child packs of a meta-pack, from the registry manifest
+   *  (operator >= v1.7.21). parkforge-brain lists five. */
+  members?: string[];
+  /** Leaf skills a pack ships, by short name. Advisory — the
+   *  authoritative edge is `member` on each skill row. */
+  skills?: string[];
 }
 
 export interface CatalogPackList {

@@ -28,6 +28,9 @@
  */
 import React from 'react';
 import {
+  Accordion,
+  AccordionDetails,
+  AccordionSummary,
   Box,
   Button,
   Chip,
@@ -45,6 +48,7 @@ import {
   Tooltip,
   Typography,
 } from '@material-ui/core';
+import ExpandMoreIcon from '@material-ui/icons/ExpandMore';
 import { FieldExtensionComponentProps } from '@backstage/plugin-scaffolder-react';
 import {
   useCatalogClient,
@@ -131,6 +135,65 @@ export const AgentGenesisField = (
   const [thinking, setThinking] = React.useState(false);
   const [source, setSource] = React.useState<string | undefined>();
   const [error, setError] = React.useState<string | undefined>();
+
+  // The whole catalog, for resolving a parent pack to its children.
+  // A recommendation returns only the artifacts it chose, so picking
+  // parkforge-brain says nothing about the five member packs and six
+  // skills underneath it — the tree lives in the index.
+  const [catalogAll, setCatalogAll] = React.useState<CatalogPack[]>([]);
+  React.useEffect(() => {
+    let live = true;
+    catalog
+      .listPacks()
+      .then(r => {
+        if (live) setCatalogAll(Array.isArray(r?.items) ? r.items : []);
+      })
+      // Non-fatal: without it parents simply render without a tree.
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [catalog]);
+
+  const byName = React.useMemo(() => {
+    const m = new Map<string, CatalogPack>();
+    for (const p of catalogAll) m.set(p.name, p);
+    return m;
+  }, [catalogAll]);
+
+  const childrenOf = React.useCallback(
+    (parent: string) => catalogAll.filter(p => p.member === parent),
+    [catalogAll],
+  );
+
+  /** The pack tree under a selection, exactly as install resolves it:
+   *  a meta-pack expands to its member packs, each pack to the skills
+   *  naming it. Returns [] for a leaf skill. */
+  const treeOf = React.useCallback(
+    (p: SelectedPack): { pack: CatalogPack; skills: CatalogPack[] }[] => {
+      if (p.artifactKind === 'meta-pack') {
+        const names =
+          p.members && p.members.length
+            ? p.members
+            : catalogAll
+                .filter(
+                  c => c.artifactKind === 'pack' && c.namespace === p.namespace,
+                )
+                .map(c => c.name);
+        return names
+          .map(n => ({
+            pack: byName.get(n) ?? ({ name: n, type: 'skill' } as CatalogPack),
+            skills: childrenOf(n),
+          }))
+          .filter(e => e.skills.length > 0 || byName.has(e.pack.name));
+      }
+      if (p.artifactKind === 'pack') {
+        return [{ pack: p as CatalogPack, skills: childrenOf(p.name) }];
+      }
+      return [];
+    },
+    [byName, catalogAll, childrenOf],
+  );
 
   const set = (patch: Partial<GenesisValue>) => onChange({ ...value, ...patch });
 
@@ -372,12 +435,18 @@ export const AgentGenesisField = (
                       const unmet = (p.dependencies ?? []).filter(
                         d => !d.available,
                       );
+                      const tree = treeOf(p);
+                      const leafCount = tree.reduce(
+                        (n, e) => n + e.skills.length,
+                        0,
+                      );
+                      const kind = p.artifactKind || 'skill';
                       return (
                         <TableRow key={`w-skill-${p.name}`}>
                           <TableCell style={{ width: 64 }}>
                             <Chip
                               size="small"
-                              label="skill"
+                              label={kind === 'skill' ? 'skill' : kind}
                               style={typeChipStyle.skill}
                             />
                           </TableCell>
@@ -386,7 +455,9 @@ export const AgentGenesisField = (
                               {p.displayName || p.name}
                             </Typography>
                             <Typography variant="caption" color="textSecondary">
-                              attaches by runtime discovery
+                              {kind === 'skill'
+                                ? 'attaches by runtime discovery'
+                                : `${tree.length} pack(s), ${leafCount} skill(s) — all installed together`}
                               {p.installed === false
                                 ? ` · installs from ${p.registry || 'the registry'} on create`
                                 : ''}
@@ -404,6 +475,67 @@ export const AgentGenesisField = (
                                 — not deployed on this cluster, so that part of
                                 the skill stays inert until it is.
                               </Typography>
+                            )}
+                            {/* A parent pack is a container: picking
+                                parkforge-brain installs five packs and six
+                                skills, and one row saying "parkforge-brain"
+                                hides all of it. Collapsed by default so the
+                                panel stays scannable; open it to see exactly
+                                what lands. */}
+                            {tree.length > 0 && (
+                              <Accordion
+                                elevation={0}
+                                square
+                                style={{
+                                  background: 'transparent',
+                                  marginTop: 4,
+                                }}
+                              >
+                                <AccordionSummary
+                                  expandIcon={<ExpandMoreIcon fontSize="small" />}
+                                  style={{ minHeight: 0, padding: 0 }}
+                                >
+                                  <Typography variant="caption" color="primary">
+                                    what&apos;s inside
+                                  </Typography>
+                                </AccordionSummary>
+                                <AccordionDetails style={{ padding: 0 }}>
+                                  <Box pl={1} width="100%">
+                                    {tree.map(entry => (
+                                      <Box key={`t-${entry.pack.name}`} mb={1}>
+                                        <Typography variant="caption">
+                                          <strong>{entry.pack.name}</strong>
+                                          {entry.pack.artifactKind
+                                            ? ` · ${entry.pack.artifactKind}`
+                                            : ''}
+                                        </Typography>
+                                        {entry.skills.length === 0 && (
+                                          <Typography
+                                            variant="caption"
+                                            component="div"
+                                            color="textSecondary"
+                                            style={{ paddingLeft: 12 }}
+                                          >
+                                            no skills published yet
+                                          </Typography>
+                                        )}
+                                        {entry.skills.map(s => (
+                                          <Typography
+                                            key={`t-${entry.pack.name}-${s.name}`}
+                                            variant="caption"
+                                            component="div"
+                                            color="textSecondary"
+                                            style={{ paddingLeft: 12 }}
+                                          >
+                                            • {s.name}
+                                            {s.installed ? ' (installed)' : ''}
+                                          </Typography>
+                                        ))}
+                                      </Box>
+                                    ))}
+                                  </Box>
+                                </AccordionDetails>
+                              </Accordion>
                             )}
                           </TableCell>
                         </TableRow>
