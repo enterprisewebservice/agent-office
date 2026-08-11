@@ -15,3 +15,11 @@ spec:
   source: agent-office-operator-catalog
   sourceNamespace: openshift-marketplace
   installPlanApproval: Automatic
+  config:
+    env:
+      # Federate the mindifact registry into /catalog/packs so the Dev Hub
+      # composer can find packs that are NOT yet installed on this cluster
+      # — the whole point of a registry. Unset this and federation is off;
+      # the local catalog is unaffected either way.
+      - name: AGENT_REGISTRY_URLS
+        value: https://mindifact.ai/v1/index.json
