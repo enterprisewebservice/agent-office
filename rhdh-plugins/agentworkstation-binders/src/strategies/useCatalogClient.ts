@@ -81,6 +81,12 @@ export interface CatalogPack {
     envFromSecret?: string;
   };
   gatewayRef?: string;
+  // Registry provenance — present on federated artifacts (not installed
+  // on this cluster yet). `installed` is false only for those.
+  installed?: boolean;
+  registry?: string;
+  artifactKind?: 'meta-pack' | 'pack' | 'skill';
+  member?: string;
 }
 
 export interface CatalogPackList {
@@ -176,8 +182,27 @@ export const useCatalogClient = () => {
     [discoveryApi, fetchApi],
   );
 
+  // Materialize a registry artifact on the cluster (operator >= v1.7.16).
+  // A pack installs its member skills; a meta-pack installs everything.
+  const install = useCallback(
+    async (name: string): Promise<{ installed: string[]; skipped: string[] }> => {
+      const base = await discoveryApi.getBaseUrl('proxy');
+      const res = await fetchApi.fetch(`${base}/agent-office-catalog/install`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ name }),
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`install failed: HTTP ${res.status} ${text.slice(0, 200)}`);
+      }
+      return (await res.json()) as { installed: string[]; skipped: string[] };
+    },
+    [discoveryApi, fetchApi],
+  );
+
   return useMemo(
-    () => ({ listSkills, listPacks, recommend }),
-    [listSkills, listPacks, recommend],
+    () => ({ listSkills, listPacks, recommend, install }),
+    [listSkills, listPacks, recommend, install],
   );
 };

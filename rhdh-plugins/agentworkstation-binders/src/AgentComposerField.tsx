@@ -110,6 +110,24 @@ export const AgentComposerField = (
   const [error, setError] = React.useState<string | undefined>();
   const [query, setQuery] = React.useState('');
   const [showCustom, setShowCustom] = React.useState(false);
+  const [installing, setInstalling] = React.useState<string | undefined>();
+  const [installErr, setInstallErr] = React.useState<string | undefined>();
+
+  // Install a federated registry artifact onto the cluster, then reload
+  // the catalog so it comes back as a local, installed pack.
+  const installPack = async (p: CatalogPack) => {
+    setInstalling(p.name);
+    setInstallErr(undefined);
+    try {
+      await catalog.install(p.name);
+      const res = await catalog.listPacks();
+      setPacks(res.items ?? []);
+    } catch (e) {
+      setInstallErr((e as Error).message);
+    } finally {
+      setInstalling(undefined);
+    }
+  };
 
   // custom MCP escape hatch
   const [cName, setCName] = React.useState('');
@@ -287,6 +305,11 @@ export const AgentComposerField = (
             Couldn't load the catalog: {error}
           </Typography>
         )}
+        {installErr && (
+          <Typography color="error" variant="body2">
+            Install failed: {installErr}
+          </Typography>
+        )}
 
         {!loading && !error && (
           <TableContainer style={{ maxHeight: 320, marginTop: 8 }}>
@@ -313,6 +336,14 @@ export const AgentComposerField = (
                         <Typography variant="body2">
                           <strong>{p.displayName || p.name}</strong>
                           {p.version ? ` · v${p.version}` : ''}
+                          {p.installed === false && (
+                            <Chip
+                              size="small"
+                              variant="outlined"
+                              label={p.registry ?? 'registry'}
+                              style={{ marginLeft: 8, height: 18 }}
+                            />
+                          )}
                         </Typography>
                         <Typography
                           variant="caption"
@@ -338,8 +369,25 @@ export const AgentComposerField = (
                             />
                           ))}
                       </TableCell>
-                      <TableCell align="right" style={{ width: 110 }}>
-                        {attached ? (
+                      <TableCell align="right" style={{ width: 130 }}>
+                        {p.installed === false ? (
+                          <Tooltip
+                            arrow
+                            title={`Published to ${p.registry ?? 'a registry'} but not installed on this cluster. Install creates the Skill so agents can discover it.`}
+                          >
+                            <span>
+                              <Button
+                                size="small"
+                                color="primary"
+                                variant="outlined"
+                                disabled={!!installing}
+                                onClick={() => installPack(p)}
+                              >
+                                {installing === p.name ? 'Installing…' : 'Install'}
+                              </Button>
+                            </span>
+                          </Tooltip>
+                        ) : attached ? (
                           <Chip size="small" label="✓ added" />
                         ) : blocked ? (
                           <Tooltip
