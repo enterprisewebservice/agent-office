@@ -23,3 +23,14 @@ spec:
       # the local catalog is unaffected either way.
       - name: AGENT_REGISTRY_URLS
         value: https://mindifact.ai/v1/index.json
+      # Recommend with a REAL model, on the ChatGPT/Codex subscription.
+      # No API key: the operator execs a bounded `openclaw agent` turn in
+      # the gateway pod, which already holds the OAuth session every agent
+      # here uses. Keyword scoring stays as the fallback when the gateway
+      # is unreachable.
+      - name: AGENT_RECOMMENDER_GATEWAY
+        value: research-gateway
+      - name: AGENT_RECOMMENDER_AGENT
+        value: web-browser-researcher
+      - name: AGENT_RECOMMENDER_MODEL
+        value: openai/gpt-5.6-sol
