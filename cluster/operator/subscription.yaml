@@ -34,22 +34,3 @@ spec:
         value: web-browser-researcher
       - name: AGENT_RECOMMENDER_MODEL
         value: openai/gpt-5.6-sol
-    # Headroom while the operator still caches core types cluster-wide.
-    #
-    # Installed AllNamespaces, so OLM sets WATCH_NAMESPACE="" and
-    # controller-runtime caches EVERY watched type across the cluster:
-    # 1928 ConfigMaps (122 MiB of JSON before decoding), 857 Secrets,
-    # 371 Deployments, 411 Services, 165 PVCs, 196 Jobs, 81 Routes —
-    # almost none of which belong to this operator. It OOMKilled at
-    # 512Mi during the initial informer LIST, before serving anything.
-    #
-    # This is headroom, not the fix. The fix is scoping the cache to the
-    # objects this operator actually owns; drop this back once that
-    # ships and the real steady-state number is known.
-    resources:
-      limits:
-        cpu: "1"
-        memory: 2Gi
-      requests:
-        cpu: 50m
-        memory: 512Mi
