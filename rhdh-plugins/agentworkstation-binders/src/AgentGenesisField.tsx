@@ -110,16 +110,27 @@ export const AgentGenesisField = (
 ) => {
   const { onChange, formData } = props;
   const catalog = useCatalogClient();
-  const value: GenesisValue = { ...EMPTY, ...(formData ?? {}) };
+  // Normalize hard. `packs`/`compose` are iterated in the render, and a
+  // null from either the API (a Go nil slice serializes to `null`) or
+  // RJSF's own initialization crashes the whole field
+  // ("null is not an object"). Spreading alone is not enough — an
+  // explicit null in formData overwrites the EMPTY default.
+  const fd = (formData ?? {}) as Partial<GenesisValue>;
+  const value: GenesisValue = {
+    ...EMPTY,
+    ...fd,
+    packs: Array.isArray(fd.packs) ? fd.packs : [],
+    compose: {
+      knowledgeBaseRefs: Array.isArray(fd.compose?.knowledgeBaseRefs)
+        ? fd.compose!.knowledgeBaseRefs
+        : [],
+      mcpServers: Array.isArray(fd.compose?.mcpServers) ? fd.compose!.mcpServers : [],
+    },
+  };
 
   const [thinking, setThinking] = React.useState(false);
   const [source, setSource] = React.useState<string | undefined>();
   const [error, setError] = React.useState<string | undefined>();
-
-  React.useEffect(() => {
-    if (!formData) onChange(EMPTY);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   const set = (patch: Partial<GenesisValue>) => onChange({ ...value, ...patch });
 
@@ -129,7 +140,8 @@ export const AgentGenesisField = (
   // leave the agent silently unwired. ONE gateway entry serves every
   // registration (credentials injected gateway-side), so tools dedupe
   // on URL.
-  const composeFrom = (sel: SelectedPack[]): GenesisValue['compose'] => {
+  const composeFrom = (sel: SelectedPack[] | null | undefined): GenesisValue['compose'] => {
+    const list = Array.isArray(sel) ? sel : [];
     const kbs: KbRef[] = [];
     const mcp: McpServerVal[] = [];
     const addTool = (name: string, recipe?: CatalogPack['recipe']) => {
@@ -139,7 +151,7 @@ export const AgentGenesisField = (
       if (recipe.envFromSecret) e.envFromSecret = recipe.envFromSecret;
       mcp.push(e);
     };
-    for (const p of sel) {
+    for (const p of list) {
       if (p.type === 'kb') {
         if (!kbs.some(k => k.name === p.name))
           kbs.push({ name: p.name, role: 'knowledge-pool' });
@@ -161,7 +173,7 @@ export const AgentGenesisField = (
   };
 
   const summarize = (sel: SelectedPack[], c: GenesisValue['compose']) =>
-    sel.length === 0
+    (sel?.length ?? 0) === 0
       ? 'nothing selected from the catalog'
       : `${sel.map(p => `${p.type}:${p.name}`).join(' · ')}  →  wires ` +
         `${c.mcpServers.length} tool endpoint(s), ${c.knowledgeBaseRefs.length} knowledge base(s)`;
@@ -173,7 +185,10 @@ export const AgentGenesisField = (
     try {
       const rec: RecommendResponse = await catalog.recommend(value.description);
       setSource(rec.source);
-      const compose = composeFrom(rec.packs);
+      // Defensive: older operators (< v1.7.14) send `packs: null` when
+      // nothing matched.
+      const picked = Array.isArray(rec.packs) ? rec.packs : [];
+      const compose = composeFrom(picked);
       onChange({
         ...value,
         name: rec.identity.name,
@@ -181,8 +196,8 @@ export const AgentGenesisField = (
         emoji: rec.identity.emoji || '🤖',
         role: rec.identity.role,
         systemPrompt: rec.identity.systemPrompt,
-        packs: rec.packs,
-        selection: summarize(rec.packs, compose),
+        packs: picked,
+        selection: summarize(picked, compose),
         compose,
       });
     } catch (e) {
