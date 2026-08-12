@@ -33,3 +33,19 @@ metadata:
   namespace: default-tenant
 spec:
   url: https://github.com/enterprisewebservice/ops-metrics
+---
+# presentationpilot — the demo control plane itself (presentationpilot.com).
+# Not part of the supply-chain demo; it is the panel you drive the demo FROM.
+# Onboarded here because this is where PaC onboarding is declared, and because
+# it rides the identical paved road: Repository CR + the repo's own .tekton/,
+# first push builds, no console clicks. The repo is private -- PaC accepts it
+# through the same org-wide GitHub App that delivers everything else.
+apiVersion: pipelinesascode.tekton.dev/v1alpha1
+kind: Repository
+metadata:
+  name: presentationpilot
+  namespace: default-tenant
+  labels:
+    app.kubernetes.io/part-of: presentationpilot
+spec:
+  url: https://github.com/enterprisewebservice/presentationpilot
