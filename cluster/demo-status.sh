@@ -134,6 +134,41 @@ if oc get deploy ops-metrics -n $NS >/dev/null 2>&1; then
 else
   f "ops-metrics not deployed -- ArgoCD has nothing to sync yet"
 fi
+# The one that actually bit us. ops-metrics deploys by the MUTABLE :main tag,
+# so a fresh image never changes the Deployment spec and never triggers a
+# rollout -- the old pod keeps serving and the Deployment reads 1/1 the whole
+# time. On 2026-08-12 that hid a CrashLoopBackOff: the scaffold's unpinned
+# `mcp>=1.2` resolved to mcp 2.0.0, which moved mcp.server.fastmcp, so the new
+# image built GREEN and died on import while a three-week-old pod answered.
+# Green build + healthy Deployment + correct numbers, and still the wrong
+# binary. Compare what is RUNNING to what was BUILT.
+crash=$(oc get pods -n $NS --no-headers 2>/dev/null | grep ops-metrics | grep -c 'CrashLoopBackOff\|Error')
+if [ "${crash:-0}" -gt 0 ]; then
+  f "$crash ops-metrics pod(s) crashlooping while an older pod still serves"
+  fix "oc logs -n $NS \$(oc get pods -n $NS --no-headers | grep ops-metrics | grep -v Running | awk '{print \$1}' | head -1)"
+fi
+builtd=$(oc get pipelinerun -n default-tenant -l appstudio.openshift.io/component=ops-metrics \
+         --sort-by=.metadata.creationTimestamp -o json 2>/dev/null | python3 -c "
+import sys,json
+try:
+    items=[i for i in json.load(sys.stdin)['items']
+           if any(c.get('type')=='Succeeded' and c.get('status')=='True'
+                  for c in i.get('status',{}).get('conditions',[]))]
+    for r in items[-1].get('status',{}).get('results',[]) or []:
+        if r['name']=='IMAGE_DIGEST': print(r['value'].strip())
+except Exception: pass" 2>/dev/null)
+rund=$(oc get pods -n $NS -o jsonpath='{range .items[*]}{.metadata.name}{"|"}{.status.containerStatuses[0].ready}{"|"}{.status.containerStatuses[0].imageID}{"\n"}{end}' 2>/dev/null \
+       | grep ops-metrics | grep '|true|' | head -1 | sed 's/.*@//')
+if [ -n "$builtd" ] && [ -n "$rund" ]; then
+  if [ "$builtd" = "$rund" ]; then
+    p "running pod IS the newest green build (${rund:7:14})"
+  else
+    f "STALE POD: serving ${rund:7:14} but newest green build is ${builtd:7:14}"
+    fix "oc rollout restart deploy/ops-metrics -n $NS   # :main is mutable, so nothing rolls on its own"
+  fi
+elif [ -n "$rund" ]; then
+  w "ops-metrics running but no green build digest to compare against"
+fi
 if oc get mcpserverregistration ops-metrics -n $NS >/dev/null 2>&1; then
   p "metrics_ tools registered behind the governed gateway (Act 5 can resolve them)"
 else
