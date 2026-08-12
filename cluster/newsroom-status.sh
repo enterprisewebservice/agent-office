@@ -67,7 +67,7 @@ if [ -n "$NG" ]; then
     || f "browser NOT in tools.alsoAllow — agents get BROWSER_TOOL_MISSING"
   caps=$(oc exec -n agent-office "$NG" -c openclaw -- sh -c \
     'cd /home/node && COLUMNS=400 openclaw nodes describe --node fedora-black-zebra-36-newsroom --json 2>/dev/null' 2>/dev/null \
-    | tr -d '\n' | grep -o '"caps":\[[^]]*\]')
+    | tr -d '\n' | grep -o '"caps": *\[[^]]*\]')
   case "$caps" in
     *browser*) p "browser node paired and capable: $caps" ;;
     *)         f "browser node has no capability (${caps:-not paired}) — check the VM is running" ;;

@@ -1,0 +1,68 @@
+# newsroom-never-dark — the rule that keeps the desk from going dark.
+#
+# A sweep that finds no breaking news used to end the shift. This is the
+# ladder the agents climb instead: underreported -> analysis -> explainer
+# -> negative result. It escalates the ANGLE, never the sourcing standard,
+# and forbids fabrication outright.
+#
+# Was a hand-applied CR; it now lives here so deleting the file removes it.
+apiVersion: agentoffice.ai/v1alpha1
+kind: Skill
+metadata:
+  labels:
+    agentoffice.ai/skill-tier: customer-authored
+    app.kubernetes.io/managed-by: agent-office
+  name: newsroom-never-dark
+  namespace: agent-office
+spec:
+  description: Never end a shift with nothing published. Escalate the angle through five tiers — breaking,
+    underreported, analysis, explainer, negative result — until a publishable piece exists, without ever
+    lowering the sourcing bar.
+  displayName: Newsroom — Never Dark
+  source:
+    inline: "---\nname: newsroom-never-dark\ndescription: Never end a shift with nothing published. Escalate\
+      \ the ANGLE through five tiers — breaking, underreported, analysis, explainer, negative result —\
+      \ until a publishable piece exists. Use when a sweep finds no breaking news, when the review queue\
+      \ is empty, or any time you are about to log \"nothing new found\". Never lowers the sourcing bar.\n\
+      ---\n\n# Never Dark\n\nA desk that publishes only when something breaks is dark most of the\ntime.\
+      \ \"No genuinely new development\" is a true statement about the wire\nand a false statement about\
+      \ whether there is anything worth reading.\n\nThis skill is the ladder you climb when tier 1 is\
+      \ empty. **You escalate\nthe angle, never the standard.** Every tier demands the same sourcing:\n\
+      a primary source for every claim, exact numbers with their split and\ndate, and an honest statement\
+      \ of what is not known. Fabricating a\nrelease that did not happen is worse than silence. Writing\
+      \ a good piece\nabout material already on the wire is better than both.\n\n## Before you climb\n\
+      \nRead what is already published. The fastest way to waste a shift is to\nwrite the explainer you\
+      \ published three weeks ago. `list_articles` and\ncheck the last 20 titles; a tier is only available\
+      \ if it produces\nsomething that is not already on the site.\n\n## The ladder\n\nClimb only as far\
+      \ as you need. Stop at the first tier that yields a\npiece you would defend.\n\n**Tier 1 — Breaking.**\
+      \ Something genuinely new with a primary source.\nFile the wire item, draft if it deserves a story.\
+      \ This is the normal\npath and needs no help from this skill.\n\n**Tier 2 — Underreported.** Something\
+      \ on the wire in the last 7-14 days\nthat never became a story. A release you filed as importance\
+      \ 1 that\nturns out to matter on a second look. A paper you noted but never read\nproperly. Check\
+      \ the wire before assuming the week was empty — items are\nfiled faster than they are written up,\
+      \ and the backlog is where the\neasiest real story usually is.\n\n**Tier 3 — Analysis.** A pattern\
+      \ across accumulated material rather than\na single event. The benchmark record, the tool directory\
+      \ and the wire\nare a dataset, and nobody else has it:\n  - three projects converging on the same\
+      \ technique\n  - a metric that keeps improving while a harder one does not move\n  - a capability\
+      \ that has quietly become table stakes across vendors\n  - divergence between what papers optimise\
+      \ and what products ship\nCite the specific records the pattern rests on. A pattern with four\n\
+      data points is a story; with one it is a hunch, and you say so.\n\n**Tier 4 — Explainer.** Evergreen,\
+      \ but only when it answers something a\nreader would actually search for: why dev and test splits\
+      \ are not\ncomparable, what execution accuracy misses, how a leaderboard handles\nties, what \"\
+      schema linking\" means in practice. This tier is easy to\nabuse — an explainer nobody needed is\
+      \ filler. Write it only if you can\nname the confusion it resolves.\n\n**Tier 5 — The negative result.**\
+      \ What you checked and what did not\nchange, written as a finding. In a technical field this is\
+      \ real\nreporting, not a shrug: \"BIRD's leader has been unchanged for N months\nwhile paper claims\
+      \ kept rising\" says something about saturation. \"Six\nvendors, none shipped X this quarter\" says\
+      \ something about the market.\nThe bar: name every source checked, the date range, and why the absence\n\
+      is meaningful. A negative result without that is just an empty sweep\nwith a headline, and you should\
+      \ publish nothing instead.\n\n## The one thing that is never allowed\n\nFabrication. No invented\
+      \ release, no unverified number, no source you\ndid not open, no \"reportedly\" standing in for\
+      \ a citation. If all five\ntiers genuinely yield nothing — which should be rare and is worth\nsaying\
+      \ out loud — log why, name the tiers you tried, and state what\nmaterial the desk is missing so\
+      \ the next shift can go get it. That log\nline is how a gap in coverage becomes visible instead\
+      \ of accumulating\nsilently.\n\n## Reporting\n\nWhen you finish, say which tier you published from.\
+      \ A desk running at\ntier 4 or 5 for several shifts is not failing — it is telling you the\nbeat\
+      \ is too narrow or the sweep is not reaching far enough, and that is\na signal worth acting on rather\
+      \ than hiding.\n"
+  version: 0.1.0
