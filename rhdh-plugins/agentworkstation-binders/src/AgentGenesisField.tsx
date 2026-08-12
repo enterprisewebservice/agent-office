@@ -390,14 +390,19 @@ export const AgentGenesisField = (
                 wrong placement obvious at a glance. */}
             {value.team && (
               <Box mt={2}>
-                <Typography variant="subtitle2">Joins the team</Typography>
+                <Typography variant="subtitle2">
+                  {value.team.existing ? 'Joins the team' : 'Starts a new team'}
+                </Typography>
                 <Box display="flex" gridGap={8} alignItems="center" flexWrap="wrap" mt={1}>
                   <Chip
                     size="small"
                     label={value.team.gateway}
                     style={{ backgroundColor: '#ede7f6', fontWeight: 600 }}
                   />
-                  {!value.team.ready && (
+                  {!value.team.existing && (
+                    <Chip size="small" label="new gateway" style={{ backgroundColor: '#e8f5e9' }} />
+                  )}
+                  {value.team.existing && !value.team.ready && (
                     <Chip size="small" label="gateway not ready" style={{ backgroundColor: '#fdecea' }} />
                   )}
                   {value.team.reason && (
@@ -407,9 +412,11 @@ export const AgentGenesisField = (
                   )}
                 </Box>
                 <Typography variant="caption" color="textSecondary" component="div">
-                  {value.team.members && value.team.members.length
-                    ? `alongside ${value.team.members.join(', ')}`
-                    : 'first agent on this gateway'}
+                  {!value.team.existing
+                    ? 'no existing crew does this work — this gateway is created with the agent'
+                    : value.team.members && value.team.members.length
+                      ? `alongside ${value.team.members.join(', ')}`
+                      : 'first agent on this gateway'}
                 </Typography>
               </Box>
             )}
