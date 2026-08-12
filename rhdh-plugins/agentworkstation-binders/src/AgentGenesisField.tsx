@@ -54,6 +54,7 @@ import {
   useCatalogClient,
   CatalogPack,
   RecommendResponse,
+  RecommendTeam,
 } from './strategies/useCatalogClient';
 
 interface KbRef {
@@ -86,6 +87,11 @@ export interface GenesisValue {
   modelName: string;
   apiKey: string;
   compose: { knowledgeBaseRefs: KbRef[]; mcpServers: McpServerVal[] };
+  /** The gateway the agent joins. Chosen by Suggest, shown read-only —
+   *  a gateway is a shared runtime, browser node and blast radius, so
+   *  it is a platform decision, not a dropdown. */
+  gatewayRef: string;
+  team?: RecommendTeam;
 }
 
 const EMPTY: GenesisValue = {
@@ -101,6 +107,7 @@ const EMPTY: GenesisValue = {
   modelName: '',
   apiKey: '',
   compose: { knowledgeBaseRefs: [], mcpServers: [] },
+  gatewayRef: '',
 };
 
 const typeChipStyle: Record<string, React.CSSProperties> = {
@@ -281,6 +288,8 @@ export const AgentGenesisField = (
         packs: picked,
         selection: summarize(picked, compose),
         compose,
+        gatewayRef: rec.team?.gateway ?? '',
+        team: rec.team,
       });
     } catch (e) {
       setError((e as Error).message);
@@ -372,6 +381,38 @@ export const AgentGenesisField = (
                 </Tooltip>
               )}
             </Box>
+
+            {/* The team is chosen, not offered. A gateway is a shared
+                runtime, browser node, namespace and blast radius, so a
+                dropdown would push a platform decision onto whoever
+                wrote the sentence — same reasoning as the pack list.
+                Shown with the crew already there, which is what makes a
+                wrong placement obvious at a glance. */}
+            {value.team && (
+              <Box mt={2}>
+                <Typography variant="subtitle2">Joins the team</Typography>
+                <Box display="flex" gridGap={8} alignItems="center" flexWrap="wrap" mt={1}>
+                  <Chip
+                    size="small"
+                    label={value.team.gateway}
+                    style={{ backgroundColor: '#ede7f6', fontWeight: 600 }}
+                  />
+                  {!value.team.ready && (
+                    <Chip size="small" label="gateway not ready" style={{ backgroundColor: '#fdecea' }} />
+                  )}
+                  {value.team.reason && (
+                    <Typography variant="caption" color="textSecondary">
+                      {value.team.reason}
+                    </Typography>
+                  )}
+                </Box>
+                <Typography variant="caption" color="textSecondary" component="div">
+                  {value.team.members && value.team.members.length
+                    ? `alongside ${value.team.members.join(', ')}`
+                    : 'first agent on this gateway'}
+                </Typography>
+              </Box>
+            )}
 
             <Box mt={2}>
               <Typography variant="subtitle2">

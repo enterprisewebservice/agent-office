@@ -129,6 +129,21 @@ export interface RecommendResponse {
   // Each pack is the FULL catalog entry (recipe, dependencies) plus the
   // reason — operator >= v1.7.13. One call is enough to wire the agent.
   packs: (CatalogPack & { reason?: string })[];
+  /** Which gateway (== team) the agent joins, chosen by the recommender
+   *  rather than picked from a list — operator >= v1.7.32. Displayed,
+   *  never overridable: a gateway is a shared runtime, browser node and
+   *  blast radius, so the platform decides and the user reviews. */
+  team?: RecommendTeam;
+}
+
+export interface RecommendTeam {
+  gateway: string;
+  team?: string;
+  reason?: string;
+  /** The crew already on that gateway — what makes a wrong pick obvious. */
+  members?: string[];
+  ready: boolean;
+  existing: boolean;
 }
 
 export const useCatalogClient = () => {
