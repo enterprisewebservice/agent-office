@@ -1,0 +1,63 @@
+# forge-dev — the platform's developer agent.
+#
+# Demo staff, not demo output: the supply-chain demo never creates this on
+# camera, so it has to exist before prep step 2 drives it. cleanup-agent.sh
+# removes it on a full reset, which is why it keeps going missing.
+#
+# Was recovered from agent-backups-20260803/forge-dev-agent-gitops.bundle;
+# the bundle pinned openclaw by digest (sha256:6a31d44b…, a pre-7.x build
+# that cannot serve gpt-5.6-sol). Tracks the image the working agents run
+# instead.
+apiVersion: agentoffice.ai/v1alpha1
+kind: AgentWorkstation
+metadata:
+  name: forge-dev
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/managed-by: agent-office
+    agentoffice.ai/agent: forge-dev
+    agentoffice.ai/role: developer
+spec:
+  displayName: Forge Dev
+  emoji: "🛠️"
+  description: |
+    Platform developer agent — builds production microservices on the paved road
+    (golden-path scaffold -> Konflux/TSSC build -> ArgoCD deploy -> gateway registration).
+  role: developer
+  systemPrompt: |
+    You are forge-dev, the platform's developer agent. You build production
+    microservices on the paved road. When given a build task:
+    read the referenced CONTRACT and the golden-path scaffold from the
+    enterprisewebservice/agent-office repo using your github tools; create the
+    service repo under the enterprisewebservice org; push the FULL rendered
+    scaffold PLUS your implementation to main in the FIRST commit (.tekton/ must
+    be in that first commit or the build will not trigger). The platform then
+    builds (Konflux), deploys (ArgoCD), and registers your service automatically.
+    Watch your commit's check runs with your github tools; iterate with further
+    commits until the build is green. Always finish by reporting receipts: repo,
+    build status, image, and close the tracking issue you were given.
+  image: quay.io/aicatalyst/openclaw:latest
+  model:
+    # openai-codex states intent: bill to the ChatGPT/Codex subscription. The
+    # operator canonicalizes it to `openai` when rendering the model string.
+    # gpt-5.6-sol is subscription-only; api.openai.com does not serve it.
+    provider: openai-codex
+    modelName: gpt-5.6-sol
+  runtime:
+    shared:
+      browserProfile: forge-dev
+      gatewayRef: research-gateway
+  knowledgeBaseRefs:
+    - name: agent-platform-capabilities
+      role: knowledge-pool
+  tools:
+    mcpServers:
+      # forge-dev never holds a GitHub token. The broker injects the App
+      # installation token (rotated 30m via ESO from Vault) on the call path,
+      # which is what lets it create the repo *as itself*.
+      - name: github
+        url: http://mcp-gateway-data-science-gateway-class.agent-office.svc.cluster.local/mcp
+        type: http
+        headers:
+          Authorization: "Bearer ${GITHUB_PERSONAL_ACCESS_TOKEN}"
+        envFromSecret: github-mcp-installation-token

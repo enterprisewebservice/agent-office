@@ -1,1 +1,6 @@
-mcp>=1.2
+# Pin the major. `mcp>=1.2` resolved happily to 2.0.0 (released 2026-07-28),
+# which moved `mcp.server.fastmcp` -- so the image built green and then
+# crashed on import at runtime. A green Konflux run is not proof the service
+# starts; an unpinned major is how a service that worked in July breaks in
+# August with no commit in between.
+mcp>=1.2,<2
