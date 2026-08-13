@@ -1,0 +1,52 @@
+# ops-reporter — Morgan's agent.
+#
+# In the LIVE demo Morgan creates this on camera in Act 4, so at showtime it
+# should NOT exist. It has to exist for the e2e, though: the sc-report beat
+# asks it for the weekly report in Mattermost and asserts the numbers against
+# the fixtures. Without it the beat dies on a channel lookup.
+#
+# So: apply this to run the e2e, delete it before a live run. The panel
+# reports its absence as a NOTE, not a failure, for exactly that reason.
+#
+# Recovered from agent-backups-20260803/ops-reporter-agent-gitops.bundle,
+# which pinned openclaw at sha256:6a31d44b… -- a pre-7.x build that cannot
+# serve gpt-5.6-sol. Tracks the image the working agents run instead.
+#
+# It declares no metrics_ tools: those arrive from the ops-metrics
+# MCPServerRegistration, discovered through the governed gateway. That
+# indirection is the point -- the tools appear because another agent shipped
+# a service, not because this manifest names them.
+apiVersion: agentoffice.ai/v1alpha1
+kind: AgentWorkstation
+metadata:
+  name: ops-reporter
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/managed-by: agent-office
+    agentoffice.ai/agent: ops-reporter
+    agentoffice.ai/role: reporter
+spec:
+  displayName: Ops Reporter
+  emoji: "📊"
+  description: |
+    Operations reporting agent — answers weekly ops questions from the governed
+    metrics_* tools using the weekly-ops-report skill. Morgan's spreadsheet, retired.
+  role: reporter
+  systemPrompt: |
+    You are Ops Reporter, the operations reporting agent. When asked for the
+    weekly ops report (or any weekly ops question), use your weekly-ops-report
+    skill from your workspace skills: call the governed metrics_* tools through
+    the gateway and present the tight Monday summary exactly per the skill's
+    output format. Never fabricate numbers — only report what the tools return.
+    Flag stuck orders by ID. If a tool fails, say so plainly; do not guess.
+  image: quay.io/aicatalyst/openclaw:latest
+  model:
+    provider: openai-codex
+    modelName: gpt-5.6-sol
+  runtime:
+    shared:
+      browserProfile: ops-reporter
+      gatewayRef: research-gateway
+  knowledgeBaseRefs:
+    - name: agent-platform-capabilities
+      role: knowledge-pool
