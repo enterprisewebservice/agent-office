@@ -8,3 +8,4 @@ resources:
   - sc-report.yaml
   - sc-teardown.yaml
   - supply-chain-e2e.yaml
+  - supply-chain-stage.yaml

@@ -1,0 +1,30 @@
+# supply-chain-stage — PREP ONLY, deliberately not the whole demo.
+#
+# The e2e pipeline runs all five beats, which means it also files the card and
+# asks for the report -- it performs the acts you are supposed to perform on
+# camera. Fine for a test, useless as staging: press it and there is no demo
+# left to give.
+#
+# This does only the part that cannot happen live: the ~13-minute build that
+# leaves Act 2's receipts (repo, green Konflux run, running deployment,
+# registered tools, closed card). Everything else you do yourself, and the
+# panel watches you do it.
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: supply-chain-stage
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/part-of: supply-chain-demo
+spec:
+  description: >-
+    Prep only: reopen the card and drive forge-dev to build and ship
+    ops-metrics. Leaves the live acts alone.
+  tasks:
+    - name: card
+      taskRef: {name: sc-card}
+    - name: forge
+      taskRef: {name: sc-forge}
+      params:
+        - name: issue-number
+          value: $(tasks.card.results.issue-number)
