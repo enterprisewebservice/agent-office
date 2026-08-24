@@ -29,6 +29,10 @@ data:
     includes:
     - dynamic-plugins.default.yaml
     plugins:
+      # Keycloak org ingestion (workshop multi-user: user1..N become catalog User entities;
+      # the genesis template's per-hire gitea routing keys off the keycloak.org/id annotation)
+      - package: ./dynamic-plugins/dist/backstage-community-plugin-catalog-backend-module-keycloak-dynamic
+        disabled: false
     # Red Hat Developer Lightspeed — backend.
     - package: "oci://ghcr.io/redhat-developer/rhdh-plugin-export-overlays/red-hat-developer-hub-backstage-plugin-lightspeed-backend:bs_1.45.3__1.2.3!red-hat-developer-hub-backstage-plugin-lightspeed-backend"
       disabled: false
