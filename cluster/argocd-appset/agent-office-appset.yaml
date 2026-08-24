@@ -15,6 +15,15 @@
 # (the updated templates add the marker) are managed here; EXISTING
 # agents (no marker, still on their per-app roadie apps) are left
 # untouched until deliberately migrated.
+#
+# PROVIDERS: this is the GitHub ApplicationSet and it stays untouched —
+# clusters with an in-cluster Gitea run a SECOND ApplicationSet
+# (agent-office-agents-gitea, software-factory-deployer's
+# agent-office-appset-gitea.yaml.j2) in parallel: one scmProvider.gitea
+# generator per attendee org (Argo's gitea provider is org-only), same
+# marker filter, org-prefixed app names. Neither replaces the other; the
+# genesis template routes each hire to one provider (gitProvider: auto).
+# Verified live 2026-08-24.
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
