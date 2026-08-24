@@ -221,11 +221,10 @@ spec:
                 fieldRef:
                   fieldPath: metadata.namespace
             # Newsroom desk-status endpoints, per gateway, for the Codex
-            # auth health card ("last agent activity"). nl2sql's MCP has
-            # no /desk route yet — its gateway falls back to per-agent
-            # profile lastUsed timestamps until that lands.
+            # auth health card ("last agent activity"). Gateways without an
+            # entry fall back to per-agent profile lastUsed timestamps.
             - name: CODEX_DESK_URLS
-              value: "upstreambeat-newsroom-gateway=http://newsroom-mcp.upstreambeat.svc.cluster.local/desk"
+              value: "upstreambeat-newsroom-gateway=http://newsroom-mcp.upstreambeat.svc.cluster.local/desk,newsroom-gateway=http://newsroom-mcp.nl2sql.svc.cluster.local/desk"
             - name: RHDH_URL
               value: "http://v1-developer-hub.rhdh-test.svc.cluster.local:7007"
             - name: RHDH_TOKEN
