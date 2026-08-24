@@ -2,12 +2,15 @@
  * CodexAuthPreflightField — scaffolder field extension that gates
  * a template's submit button on Codex auth being fresh.
  *
- * UX: a banner appears at the top of the form. If Codex auth is OK,
- * the banner is green and the field's value is "ok" (passes
- * required validation). If expired, the banner is red, the value
- * is empty (failing required validation, blocking submit), and a
- * "Re-authenticate now" button opens the CodexReauthDialog. When
- * the dialog completes, the banner re-checks and unlocks the form.
+ * UX: a banner appears at the top of the form. If Codex auth is
+ * live-verified healthy (refresh token proven alive, or access token
+ * unexpired with no proof of death — same verdict the backend's
+ * /codex-auth/status endpoint computes), the banner is green and the
+ * field's value is "ok" (passes required validation). If unhealthy,
+ * the banner is red, the value is empty (failing required validation,
+ * blocking submit), and a "Re-authenticate now" button opens the
+ * CodexReauthDialog. When the dialog completes, the banner re-checks
+ * and unlocks the form.
  *
  * Templates use it as:
  *
@@ -19,10 +22,9 @@
  *           type: string
  *           ui:field: CodexAuthPreflight
  *
- * Auth status is fetched from the same operator catalog endpoint
- * that drives CodexAuthCard — a lightweight GET that returns the
- * cluster-wide token freshness. Until B-3 ships, the field
- * optimistically assumes OK and lets the user submit.
+ * If the status endpoint is unreachable the field fails OPEN (assumes
+ * ok) so an agent-office backend outage never blocks unrelated
+ * template submissions.
  */
 import React from 'react';
 import {
@@ -42,17 +44,17 @@ import {
 } from '@backstage/core-plugin-api';
 import { FieldExtensionComponentProps } from '@backstage/plugin-scaffolder-react';
 import { CodexReauthDialog } from './CodexReauthDialog';
+import {
+  CodexAuthHealth,
+  fetchAuthHealth,
+  relativeTime,
+  credentialHealthy,
+} from './status';
 
-// Status endpoint path used via Backstage's discoveryApi (the
-// 'proxy' baseUrl resolves to the cluster-internal proxy plugin).
-// Kept as a const for clarity even though it's only referenced
-// in a template string — explicit > clever.
-//
-// (Wire-up to the operator-emitted endpoint lands in B-3.)
 type Status =
   | { kind: 'loading' }
-  | { kind: 'ok'; lastRefresh?: string }
-  | { kind: 'expired'; reason?: string }
+  | { kind: 'ok'; health: CodexAuthHealth }
+  | { kind: 'unhealthy'; health: CodexAuthHealth }
   | { kind: 'unknown' };
 
 export const CodexAuthPreflightField = (
@@ -67,28 +69,22 @@ export const CodexAuthPreflightField = (
 
   const fetchStatus = React.useCallback(async () => {
     try {
-      const base = await discovery.getBaseUrl('proxy');
-      const resp = await fetchApi.fetch(`${base}/agent-office/codex-auth/status`);
-      if (!resp.ok) {
+      const health = await fetchAuthHealth(discovery, fetchApi);
+      if (!health) {
         setStatus({ kind: 'unknown' });
+        props.onChange('ok');
         return;
       }
-      const body = (await resp.json()) as {
-        ok: boolean;
-        lastRefresh?: string;
-        reason?: string;
-      };
-      if (body.ok) {
-        setStatus({ kind: 'ok', lastRefresh: body.lastRefresh });
+      if (health.ok) {
+        setStatus({ kind: 'ok', health });
         props.onChange('ok');
       } else {
-        setStatus({ kind: 'expired', reason: body.reason });
+        setStatus({ kind: 'unhealthy', health });
         props.onChange(undefined as any);
       }
     } catch {
-      // Operator status endpoint not reachable — fail OPEN: assume
-      // ok so the form remains submittable. B-3 (operator
-      // CodexAuthOK condition) will make this strict.
+      // Status endpoint not reachable — fail OPEN: assume ok so the
+      // form remains submittable.
       setStatus({ kind: 'unknown' });
       props.onChange('ok');
     }
@@ -115,13 +111,30 @@ export const CodexAuthPreflightField = (
   );
 };
 
+function summarizeOk(health: CodexAuthHealth): string {
+  const soonest = (health.credentials ?? [])
+    .filter(c => credentialHealthy(c) && c.accessTokenExpiresAt)
+    .map(c => c.accessTokenExpiresAt as string)
+    .sort()[0];
+  const verified = (health.credentials ?? []).some(
+    c => c.refreshAlive === true,
+  );
+  let line = verified
+    ? 'Codex refresh token verified alive against OpenAI'
+    : 'Codex token is fresh';
+  if (soonest) line += ` (access token expires ${relativeTime(soonest)})`;
+  return line;
+}
+
 function renderBody(status: Status, openDialog: () => void) {
   switch (status.kind) {
     case 'loading':
       return (
         <Box display="flex" alignItems="center" gridGap={8}>
           <CircularProgress size={16} />
-          <Typography variant="body2">Checking Codex token freshness…</Typography>
+          <Typography variant="body2">
+            Verifying Codex tokens against OpenAI…
+          </Typography>
         </Box>
       );
     case 'ok':
@@ -129,23 +142,20 @@ function renderBody(status: Status, openDialog: () => void) {
         <Box display="flex" alignItems="center" gridGap={8}>
           <CheckCircleIcon style={{ color: 'green' }} />
           <Typography variant="body2">
-            Codex token is fresh
-            {status.lastRefresh
-              ? ` (refreshed ${new Date(status.lastRefresh).toLocaleString()})`
-              : ''}
-            . You can submit the form.
+            {summarizeOk(status.health)}. You can submit the form.
           </Typography>
         </Box>
       );
-    case 'expired':
+    case 'unhealthy':
       return (
         <Box>
           <Box display="flex" alignItems="center" gridGap={8} mb={1}>
             <ErrorIcon style={{ color: 'red' }} />
             <Typography variant="body2">
-              Codex token is expired
-              {status.reason ? ` — ${status.reason}` : ''}. The agent
-              this template creates won't work until you re-authenticate.
+              Codex auth is unhealthy
+              {status.health.reason ? ` — ${status.health.reason}` : ''}. The
+              agent this template creates won't work until you
+              re-authenticate.
             </Typography>
           </Box>
           <Button color="secondary" variant="contained" onClick={openDialog}>
@@ -158,7 +168,7 @@ function renderBody(status: Status, openDialog: () => void) {
         <Box display="flex" alignItems="center" gridGap={8}>
           <Chip label="Unknown" variant="outlined" size="small" />
           <Typography variant="body2" color="textSecondary">
-            Operator hasn't reported Codex token status yet. Continuing
+            Codex auth status endpoint unreachable. Continuing
             optimistically — re-auth via the agent's overview tab if
             things go wrong.
           </Typography>

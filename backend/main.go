@@ -44,7 +44,7 @@ func main() {
 	agentHandlers := handlers.NewAgentHandlers(clients, namespace, cache)
 	chatHandler := handlers.NewChatHandler(namespace, clients)
 	claudeHandler := handlers.NewClaudeHandler(namespace, clients)
-	codexHandler := handlers.NewCodexHandler(namespace, clients)
+	codexHandler := handlers.NewCodexHandler(namespace, clients, cache)
 	ttsHandler := handlers.NewTTSHandler(namespace, clients)
 
 	// Set up routes using Go 1.22 path patterns
@@ -74,6 +74,13 @@ func main() {
 	// OpenAI Codex subscription
 	mux.HandleFunc("GET /api/codex/status", codexHandler.GetStatus)
 	mux.HandleFunc("POST /api/codex/credentials", codexHandler.UpdateCredentials)
+
+	// Codex auth health — live-verified status (JWT expiry, refresh-token
+	// probe, per-gateway agent auth). /codex-auth/status is the path the
+	// RHDH codex-reauth-ui proxy entry rewrites to; the /api alias is for
+	// direct use.
+	mux.HandleFunc("GET /codex-auth/status", codexHandler.GetAuthHealth)
+	mux.HandleFunc("GET /api/codex/health", codexHandler.GetAuthHealth)
 
 	// OpenAI voice output
 	mux.HandleFunc("POST /api/tts", ttsHandler.Synthesize)

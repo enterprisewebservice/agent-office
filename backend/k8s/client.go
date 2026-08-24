@@ -14,6 +14,10 @@ import (
 type Clients struct {
 	Clientset     kubernetes.Interface
 	DynamicClient dynamic.Interface
+	// Config is the rest config the clients were built from. Kept so
+	// handlers can build SPDY executors (pods/exec) against the same
+	// credentials.
+	Config *rest.Config
 }
 
 // InitClient creates Kubernetes clients. It tries in-cluster config first,
@@ -49,6 +53,7 @@ func InitClient() (*Clients, error) {
 	return &Clients{
 		Clientset:     clientset,
 		DynamicClient: dynClient,
+		Config:        config,
 	}, nil
 }
 

@@ -142,21 +142,29 @@ data:
     # backend action for KV v2 CAS-write to Vault.
     #
     # Image is built by .tekton/codex-reauth-ui-on-push.yaml.
-    - package: "oci://quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/agent-office-codex-reauth-ui:v0.0.5!agent-office-backstage-plugin-codex-reauth-ui"
+    - package: "oci://quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/agent-office-codex-reauth-ui:v0.0.6!agent-office-backstage-plugin-codex-reauth-ui"
       disabled: false
       pluginConfig:
         # Proxy entry so the codex-reauth-ui frontend (running in
-        # the user's browser) can reach the operator's in-cluster
+        # the user's browser) can reach the agent-office backend's
         # /codex-auth/status endpoint via Backstage's proxy plugin.
         # The card + scaffolder pre-flight fetch:
         #   /api/proxy/agent-office/codex-auth/status
-        # which gets rewritten to the operator's Service.
+        # which gets rewritten to the agent-office Service.
+        #
+        # This used to point at the operator's backstage-catalog
+        # Service, whose status check was "auth.json present and
+        # well-formed" — it stayed green through the 2026-08-23
+        # 16-hour newsroom outage. The agent-office backend now
+        # live-verifies: JWT expiry, a real refresh-token probe
+        # against auth.openai.com, and per-gateway agent auth
+        # profiles + desk activity.
         proxy:
           endpoints:
             /agent-office:
-              target: http://agent-office-backstage-catalog.agent-office-operator.svc.cluster.local
+              target: http://agent-office.agent-office.svc.cluster.local:8080
               changeOrigin: true
-              # No headers passed through — operator endpoint is
+              # No headers passed through — backend endpoint is
               # in-cluster only, no auth needed (the data is metadata,
               # not secrets).
         dynamicPlugins:

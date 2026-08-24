@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"sync"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -19,16 +20,24 @@ const codexSecretName = "codex-subscription-credentials"
 type CodexHandler struct {
 	namespace string
 	clients   *k8s.Clients
+	cache     *k8s.AgentCache
 	mu        sync.Mutex
+
+	// Codex auth health probe caches (see codex_health.go).
+	probeMu        sync.Mutex
+	probeCache     map[string]refreshProbeResult
+	agentCacheByGW map[string]agentProbeResult
+	deskCache      map[string]deskProbeResult
 }
 
-func NewCodexHandler(namespace string, clients *k8s.Clients) *CodexHandler {
-	return &CodexHandler{namespace: namespace, clients: clients}
+func NewCodexHandler(namespace string, clients *k8s.Clients, cache *k8s.AgentCache) *CodexHandler {
+	return &CodexHandler{namespace: namespace, clients: clients, cache: cache}
 }
 
 type CodexCredentials struct {
-	AuthMode string       `json:"auth_mode"`
-	Tokens   *CodexTokens `json:"tokens,omitempty"`
+	AuthMode    string       `json:"auth_mode"`
+	Tokens      *CodexTokens `json:"tokens,omitempty"`
+	LastRefresh string       `json:"last_refresh,omitempty"`
 }
 
 type CodexTokens struct {
@@ -43,6 +52,12 @@ type CodexStatus struct {
 	HasRefresh   bool   `json:"hasRefreshToken"`
 	SecretExists bool   `json:"secretExists"`
 	AuthMode     string `json:"authMode,omitempty"`
+	// Truthful freshness fields (additive — the office frontend's
+	// "connected" contract is unchanged). GET /codex-auth/status has the
+	// full picture including the live refresh probe.
+	TokenExpiresAt string `json:"tokenExpiresAt,omitempty"`
+	TokenExpired   bool   `json:"tokenExpired,omitempty"`
+	LastRefresh    string `json:"lastRefresh,omitempty"`
 }
 
 func (h *CodexHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
@@ -82,9 +97,16 @@ func (h *CodexHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
 		SecretExists: true,
 		HasRefresh:   hasTokens,
 		AuthMode:     creds.AuthMode,
+		LastRefresh:  creds.LastRefresh,
 	}
 	if creds.Tokens != nil && creds.Tokens.AccountID != "" {
 		status.AccountID = creds.Tokens.AccountID[:8] + "..."
+	}
+	if creds.Tokens != nil {
+		if exp, ok := jwtExpiry(creds.Tokens.AccessToken); ok {
+			status.TokenExpiresAt = exp.UTC().Format(time.RFC3339)
+			status.TokenExpired = time.Now().After(exp)
+		}
 	}
 
 	sendJSON(w, http.StatusOK, status)
@@ -148,6 +170,9 @@ func (h *CodexHandler) UpdateCredentials(w http.ResponseWriter, r *http.Request)
 	if creds.Tokens.AccountID != "" {
 		log.Printf("codex subscription credentials updated (account: %s)", creds.Tokens.AccountID[:8])
 	}
+
+	// Fresh credentials invalidate any cached refresh-probe verdict.
+	h.invalidateRefreshProbe(codexSecretName)
 
 	go h.restartAgentPods()
 
