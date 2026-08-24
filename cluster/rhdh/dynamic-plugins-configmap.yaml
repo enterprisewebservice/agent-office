@@ -79,6 +79,21 @@ data:
     - package: ./dynamic-plugins/dist/backstage-plugin-scaffolder-backend-module-github-dynamic
       disabled: false
 
+    # Gitea scaffolder actions (publish:gitea) — the openclaw-agent-genesis
+    # template's gitea side. Both providers stay live simultaneously: the
+    # template routes per-hire (gitProvider: auto — Keycloak-ingested
+    # attendees to Gitea, everyone else to GitHub), and RHDP workshop
+    # clusters copy this CM as ground truth (software-factory-deployer).
+    # NOT in RHDH's bundled dist (github/gitlab only), so it loads from
+    # the rhdh-plugin-export-overlays OCI registry on the same bs_1.45.3
+    # stream as the lightspeed plugins above. Inert on salamander: the
+    # action registers, but with no integrations.gitea, no giteaHost in
+    # the registered template, and no Keycloak-ingested users, every hire
+    # keeps publishing to GitHub.
+    # Verified live on RHDH 1.9.2 during the 2026-08-24 gitea run.
+    - package: "oci://ghcr.io/redhat-developer/rhdh-plugin-export-overlays/backstage-plugin-scaffolder-backend-module-gitea:bs_1.45.3__0.2.15!backstage-plugin-scaffolder-backend-module-gitea"
+      disabled: false
+
     # ArgoCD scaffolder action (argocd:create-resources).
     - package: ./dynamic-plugins/dist/roadiehq-scaffolder-backend-argocd-dynamic
       disabled: false
