@@ -79,6 +79,15 @@ data:
                     icon: lightspeedIcon
                     text: Lightspeed
 
+    # RBAC admin UI (Administration → RBAC). The policy ENGINE is part of
+    # RHDH core and activates via permission.enabled=true in app-config;
+    # this frontend plugin only adds the management UI for superUsers.
+    # Policies are file-based and live in rbac-policies-configmap.yaml
+    # (mounted at /opt/app-root/src/rbac/), NOT in UI-created DB state,
+    # so isolation rules stay in git.
+    - package: ./dynamic-plugins/dist/backstage-community-plugin-rbac
+      disabled: false
+
     # GitHub scaffolder actions (publish:github, etc.).
     - package: ./dynamic-plugins/dist/backstage-plugin-scaffolder-backend-module-github-dynamic
       disabled: false

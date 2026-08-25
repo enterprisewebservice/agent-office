@@ -1,0 +1,76 @@
+# RHDH RBAC policies — multi-user catalog isolation (workshop + post-workshop).
+#
+# Why: with permission.enabled=false, RHDH runs allow-all — every signed-in
+# user (user1..N via Gitea, colleagues via GitHub) sees the ENTIRE catalog,
+# including the platform owner's agents. Flipping permission.enabled=true
+# switches RHDH to policy-decided for everything, and these files are the
+# policy. RHDH 1.9 / rbac-backend 1.47 contract (vendor docs:
+# backstage/community-plugins workspaces/rbac).
+#
+# Model:
+#   * superUsers (app-config permission.rbac.admin.superUsers): deanpeterson —
+#     unrestricted, sees everything, RBAC admin UI.
+#   * role:default/attendee ← group:default/attendees (Keycloak-ingested).
+#     Catalog read/update is CONDITIONAL: own entities ($ownerRefs = the
+#     requesting user + their groups, matched against spec.owner — the
+#     genesis template stamps the attendee as owner on the gitea path) OR
+#     shared kinds (Template/User/Group/System/Domain). Components owned by
+#     other users are invisible. Scaffolder permissions cover the full hire
+#     flow (browse template, execute actions, watch own task).
+#   * Signed-in users with NO role (e.g. GitHub-federated colleagues not in
+#     attendees and not superUsers) see an empty catalog by design — grant
+#     them a role here when that changes.
+#   * Service principals (agent-office backend static token, keycloakOrg
+#     ingestion, scaffolder backend) bypass the permission framework —
+#     platform automation is unaffected.
+#
+# Mounted at /opt/app-root/src/rbac/ on deploy/v1-developer-hub (volume
+# added alongside this file; see README note). policyFileReload=true means
+# edits here land on `oc apply` + kubelet configmap sync (~60s), no restart.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rbac-policies
+  namespace: rhdh-test
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+data:
+  rbac-policy.csv: |
+    p, role:default/attendee, catalog-entity, read, allow
+    p, role:default/attendee, catalog-entity, update, allow
+    p, role:default/attendee, catalog.entity.create, create, allow
+    p, role:default/attendee, catalog.location.create, create, allow
+    p, role:default/attendee, scaffolder.template.parameter.read, read, allow
+    p, role:default/attendee, scaffolder.template.step.read, read, allow
+    p, role:default/attendee, scaffolder.action.execute, use, allow
+    p, role:default/attendee, scaffolder.task.create, create, allow
+    p, role:default/attendee, scaffolder.task.read, read, allow
+    p, role:default/attendee, scaffolder.task.cancel, use, allow
+    p, role:default/attendee, kubernetes.clusters.read, read, allow
+    p, role:default/attendee, kubernetes.resources.read, read, allow
+    g, group:default/attendees, role:default/attendee
+  conditional-policies.yaml: |
+    ---
+    result: CONDITIONAL
+    roleEntityRef: 'role:default/attendee'
+    pluginId: catalog
+    resourceType: catalog-entity
+    permissionMapping:
+      - read
+      - update
+    conditions:
+      anyOf:
+        - rule: IS_ENTITY_OWNER
+          resourceType: catalog-entity
+          params:
+            claims:
+              - $ownerRefs
+        - rule: IS_ENTITY_KIND
+          resourceType: catalog-entity
+          params:
+            kinds:
+              - Template
+              - User
+              - Group
+              - System
+              - Domain
