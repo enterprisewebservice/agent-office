@@ -304,7 +304,12 @@ def main():
                     if not text:
                         continue
                     print(f"[bridge] {agent} <- {text!r}", file=sys.stderr, flush=True)
-                    if text.strip().lower() in ("/new", "/new session", "/reset"):
+                    # /new is a WORKSHOP affordance: only agents living in a
+                    # per-seat workspace honor it. Long-lived production agents
+                    # (newsdesks, ops) ignore it — their main session is their
+                    # memory and nothing in chat may fork it.
+                    if (text.strip().lower() in ("/new", "/new session", "/reset")
+                            and a["ns"].endswith("-agent-workspace")):
                         a["skey"] = f"agent:{agent}:mm-{int(time.time())}"
                         api("POST", "/api/v4/posts", {"channel_id": ch,
                             "message": "🔄 Fresh session — conversation history cleared. The current directive applies from the first word."}, token=a["token"])
