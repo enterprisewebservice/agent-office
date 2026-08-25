@@ -188,6 +188,12 @@ def ensure_presence(agent, display, ns, team_id, admin_id):
     chans = [chan] + ([dm["id"]] if dm.get("id") else [])
     return {"bot_id": uid, "token": tok.get("token", ""),
             "gw": aw_gateway(agent, ns), "ns": ns, "channels": chans,
+            # skey: explicit openclaw session key. None = the agent's main
+            # session. "/new" in chat mints a fresh key — a deterministic
+            # history reset (identity edits apply instantly; transcript
+            # momentum does not survive a new session). Not persisted: a
+            # bridge restart returns the agent to its main session.
+            "skey": None,
             "ws": get_ws(agent, tok.get("token", ""))}  # presence (green) + typing
 
 
@@ -210,14 +216,16 @@ def gw_pod(gw, ns):
               "-o", "jsonpath={.items[0].metadata.name}") or None
 
 
-def drive(agent, gw, ns, text):
+def drive(agent, gw, ns, text, skey=None):
     pod = gw_pod(gw, ns)
     if not pod:
         return "(my gateway is unavailable right now)"
+    cmd = ["oc", "exec", "-n", ns, pod, "-c", "openclaw", "--",
+           "openclaw", "agent", "--agent", agent, "--message", text, "--timeout", "1200"]
+    if skey:
+        cmd[cmd.index("--message"):cmd.index("--message")] = ["--session-key", skey]
     try:
-        out = subprocess.run(["oc", "exec", "-n", ns, pod, "-c", "openclaw", "--",
-            "openclaw", "agent", "--agent", agent, "--message", text, "--timeout", "1200"],
-            capture_output=True, text=True, timeout=1260)
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=1260)
     except subprocess.TimeoutExpired:
         return "(I took too long thinking — try again?)"
     return ANSI.sub("", out.stdout).strip() or "(no reply)"
@@ -296,8 +304,13 @@ def main():
                     if not text:
                         continue
                     print(f"[bridge] {agent} <- {text!r}", file=sys.stderr, flush=True)
+                    if text.strip().lower() in ("/new", "/new session", "/reset"):
+                        a["skey"] = f"agent:{agent}:mm-{int(time.time())}"
+                        api("POST", "/api/v4/posts", {"channel_id": ch,
+                            "message": "🔄 Fresh session — conversation history cleared. The current directive applies from the first word."}, token=a["token"])
+                        continue
                     # show "…is typing" while the agent thinks
-                    reply = with_typing(a.get("ws"), ch, lambda: drive(agent, a["gw"], a["ns"], text))
+                    reply = with_typing(a.get("ws"), ch, lambda: drive(agent, a["gw"], a["ns"], text, a.get("skey")))
                     print(f"[bridge] {agent} -> {reply[:80]!r}", file=sys.stderr, flush=True)
                     api("POST", "/api/v4/posts", {"channel_id": ch, "message": reply}, token=a["token"])
         time.sleep(POLL)
