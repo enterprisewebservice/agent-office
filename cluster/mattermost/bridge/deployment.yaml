@@ -46,7 +46,9 @@ spec:
             - name: MM_TEAM
               value: agents
             - name: GW_NS
-              value: agent-office
+              # Shared namespace + every per-seat agent workspace (deployer
+              # keeps this list in step with deploy/salamander-workspaces).
+              value: agent-office,user1-agent-workspace,user2-agent-workspace,user3-agent-workspace,user4-agent-workspace,user5-agent-workspace
           volumeMounts:
             - name: src
               mountPath: /scripts
