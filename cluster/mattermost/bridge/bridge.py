@@ -26,7 +26,9 @@ import hashlib, json, os, re, ssl, subprocess, sys, time, urllib.error, urllib.r
 MM = os.environ["MM_URL"]
 ADMIN = os.environ["MM_ADMIN_TOKEN"]
 TEAM_NAME = os.environ.get("MM_TEAM", "agents")
-GW_NS = os.environ.get("GW_NS", "agent-office")
+# Comma-separated: the shared namespace plus per-attendee agent workspaces
+# (user1-agent-workspace, ...). Every AW record carries its own namespace.
+GW_NAMESPACES = [n.strip() for n in os.environ.get("GW_NS", "agent-office").split(",") if n.strip()]
 POLL = int(os.environ.get("POLL_SECONDS", "3"))
 REDISCOVER = int(os.environ.get("REDISCOVER_SECONDS", "60"))
 CTX = ssl.create_default_context(); CTX.check_hostname = False; CTX.verify_mode = ssl.CERT_NONE
@@ -125,25 +127,31 @@ def oc(*args):
     return subprocess.run(["oc", *args], capture_output=True, text=True).stdout.strip()
 
 
-def aw_gateway(agent):
-    gw = oc("get", "agentworkstation", agent, "-n", GW_NS,
+def aw_gateway(agent, ns):
+    gw = oc("get", "agentworkstation", agent, "-n", ns,
             "-o", "jsonpath={.spec.runtime.shared.gatewayRef}")
     return gw or None
 
 
 def list_aws():
-    """{name: displayName} for every AgentWorkstation, or None on a read error
-    (so we never tear down on a transient failure)."""
-    out = oc("get", "agentworkstations", "-n", GW_NS, "-o", "json")
-    if not out:
-        return None
-    try:
-        items = json.loads(out).get("items", [])
-        return {i["metadata"]["name"]:
-                (i.get("spec", {}).get("displayName") or i["metadata"]["name"])
-                for i in items}
-    except Exception:
-        return None
+    """{name: (displayName, namespace)} for every AgentWorkstation across all
+    bridged namespaces, or None when EVERY namespace read fails (so we never
+    tear down on a transient failure)."""
+    result = {}
+    any_ok = False
+    for ns in GW_NAMESPACES:
+        out = oc("get", "agentworkstations", "-n", ns, "-o", "json")
+        if not out:
+            continue
+        try:
+            items = json.loads(out).get("items", [])
+        except Exception:
+            continue
+        any_ok = True
+        for i in items:
+            result[i["metadata"]["name"]] = (
+                (i.get("spec", {}).get("displayName") or i["metadata"]["name"]), ns)
+    return result if any_ok else None
 
 
 def mm_slug(name):
@@ -157,7 +165,7 @@ def mm_slug(name):
     return name[:13].rstrip("-._") + "-" + h
 
 
-def ensure_presence(agent, display, team_id, admin_id):
+def ensure_presence(agent, display, ns, team_id, admin_id):
     """Find the agent's USER + channel (provisioned by the OPERATOR's reconcile)
     and set up the chat record (token + DM + presence WS). Does NOT create —
     the operator owns provisioning; we just bridge what it made. Returns None
@@ -179,7 +187,7 @@ def ensure_presence(agent, display, team_id, admin_id):
     _, dm = api("POST", "/api/v4/channels/direct", [admin_id, uid])
     chans = [chan] + ([dm["id"]] if dm.get("id") else [])
     return {"bot_id": uid, "token": tok.get("token", ""),
-            "gw": aw_gateway(agent), "channels": chans,
+            "gw": aw_gateway(agent, ns), "ns": ns, "channels": chans,
             "ws": get_ws(agent, tok.get("token", ""))}  # presence (green) + typing
 
 
@@ -196,18 +204,18 @@ def teardown_presence(agent, team_id):
           file=sys.stderr, flush=True)
 
 
-def gw_pod(gw):
-    return oc("get", "pods", "-n", GW_NS, "-l", f"agentoffice.ai/gateway={gw}",
+def gw_pod(gw, ns):
+    return oc("get", "pods", "-n", ns, "-l", f"agentoffice.ai/gateway={gw}",
               "--field-selector=status.phase=Running",
               "-o", "jsonpath={.items[0].metadata.name}") or None
 
 
-def drive(agent, gw, text):
-    pod = gw_pod(gw)
+def drive(agent, gw, ns, text):
+    pod = gw_pod(gw, ns)
     if not pod:
         return "(my gateway is unavailable right now)"
     try:
-        out = subprocess.run(["oc", "exec", "-n", GW_NS, pod, "-c", "openclaw", "--",
+        out = subprocess.run(["oc", "exec", "-n", ns, pod, "-c", "openclaw", "--",
             "openclaw", "agent", "--agent", agent, "--message", text, "--timeout", "1200"],
             capture_output=True, text=True, timeout=1260)
     except subprocess.TimeoutExpired:
@@ -232,10 +240,10 @@ def discover(admin_id, team_id):
     if aws is None:
         return None
     agents = {}
-    for agent, display in aws.items():
+    for agent, (display, ns) in aws.items():
         if agent in FAILED:
             continue
-        rec = ensure_presence(agent, display, team_id, admin_id)
+        rec = ensure_presence(agent, display, ns, team_id, admin_id)
         if rec:
             agents[agent] = rec
             PROVISIONED.add(agent)
@@ -249,7 +257,7 @@ def discover(admin_id, team_id):
 def main():
     admin_id = api("GET", "/api/v4/users/me")[1]["id"]
     team_id = api("GET", f"/api/v4/teams/name/{TEAM_NAME}")[1]["id"]
-    print(f"[bridge] up. team={TEAM_NAME} ns={GW_NS}", file=sys.stderr, flush=True)
+    print(f"[bridge] up. team={TEAM_NAME} ns={GW_NAMESPACES}", file=sys.stderr, flush=True)
 
     agents = {}
     seen = set()
@@ -289,7 +297,7 @@ def main():
                         continue
                     print(f"[bridge] {agent} <- {text!r}", file=sys.stderr, flush=True)
                     # show "…is typing" while the agent thinks
-                    reply = with_typing(a.get("ws"), ch, lambda: drive(agent, a["gw"], text))
+                    reply = with_typing(a.get("ws"), ch, lambda: drive(agent, a["gw"], a["ns"], text))
                     print(f"[bridge] {agent} -> {reply[:80]!r}", file=sys.stderr, flush=True)
                     api("POST", "/api/v4/posts", {"channel_id": ch, "message": reply}, token=a["token"])
         time.sleep(POLL)
