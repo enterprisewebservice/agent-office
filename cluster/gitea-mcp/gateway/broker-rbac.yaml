@@ -1,0 +1,41 @@
+# RBAC for the mcp-gateway broker pod to read the
+# gitea-mcp-broker-token Secret it needs for backend discovery.
+#
+# Same gap as cluster/github-mcp/gateway/broker-rbac.yaml: the
+# mcp-gateway operator (v0.6.0 Tech Preview) does not grant its broker
+# SA read access to credential Secrets referenced via
+# MCPServerRegistration.credentialRef — without this Role the
+# registration sits Ready=False with a misleading `credential secret
+# not found`. Scope stays tight: ONE Secret name, read-only verbs.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: mcp-gateway-gitea-broker-token-reader
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/name: gitea-mcp-server
+    app.kubernetes.io/component: broker-rbac
+    app.kubernetes.io/managed-by: agent-office-gitops
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["gitea-mcp-broker-token"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: mcp-gateway-gitea-broker-token-reader
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/name: gitea-mcp-server
+    app.kubernetes.io/component: broker-rbac
+    app.kubernetes.io/managed-by: agent-office-gitops
+subjects:
+  - kind: ServiceAccount
+    name: mcp-gateway
+    namespace: agent-office
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: mcp-gateway-gitea-broker-token-reader

@@ -1,0 +1,55 @@
+# MCPServerRegistration — federates the gitea backend into the MCP
+# gateway.
+#
+# spec.prefix is EXPLICIT (gitea_) and load-bearing: the operator
+# (v0.7.1) does NOT derive a prefix from the registration name — the
+# github registration's "derived from the name" assumption does not
+# hold; its tools sit UNPREFIXED in the broker's tool space. Two git
+# forges share a tool vocabulary (list_issues, get_me, create_branch…),
+# so registering gitea prefix-less makes the broker reject the whole
+# backend: `tool conflict detected … conflicting tool names
+# [list_issues issue_write …]` and the registration stays Ready=False
+# (found live 2026-08-25). golden-path-probe and ops-metrics set
+# explicit prefixes for the same reason.
+#
+# credentialRef is consumed ONLY by the broker's tool-DISCOVERY
+# connection (Kuadrant issue #926: it is NOT propagated to the router's
+# per-call path). For github that gap had to be closed with an injecting
+# proxy; for gitea the gap IS the feature — each per-call request
+# carries the agent's own seat bearer through to the backend. The
+# referenced Secret must hold the literal Authorization header value
+# ("Bearer <sha1>", key AUTHORIZATION) and carry the label
+# mcp.kuadrant.io/secret: "true" — minted imperatively from the gitea
+# admin API (see ../kustomization.yaml, IMPERATIVE COMPANIONS).
+apiVersion: mcp.kuadrant.io/v1alpha1
+kind: MCPServerRegistration
+metadata:
+  name: gitea
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/name: gitea-mcp-server
+    app.kubernetes.io/component: registration
+    app.kubernetes.io/managed-by: agent-office-gitops
+  annotations:
+    # client-recipe: the spec.tools.mcpServers entry an AgentWorkstation
+    # needs to consume this registration (served by the operator's
+    # /catalog/packs endpoint, >= v1.7.11). The envFromSecret value is
+    # SEAT-RELATIVE: <user> is the workshop seat that owns the agent's
+    # namespace (<user>-agent-workspace) — user1-gitea-token for user1,
+    # and so on. Composers/templates substitute the seat (the
+    # openclaw-agent skeleton derives it from values.namespace); applied
+    # verbatim the reference degrades harmlessly (the operator marks
+    # envFrom Secrets Optional and openclaw surfaces a config warning).
+    agentoffice.ai/client-recipe: '{"url":"http://mcp-gateway-data-science-gateway-class.agent-office.svc.cluster.local/mcp","type":"http","authHeaderValue":"Bearer ${GITEA_TOKEN}","envFromSecret":"<user>-gitea-token"}'
+    agentoffice.ai/display-name: "Gitea (governed)"
+    agentoffice.ai/description: "Work with the in-cluster Gitea — repos, issues, PRs, releases, wiki — as YOUR seat's identity: gitea_* tools behind the MCP gateway, authenticated per call by the seat's own pass-through token."
+spec:
+  path: /mcp
+  prefix: gitea_
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: gitea-mcp-server-route
+  credentialRef:
+    name: gitea-mcp-broker-token
+    key: AUTHORIZATION

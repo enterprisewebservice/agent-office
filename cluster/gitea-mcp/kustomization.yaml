@@ -1,0 +1,57 @@
+# cluster/gitea-mcp — governed Gitea tools for workshop seats
+#
+# Hosts the community gitea-mcp server (https://gitea.com/gitea/gitea-mcp,
+# pinned 1.6.0) in http mode against the in-cluster Gitea
+# (https://gitea-gitea.apps.salamander.aimlworkbench.com) and registers it
+# on the MCP gateway as `gitea` — agents see gitea_* tools beside the
+# github_* ones, but with the OPPOSITE credential model:
+#
+#   github_*  — platform identity. The accept-proxy INJECTS the governed
+#               GitHub App token on every upstream call; the agent never
+#               holds a credential (cluster/github-mcp).
+#   gitea_*   — per-seat identity. NOTHING is injected: the Authorization
+#               header the agent sends (Bearer ${GITEA_TOKEN}, from the
+#               seat's own <user>-gitea-token Secret) passes through the
+#               router to gitea-mcp, which lifts the per-request token
+#               into the call context (operation.go getContextWithToken,
+#               v1.6.0 — both "Bearer <tok>" and "token <tok>" schemes).
+#               Same Kuadrant #926 pass-through behavior that forced the
+#               github injection fix; here the pass-through IS the
+#               per-seat tenancy. No fallback token env on the pod: a
+#               call without a seat credential fails closed instead of
+#               falling back to an admin identity.
+#
+# IMPERATIVE COMPANIONS (secrets never live in git — no Vault path for
+# the in-cluster Gitea; the gitea admin API is the mint). The deployer's
+# gitea stage owns these on workshop clusters
+# (software-factory-deployer roles/ocp4_workload_software_factory/tasks/gitea.yml);
+# by hand they are:
+#   1. Broker discovery credential — token `mcp-broker` for the gitea
+#      admin (scopes [read:user]), shaped for the broker contract:
+#        Secret gitea-mcp-broker-token in agent-office
+#        key AUTHORIZATION = "Bearer <sha1>"
+#        label mcp.kuadrant.io/secret: "true"   (broker filters by it)
+#   2. Per-seat pass-through credential — token `agent-workspace` per
+#      attendee (user1..N), canonical Secret <user>-gitea-token
+#      (key GITEA_TOKEN) in the gitea namespace, replicated into each
+#      <user>-agent-workspace beside quay-pull-secret (see
+#      software-factory-deployer deploy/salamander-workspaces/manifests.yaml).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: agent-office
+resources:
+  # Server (+ the accept-proxy sidecar config — Accept normalization
+  # ONLY; unlike github-mcp it injects nothing, see accept-proxy-config.yaml)
+  - accept-proxy-config.yaml
+  - mcp-server-deployment.yaml
+  - mcp-server-service.yaml
+  # MCP Gateway wiring. credentialRef (broker-rbac + the imperatively
+  # minted gitea-mcp-broker-token Secret) covers the broker's tool
+  # DISCOVERY connection only; per-call auth is the agent's own seat
+  # token passing through (Kuadrant issue #926 — credentialRef is not
+  # propagated on the router's per-call path, which is exactly what we
+  # want here). The Gateway + MCPGatewayExtension live in
+  # cluster/github-mcp/gateway/ and are shared.
+  - gateway/gitea-mcp-server-route.yaml
+  - gateway/gitea-mcp-registration.yaml
+  - gateway/broker-rbac.yaml

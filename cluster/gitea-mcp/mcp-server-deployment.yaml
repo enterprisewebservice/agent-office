@@ -1,0 +1,131 @@
+# gitea-mcp Deployment — per-seat pass-through edition.
+#
+# Credential chain — there ISN'T one on the pod, and that is the point:
+#   * NO env token. gitea-mcp http mode starts tokenless and lifts each
+#     request's Authorization header into the call context (v1.6.0
+#     operation.go getContextWithToken). The seat's bearer arrives from
+#     the agent through the gateway router (Kuadrant #926 pass-through)
+#     and this pod's accept-proxy, untouched. A call without a token
+#     fails closed — no admin fallback for an unauthenticated caller to
+#     land on.
+#   * The broker's DISCOVERY connection authenticates separately via the
+#     MCPServerRegistration credentialRef (gitea-mcp-broker-token, an
+#     imperatively minted read-scoped admin token — see kustomization.yaml).
+#
+# TWO containers (same topology as github-mcp, minus the injection):
+#   1. accept-proxy (nginx) — listens :8080 (the Service target),
+#      normalizes the Accept header, forwards to :8082. Authorization
+#      passes through untouched — see accept-proxy-config.yaml.
+#   2. mcp-server (gitea-mcp) — the community server on :8082
+#      (internal only), pointed at the in-cluster Gitea route.
+#
+# Image pinned to a release tag (docker.gitea.com tags are unprefixed:
+# 1.6.0, not v1.6.0). The github-MCP lesson: a silent :latest drift to a
+# stricter server build is exactly what broke that backend — upgrade
+# deliberately.
+#
+# HOME=/tmp: gitea-mcp writes $HOME/.gitea-mcp/gitea-mcp.log at startup.
+# The distroless nonroot image runs under a random OpenShift UID with no
+# writable home — point HOME at the /tmp emptyDir so the log open cannot
+# take the server down.
+#
+# Recreate strategy: only ever one instance (in-memory MCP sessions).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gitea-mcp-server
+  labels:
+    app.kubernetes.io/name: gitea-mcp-server
+    app.kubernetes.io/component: mcp-server
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: gitea-mcp-server
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: gitea-mcp-server
+        app.kubernetes.io/component: mcp-server
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        # ── 1. Accept-header normalizer (see accept-proxy-config.yaml) ──
+        - name: accept-proxy
+          image: registry.access.redhat.com/ubi9/nginx-124:latest
+          imagePullPolicy: IfNotPresent
+          # No token bake (unlike github-mcp): nothing is injected, so
+          # nginx runs directly on the mounted config.
+          command: ["nginx", "-g", "daemon off;"]
+          ports:
+            - name: sse            # the Service targets this named port
+              containerPort: 8080
+              protocol: TCP
+          startupProbe:
+            tcpSocket: {port: sse}
+            periodSeconds: 5
+            failureThreshold: 12
+          readinessProbe:
+            tcpSocket: {port: sse}
+            periodSeconds: 10
+          volumeMounts:
+            - {name: accept-proxy-config, mountPath: /etc/nginx/nginx.conf, subPath: nginx.conf, readOnly: true}
+            - {name: nginx-tmp, mountPath: /tmp}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits:   {cpu: 200m, memory: 128Mi}
+        # ── 2. The community gitea-mcp server (internal :8082) ──
+        - name: mcp-server
+          image: docker.gitea.com/gitea-mcp-server:1.6.0
+          imagePullPolicy: IfNotPresent
+          # Distroless image has no ENTRYPOINT (only CMD) — spell the
+          # binary out so args are unambiguous.
+          command: ["/app/gitea-mcp"]
+          args:
+            - "-t"
+            - "http"
+            - "--port"
+            - "8082"
+            - "--host"
+            - "https://gitea-gitea.apps.salamander.aimlworkbench.com"
+          env:
+            # Writable log home under the emptyDir (see header).
+            - name: HOME
+              value: /tmp
+          ports:
+            - name: mcp
+              containerPort: 8082
+              protocol: TCP
+          startupProbe:
+            tcpSocket: {port: mcp}
+            periodSeconds: 5
+            failureThreshold: 12
+          readinessProbe:
+            tcpSocket: {port: mcp}
+            periodSeconds: 10
+          volumeMounts:
+            - {name: mcp-tmp, mountPath: /tmp}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+            readOnlyRootFilesystem: true
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits:   {cpu: 500m, memory: 256Mi}
+      volumes:
+        - name: accept-proxy-config
+          configMap:
+            name: gitea-mcp-accept-proxy
+        - name: nginx-tmp
+          emptyDir: {}
+        - name: mcp-tmp
+          emptyDir: {}

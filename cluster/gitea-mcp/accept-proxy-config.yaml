@@ -1,0 +1,61 @@
+# nginx config for the accept-proxy sidecar fronting gitea-mcp.
+#
+# It does ONE thing (compare cluster/github-mcp/accept-proxy-config.yaml,
+# which does two):
+#
+# 1. ACCEPT normalization — advertises both `application/json` and
+#    `text/event-stream` upstream. gitea-mcp is a mark3labs/mcp-go
+#    StreamableHTTPServer, the same strict transport whose 400s on an
+#    incomplete Accept header broke github-mcp; normalize defensively so
+#    a gateway-side Accept drift can never take the backend down.
+#
+# 2. There is NO auth injection here — deliberately. The github proxy
+#    overwrites Authorization with the platform App token because agents
+#    never hold GitHub credentials. Gitea is the opposite tenancy model:
+#    each workshop seat's agent sends its OWN token (Bearer
+#    ${GITEA_TOKEN}) and nginx passes request headers through untouched
+#    (default proxy behavior — nothing to configure). That pass-through
+#    hop is the per-seat tenancy: gitea-mcp consumes the incoming
+#    Authorization per request (operation.go getContextWithToken), so
+#    gitea_* calls act AS the seat's Gitea user, and a call with no
+#    token fails closed (no fallback env token on the server container).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gitea-mcp-accept-proxy
+  labels:
+    app.kubernetes.io/name: gitea-mcp-server
+    app.kubernetes.io/component: accept-proxy
+    app.kubernetes.io/managed-by: agent-office-gitops
+data:
+  nginx.conf: |
+    # Self-contained — all writable paths point at /tmp (an emptyDir) so
+    # the container can run with a random OpenShift UID.
+    pid /tmp/nginx.pid;
+    worker_processes 1;
+    error_log /dev/stderr warn;
+    events { worker_connections 1024; }
+    http {
+      client_body_temp_path /tmp/cbt;
+      proxy_temp_path        /tmp/pt;
+      fastcgi_temp_path      /tmp/fct;
+      uwsgi_temp_path        /tmp/ut;
+      scgi_temp_path         /tmp/st;
+      access_log /dev/stdout;
+      server {
+        listen 8080;
+        location / {
+          proxy_pass http://127.0.0.1:8082;
+          proxy_http_version 1.1;
+          # (1) Accept normalization.
+          proxy_set_header Accept "application/json, text/event-stream";
+          # (2) NO Authorization override — the client's own header (the
+          #     seat's pass-through bearer) flows upstream untouched.
+          proxy_set_header Connection "";
+          # Stream SSE responses straight through (no buffering).
+          proxy_buffering off;
+          proxy_read_timeout 3600s;
+          proxy_send_timeout 3600s;
+        }
+      }
+    }

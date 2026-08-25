@@ -1,0 +1,40 @@
+# Backend HTTPRoute — attaches the gitea-mcp-server Service to the
+# Gateway's `mcps` listener (same topology as github-mcp-server-route;
+# the Gateway + listeners live in cluster/github-mcp/gateway/).
+#
+# Path /mcp is where mark3labs/mcp-go's StreamableHTTPServer serves the
+# MCP endpoint. The router forwards each agent call here WITH the
+# agent's own Authorization header (Kuadrant #926 pass-through) — that
+# header is the seat's tenancy credential, consumed by gitea-mcp.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: gitea-mcp-server-route
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/name: gitea-mcp-server
+    app.kubernetes.io/component: backend-route
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: mcp-gateway
+      namespace: agent-office
+      sectionName: mcps
+  hostnames:
+    - gitea-mcp.mcp.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /mcp
+      backendRefs:
+        # group/kind/weight are API-server defaults, spelled out so
+        # ArgoCD's compare sees git == live (the github-mcp lesson —
+        # omitting them left that app permanently OutOfSync).
+        - group: ""
+          kind: Service
+          name: gitea-mcp-server
+          port: 8080
+          weight: 1

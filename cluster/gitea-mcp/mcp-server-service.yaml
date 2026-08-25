@@ -1,0 +1,19 @@
+# ClusterIP Service exposing gitea-mcp behind the accept-proxy.
+# The gateway broker and router reach it via the backend HTTPRoute
+# (gitea-mcp.mcp.local → this Service :8080).
+apiVersion: v1
+kind: Service
+metadata:
+  name: gitea-mcp-server
+  labels:
+    app.kubernetes.io/name: gitea-mcp-server
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: gitea-mcp-server
+  ports:
+    - name: sse
+      port: 8080
+      targetPort: sse
+      protocol: TCP

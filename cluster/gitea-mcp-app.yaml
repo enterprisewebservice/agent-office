@@ -1,0 +1,32 @@
+# ArgoCD Application — reconciles cluster/gitea-mcp/ into agent-office.
+#
+# Depends on: agent-office namespace + the imperatively minted
+# gitea-mcp-broker-token Secret (see cluster/gitea-mcp/kustomization.yaml,
+# IMPERATIVE COMPANIONS — no Vault path for the in-cluster Gitea, so no
+# ESO chain here; the deployer's gitea stage owns the mint on workshop
+# clusters).
+#
+# Apply this AFTER cluster/gitea-mcp lands on main (the app tracks main;
+# until the merge the manifests are hand-applied, the nl2sql precedent).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: gitea-mcp
+  namespace: openshift-gitops
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/enterprisewebservice/agent-office.git
+    targetRevision: main
+    path: cluster/gitea-mcp
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: agent-office
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
