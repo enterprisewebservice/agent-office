@@ -13,7 +13,8 @@
 #
 # Governance is preserved by the two guardrails that matter:
 #   - sourceRepos: agents may ONLY deploy their own *-agent-gitops /
-#     *-autoresearch-gitops repos under the org.
+#     *-autoresearch-gitops repos under the org — plus, on gitea seats,
+#     the service repos their dev agents ship (seat-services appset).
 #   - destinations: agents may ONLY deploy into the agent-office
 #     namespace on the local cluster.
 # (Per-AGENT ArgoCD RBAC isolation is intentionally NOT a goal here —
@@ -30,8 +31,16 @@ spec:
   sourceRepos:
     - 'https://github.com/enterprisewebservice/*-agent-gitops.git'
     - 'https://github.com/enterprisewebservice/*-autoresearch-gitops.git'
+    # In-cluster Gitea (workshop seats): agent gitops repos, plus the
+    # SERVICES the dev agents ship (module 6's promotion lane — any
+    # seat-org repo the seat-services appset adopts).
+    - 'https://gitea-gitea.apps.salamander.aimlworkbench.com/*-agents/*-agent-gitops.git'
+    - 'https://gitea-gitea.apps.salamander.aimlworkbench.com/*-agents/*-autoresearch-gitops.git'
+    - 'https://gitea-gitea.apps.salamander.aimlworkbench.com/*-agents/*'
   destinations:
     - namespace: agent-office
+      server: https://kubernetes.default.svc
+    - namespace: '*-agent-workspace'
       server: https://kubernetes.default.svc
   # The meaningful guardrails are sourceRepos + destinations above.
   # Resource whitelists are left permissive so existing agent repos
