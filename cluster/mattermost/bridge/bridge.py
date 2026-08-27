@@ -314,7 +314,14 @@ def main():
                         api("POST", "/api/v4/posts", {"channel_id": ch,
                             "message": "🔄 Fresh session — conversation history cleared. The current directive applies from the first word."}, token=a["token"])
                         continue
-                    # show "…is typing" while the agent thinks
+                    # show "…is typing" while the agent thinks. Re-prime the
+                    # per-bot WS if adoption raced provisioning (fresh hires:
+                    # the first token mint can land before the operator's
+                    # user-reactivation settles, leaving ws=None for the
+                    # first record — without this, the FIRST turn after a
+                    # hire runs with no indicator and no retry).
+                    if not a.get("ws"):
+                        a["ws"] = get_ws(agent, a.get("token", ""))
                     reply = with_typing(a.get("ws"), ch, lambda: drive(agent, a["gw"], a["ns"], text, a.get("skey")))
                     print(f"[bridge] {agent} -> {reply[:80]!r}", file=sys.stderr, flush=True)
                     api("POST", "/api/v4/posts", {"channel_id": ch, "message": reply}, token=a["token"])
