@@ -34,3 +34,12 @@ spec:
         value: web-browser-researcher
       - name: AGENT_RECOMMENDER_MODEL
         value: openai/gpt-5.6-sol
+      # Pin the core-type cache scope to the platform namespace plus the
+      # five pre-created seat workspaces. Without this, a seat's FIRST
+      # hire lands in a namespace the boot-time discovery never saw and
+      # waits for the namespace watchdog's restart cycle (up to ~3 min).
+      # Pinning trades the watchdog for determinism — correct on a
+      # workshop cluster where the namespace set is closed. Found live
+      # on the first fresh-seat walk, 2026-08-28.
+      - name: MANAGED_NAMESPACES
+        value: agent-office,user1-agent-workspace,user2-agent-workspace,user3-agent-workspace,user4-agent-workspace,user5-agent-workspace
