@@ -308,7 +308,12 @@ def main():
                     # per-seat workspace honor it. Long-lived production agents
                     # (newsdesks, ops) ignore it — their main session is their
                     # memory and nothing in chat may fork it.
-                    if (text.strip().lower() in ("/new", "/new session", "/reset")
+                    # Slash-free variants exist because Mattermost's composer
+                    # intercepts any leading "/" as its own slash command
+                    # ("Command with a trigger of 'new' not found") and never
+                    # posts it — attendees type `new session` instead.
+                    if (text.strip().lower() in ("/new", "/new session", "/reset",
+                                                 "new session", "reset session")
                             and a["ns"].endswith("-agent-workspace")):
                         a["skey"] = f"agent:{agent}:mm-{int(time.time())}"
                         api("POST", "/api/v4/posts", {"channel_id": ch,
