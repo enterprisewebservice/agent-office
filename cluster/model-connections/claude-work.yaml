@@ -26,10 +26,14 @@ spec:
     namespace: agent-office
     key: api-key
   models:
+    - id: claude-sonnet-5
+      name: "Claude Sonnet 5"
     - id: claude-sonnet-4-5
       name: "Claude Sonnet 4.5"
     - id: claude-haiku-4-5
       name: "Claude Haiku 4.5"
+    - id: claude-opus-4-6
+      name: "Claude Opus 4.6"
   keyStrategy: shared
   access:
     groups:
