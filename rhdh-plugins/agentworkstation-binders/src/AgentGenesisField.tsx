@@ -470,34 +470,85 @@ export const AgentGenesisField = (
               <AgentConstellation
                 emoji={value.emoji}
                 name={value.name}
-                brainLabel={(() => {
+                role={value.role}
+                systemPrompt={value.systemPrompt}
+                brain={(() => {
                   const b = selectedBrain();
-                  const m = (b?.models ?? []).find(x => x.id === value.modelName);
-                  return m?.name || value.modelName || b?.models?.[0]?.name || 'auto';
+                  const chosen = value.modelName || b?.models?.[0]?.id || '';
+                  const m = (b?.models ?? []).find(x => x.id === chosen);
+                  return {
+                    label: m?.name || chosen || 'auto',
+                    connection: b?.displayName,
+                    description: b?.description,
+                    kind: b?.kind,
+                    models: b?.models ?? [],
+                    chosen,
+                  };
                 })()}
-                brainSub={selectedBrain()?.displayName}
                 skills={value.packs
                   .filter(p => p.type === 'skill')
                   .map((p, i) => {
                     const tree = treeOf(p);
                     const leaves = tree.flatMap(e => e.skills.map(s => s.name));
                     return {
-                      pack: p.displayName || p.name,
+                      name: p.name,
+                      displayName: p.displayName,
                       hue: packHue(i),
-                      skills: leaves.length ? leaves : [p.name],
+                      version: p.version,
+                      artifactKind: p.artifactKind,
+                      reason: p.reason,
+                      installed: p.installed,
+                      registry: p.registry,
+                      leaves: leaves.length ? leaves : [p.name],
+                      tree: tree.length
+                        ? tree.map(e => ({
+                            pack: e.pack.name,
+                            skills: e.skills.map(s => ({ name: s.name, installed: s.installed !== false })),
+                          }))
+                        : [{ pack: p.name, skills: [{ name: p.name }] }],
+                      unmet: (p.dependencies ?? [])
+                        .filter(d => !d.available)
+                        .map(d => ({ name: d.name, kind: d.kind })),
+                      requires: (p.packRequires ?? []).map(r => ({
+                        name: r.name,
+                        range: r.range,
+                        satisfied: r.satisfied,
+                      })),
                     };
                   })}
-                tools={value.compose.mcpServers.map(m => m.name)}
-                knowledge={value.compose.knowledgeBaseRefs.map(k => k.name)}
+                tools={value.compose.mcpServers.map(m => ({
+                  name: m.name,
+                  url: m.url,
+                  envFromSecret: m.envFromSecret,
+                  from: value.packs.find(
+                    p =>
+                      p.recipe?.url === m.url ||
+                      (p.dependencies ?? []).some(d => d.gatewayUrl === m.url),
+                  )?.name,
+                }))}
+                knowledge={value.compose.knowledgeBaseRefs.map(k => ({
+                  name: k.name,
+                  role: k.role,
+                  from: value.packs.find(
+                    p =>
+                      (p.type === 'kb' && p.name === k.name) ||
+                      (p.dependencies ?? []).some(
+                        d => d.kind === 'knowledgeBase' && d.name === k.name,
+                      ),
+                  )?.name,
+                }))}
                 team={
                   value.team
                     ? {
                         gateway: value.team.gateway,
                         members: value.team.members ?? [],
                         isNew: !value.team.existing,
+                        ready: value.team.ready,
+                        reason: value.team.reason,
                       }
                     : undefined
                 }
+                onRemovePack={removePack}
               />
             </Box>
             <Box mt={2} display="flex" gridGap={12} alignItems="center" flexWrap="wrap">
