@@ -526,17 +526,28 @@ export const AgentGenesisField = (
                       (p.dependencies ?? []).some(d => d.gatewayUrl === m.url),
                   )?.name,
                 }))}
-                knowledge={value.compose.knowledgeBaseRefs.map(k => ({
-                  name: k.name,
-                  role: k.role,
-                  from: value.packs.find(
-                    p =>
-                      (p.type === 'kb' && p.name === k.name) ||
-                      (p.dependencies ?? []).some(
-                        d => d.kind === 'knowledgeBase' && d.name === k.name,
-                      ),
-                  )?.name,
-                }))}
+                memory={[
+                  {
+                    name: 'workspace',
+                    kind: 'workspace' as const,
+                    count: 4,
+                    detail:
+                      'SOUL.md — persona\nIDENTITY.md — who it is\nTOOLS.md — how to reach its tools\nAGENTS.md — how it works',
+                  },
+                  ...value.compose.knowledgeBaseRefs.map(k => ({
+                    name: k.name,
+                    kind: 'kb' as const,
+                    count: 6,
+                    detail: `role: ${k.role}`,
+                    from: value.packs.find(
+                      p =>
+                        (p.type === 'kb' && p.name === k.name) ||
+                        (p.dependencies ?? []).some(
+                          d => d.kind === 'knowledgeBase' && d.name === k.name,
+                        ),
+                    )?.name,
+                  })),
+                ]}
                 team={
                   value.team
                     ? {

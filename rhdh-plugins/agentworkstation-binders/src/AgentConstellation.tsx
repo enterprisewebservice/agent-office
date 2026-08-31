@@ -1,23 +1,25 @@
 import React from 'react';
 
 /*
- * <AgentConstellation> — the agent, drawn, and now INTERROGABLE.
+ * <AgentConstellation> — the agent, drawn, interrogable, and honest
+ * about weight.
  *
- * A deterministic radial "second brain" view of the agent being
- * assembled. Every element is clickable and drives a drill-in panel:
+ * Layers (inside → out), each labeled on-canvas and in the legend:
  *
- *      core        identity (name, role, system prompt preview)
- *      BRAIN       connection + model, with the full model menu
- *      SKILLS      per-pack glowing dot-arcs; drill shows the real
- *                  tree (packs → leaf skills, installed state),
- *                  unmet prerequisites, requires-graph, and Remove
- *      TOOLS       MCP hexes; drill shows url + contributing pack
- *      KNOWLEDGE   KB moons; drill shows role + contributor
- *      TEAM        gateway + crew; drill shows placement reasoning
+ *      core     identity (emoji + name)
+ *      BRAIN    static diamond ring carrying the model name — the
+ *               one ring that never moves, because it's the center
+ *               of gravity, not a satellite
+ *      SKILLS   per-pack dot-arcs; ARC WIDTH ∝ skill count (a heavy
+ *               pack visibly outweighs a light one), count labeled
+ *      MEMORY   the agent's memory pools: seeded workspace docs +
+ *               each knowledge base, arc width ∝ known content
+ *      TOOLS    MCP hexes, slow orbit
+ *      TEAM     gateway + crew, slowest orbit, outermost
  *
- * Deterministic layout on purpose (same agent ⇒ same constellation)
- * so people learn to read agents at a glance. Pure inline SVG + CSS,
- * honors prefers-reduced-motion.
+ * Every element clicks into a drill panel. Deterministic layout:
+ * same agent ⇒ same constellation. Pure SVG + CSS; honors
+ * prefers-reduced-motion.
  */
 
 export interface ConstellationTree {
@@ -44,12 +46,14 @@ export interface ConstellationTool {
   name: string;
   url: string;
   envFromSecret?: string;
-  from?: string; // contributing pack
+  from?: string;
 }
 
-export interface ConstellationKb {
+export interface ConstellationMemory {
   name: string;
-  role: string;
+  kind: 'workspace' | 'kb';
+  count: number; // known content units (workspace: seeded docs)
+  detail?: string;
   from?: string;
 }
 
@@ -73,7 +77,7 @@ export interface ConstellationProps {
   };
   skills: ConstellationSkill[];
   tools: ConstellationTool[];
-  knowledge: ConstellationKb[];
+  memory: ConstellationMemory[];
   team?: {
     gateway: string;
     members: string[];
@@ -89,12 +93,13 @@ type Sel =
   | { kind: 'brain' }
   | { kind: 'skill'; name: string }
   | { kind: 'tool'; name: string }
-  | { kind: 'kb'; name: string }
+  | { kind: 'memory'; name: string }
   | { kind: 'team' }
   | null;
 
 const W = 640;
 const C = W / 2;
+const PANEL_H = 600;
 
 const polar = (r: number, deg: number) => {
   const a = ((deg - 90) * Math.PI) / 180;
@@ -103,10 +108,38 @@ const polar = (r: number, deg: number) => {
 
 const PACK_HUES = [265, 320, 190, 48, 138, 20, 288, 210];
 export const packHue = (idx: number) => PACK_HUES[idx % PACK_HUES.length];
+const MEM_HUES = [275, 315, 195, 52, 145, 232];
+
+/** Segments whose angular width is proportional to weight (min floor). */
+const weightedSegments = <T,>(
+  items: T[],
+  weight: (t: T) => number,
+  gapDeg: number,
+  startDeg: number,
+) => {
+  const total = items.reduce((n, t) => n + Math.max(1, weight(t)), 0) || 1;
+  const usable = 360 - gapDeg * items.length;
+  const minSpan = Math.min(28, usable / Math.max(items.length, 1) / 2);
+  // First pass: proportional; second: enforce floor and renormalize.
+  let spans = items.map(t => (usable * Math.max(1, weight(t))) / total);
+  const deficit = spans.reduce((d, s) => d + Math.max(0, minSpan - s), 0);
+  if (deficit > 0) {
+    const surplusTotal = spans.reduce((d, s) => d + Math.max(0, s - minSpan), 0) || 1;
+    spans = spans.map(s =>
+      s < minSpan ? minSpan : s - (deficit * (s - minSpan)) / surplusTotal,
+    );
+  }
+  const segs: { item: T; a0: number; a1: number }[] = [];
+  let a = startDeg + gapDeg / 2;
+  items.forEach((item, i) => {
+    segs.push({ item, a0: a, a1: a + spans[i] });
+    a += spans[i] + gapDeg;
+  });
+  return segs;
+};
 
 const dimWhenUnselected = (sel: Sel, mine: boolean) => (sel && !mine ? 0.28 : 1);
 
-/** Dot-arc rows between radii; big dots carry <title> tooltips. */
 const dotArc = (
   key: string,
   a0: number,
@@ -115,26 +148,27 @@ const dotArc = (
   r1: number,
   labels: string[],
   hue: number,
+  density = 3,
 ) => {
   const dots: React.ReactNode[] = [];
-  const target = labels.length * 3;
-  const rows = Math.max(2, Math.min(6, Math.ceil(target / 9)));
+  const target = labels.length * density;
+  const rows = Math.max(2, Math.min(7, Math.ceil(target / 8)));
   let placed = 0;
-  for (let row = 0; row < rows && placed < 200; row++) {
+  for (let row = 0; row < rows && placed < 240; row++) {
     const r = r0 + ((r1 - r0) * (row + 0.5)) / rows;
     const span = a1 - a0;
-    const per = Math.max(3, Math.round((span / 360) * (r / 2.2)));
+    const per = Math.max(3, Math.round((span / 360) * (r / 2.1)));
     for (let i = 0; i < per; i++) {
       const deg = a0 + (span * (i + 0.5)) / per;
       const { x, y } = polar(r, deg);
       const big = placed < target;
-      const label = big ? labels[Math.floor(placed / 3) % labels.length] : undefined;
+      const label = big ? labels[Math.floor(placed / density) % labels.length] : undefined;
       dots.push(
         <circle
           key={`${key}-${row}-${i}`}
           cx={x}
           cy={y}
-          r={big ? 2.4 : 1.1}
+          r={big ? 2.3 : 1.1}
           fill={`hsl(${hue} 85% ${big ? 72 : 38}%)`}
           opacity={big ? 0.95 : 0.35}
         >
@@ -168,17 +202,17 @@ const RingLabel: React.FC<{ r: number; text: string; hue: number; id: string }> 
 /* ---------- drill-in panel ---------- */
 
 const panelStyles: React.CSSProperties = {
-  width: 300,
+  flex: '0 1 300px',
   minWidth: 260,
+  height: PANEL_H,
+  boxSizing: 'border-box',
   background: 'linear-gradient(180deg, #171331 0%, #0f0c1d 100%)',
   border: '1px solid #322a58',
-  borderRadius: 10,
+  borderRadius: 12,
   padding: '14px 16px',
   color: '#e8e2ff',
   fontSize: 13,
-  alignSelf: 'stretch',
   overflowY: 'auto',
-  maxHeight: 560,
 };
 
 const PLabel: React.FC<{ children: React.ReactNode }> = ({ children }) => (
@@ -208,17 +242,32 @@ const DrillPanel: React.FC<ConstellationProps & { sel: Sel; onClose: () => void 
       <div style={panelStyles}>
         <div style={{ fontSize: 11, letterSpacing: 2, color: '#8f86ad' }}>CONSTELLATION</div>
         <p style={{ marginTop: 8, lineHeight: 1.5, color: '#b9b1d6' }}>
-          Click anything — the core, the brain ring, a skill cluster, a tool
-          hex, a knowledge moon, or the team ring — to drill into it.
+          Click anything to drill in — the core, the brain ring, a skill or
+          memory arc, a tool hex, or the team ring. Arc width shows weight:
+          heavier packs and pools take more of the circle.
         </p>
         <PLabel>AT A GLANCE</PLabel>
-        <p style={{ margin: '6px 0', lineHeight: 1.7 }}>
+        <p style={{ margin: '6px 0', lineHeight: 1.8 }}>
           🧠 {props.brain.label}
           <br />✨ {props.skills.reduce((n, s) => n + s.leaves.length, 0)} skills in{' '}
           {props.skills.length} pack(s)
-          <br />🔧 {props.tools.length} tool endpoint(s) · 📚 {props.knowledge.length} knowledge
-          base(s)
-          <br />👥 {props.team ? `${props.team.gateway}${props.team.isNew ? ' (new team)' : ''}` : 'no team yet'}
+          <br />🗂 {props.memory.length} memory pool(s) · 🔧 {props.tools.length} tool(s)
+          <br />👥{' '}
+          {props.team ? `${props.team.gateway}${props.team.isNew ? ' (new team)' : ''}` : 'no team yet'}
+        </p>
+        <PLabel>READING THE RINGS</PLabel>
+        <p style={{ margin: '6px 0', lineHeight: 1.7, fontSize: 12, color: '#b9b1d6' }}>
+          <span style={{ color: 'hsl(18 90% 70%)' }}>◆ BRAIN</span> — the model at the center of
+          gravity (static on purpose)
+          <br />
+          <span style={{ color: 'hsl(280 80% 75%)' }}>● SKILLS</span> — what it knows how to do
+          <br />
+          <span style={{ color: 'hsl(275 70% 75%)' }}>◍ MEMORY</span> — what it remembers; grows
+          live after hire
+          <br />
+          <span style={{ color: 'hsl(28 90% 70%)' }}>⬡ TOOLS</span> — governed reach
+          <br />
+          <span style={{ color: 'hsl(210 80% 70%)' }}>⬢ TEAM</span> — who it works beside
         </p>
       </div>
     );
@@ -252,8 +301,8 @@ const DrillPanel: React.FC<ConstellationProps & { sel: Sel; onClose: () => void 
         <div>{props.role || 'assistant'}</div>
         <PLabel>SYSTEM PROMPT</PLabel>
         <div style={{ color: '#b9b1d6', whiteSpace: 'pre-wrap', lineHeight: 1.45, fontSize: 12 }}>
-          {(props.systemPrompt || '').slice(0, 600)}
-          {(props.systemPrompt || '').length > 600 ? '…' : ''}
+          {(props.systemPrompt || '').slice(0, 700)}
+          {(props.systemPrompt || '').length > 700 ? '…' : ''}
         </div>
       </div>
     );
@@ -279,7 +328,8 @@ const DrillPanel: React.FC<ConstellationProps & { sel: Sel; onClose: () => void 
           ))}
         </div>
         <p style={{ color: '#8f86ad', fontSize: 11, marginTop: 10 }}>
-          Change it in the Brain section below the constellation.
+          Change it in the Brain section below the constellation. The brain
+          ring never rotates — it is the agent's center of gravity.
         </p>
       </div>
     );
@@ -387,22 +437,34 @@ const DrillPanel: React.FC<ConstellationProps & { sel: Sel; onClose: () => void 
     );
   }
 
-  if (sel.kind === 'kb') {
-    const k = props.knowledge.find(x => x.name === sel.name);
-    if (!k) return null;
+  if (sel.kind === 'memory') {
+    const m = props.memory.find(x => x.name === sel.name);
+    if (!m) return null;
     return (
       <div style={panelStyles}>
         {close}
-        <div style={{ fontWeight: 700, fontSize: 15, color: 'hsl(160 75% 65%)' }}>{k.name}</div>
-        <PLabel>ROLE</PLabel>
-        <div>{k.role}</div>
-        <PLabel>CONTRIBUTED BY</PLabel>
-        <div>{k.from ? <Chip hue={265}>{k.from}</Chip> : 'direct selection'}</div>
+        <div style={{ fontWeight: 700, fontSize: 15, color: 'hsl(275 75% 72%)' }}>{m.name}</div>
+        <div style={{ color: '#8f86ad', fontSize: 11 }}>
+          {m.kind === 'workspace' ? 'seeded workspace' : 'knowledge base'}
+        </div>
+        <PLabel>{m.kind === 'workspace' ? 'SEEDED AT HIRE' : 'ROLE'}</PLabel>
+        <div style={{ color: '#b9b1d6', fontSize: 12, whiteSpace: 'pre-wrap' }}>{m.detail}</div>
+        {m.from && (
+          <>
+            <PLabel>CONTRIBUTED BY</PLabel>
+            <Chip hue={265}>{m.from}</Chip>
+          </>
+        )}
+        <PLabel>GROWS LIVE</PLabel>
+        <p style={{ color: '#8f86ad', fontSize: 11, lineHeight: 1.5 }}>
+          Memory accrues after hire — workspace notes, learned context, pool
+          documents. This arc shows what exists at creation; the live agent
+          view is where it grows.
+        </p>
       </div>
     );
   }
 
-  // team
   return (
     <div style={panelStyles}>
       {close}
@@ -437,7 +499,7 @@ const DrillPanel: React.FC<ConstellationProps & { sel: Sel; onClose: () => void 
 /* ---------- the constellation ---------- */
 
 export const AgentConstellation: React.FC<ConstellationProps> = props => {
-  const { emoji, name, brain, skills, tools, knowledge, team } = props;
+  const { emoji, name, brain, skills, tools, memory, team } = props;
   const [sel, setSel] = React.useState<Sel>(null);
 
   const pick = (s: Exclude<Sel, null>) => (e: React.MouseEvent) => {
@@ -445,30 +507,25 @@ export const AgentConstellation: React.FC<ConstellationProps> = props => {
     setSel(cur => (JSON.stringify(cur) === JSON.stringify(s) ? null : s));
   };
 
-  const segs: { s: ConstellationSkill; a0: number; a1: number }[] = [];
-  if (skills.length) {
-    const gap = 14;
-    const span = (360 - gap * skills.length) / skills.length;
-    let a = -90 + gap / 2;
-    for (const s of skills) {
-      segs.push({ s, a0: a, a1: a + span });
-      a += span + gap;
-    }
-  }
+  const skillSegs = weightedSegments(skills, s => s.leaves.length, 12, -90);
+  const memSegs = weightedSegments(memory, m => m.count, 10, -60);
 
   const toolNodes = tools.slice(0, 14);
-  const kbNodes = knowledge.slice(0, 10);
   const crew = team?.members?.slice(0, 8) ?? [];
 
   return (
-    <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+    <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'stretch' }}>
       <div
         style={{
           flex: '1 1 380px',
+          height: PANEL_H,
+          boxSizing: 'border-box',
           background: 'radial-gradient(ellipse at center, #17142b 0%, #0b0a14 70%)',
           borderRadius: 12,
           padding: 8,
           overflow: 'hidden',
+          display: 'flex',
+          flexDirection: 'column',
         }}
       >
         <style>{`
@@ -486,7 +543,7 @@ export const AgentConstellation: React.FC<ConstellationProps> = props => {
         `}</style>
         <svg
           viewBox={`0 0 ${W} ${W}`}
-          style={{ width: '100%', maxHeight: 560, display: 'block' }}
+          style={{ width: '100%', flex: 1, minHeight: 0, display: 'block' }}
           onClick={() => setSel(null)}
         >
           <defs>
@@ -508,15 +565,15 @@ export const AgentConstellation: React.FC<ConstellationProps> = props => {
             </pattern>
           </defs>
 
-          <circle cx={C} cy={C} r={300} fill="url(#aoc-hex)" opacity={0.5} />
+          <circle cx={C} cy={C} r={302} fill="url(#aoc-hex)" opacity={0.5} />
 
-          {/* TEAM */}
+          {/* TEAM — outermost, slowest */}
           <g opacity={dimWhenUnselected(sel, sel?.kind === 'team')}>
             <g className="aoc-slower">
               <circle
                 cx={C}
                 cy={C}
-                r={288}
+                r={292}
                 fill="none"
                 stroke="hsl(210 70% 55%)"
                 strokeWidth={1}
@@ -524,7 +581,7 @@ export const AgentConstellation: React.FC<ConstellationProps> = props => {
                 strokeDasharray="1 6"
               />
               {crew.map((m, i) => {
-                const { x, y } = polar(288, (360 / Math.max(crew.length, 1)) * i + 18);
+                const { x, y } = polar(292, (360 / Math.max(crew.length, 1)) * i + 18);
                 return (
                   <g key={`crew-${m}`} filter="url(#aoc-glow)" className="aoc-hit" onClick={pick({ kind: 'team' })}>
                     <title>{m}</title>
@@ -546,7 +603,7 @@ export const AgentConstellation: React.FC<ConstellationProps> = props => {
                 className="aoc-hit"
                 onClick={pick({ kind: 'team' })}
                 x={C}
-                y={C - 296}
+                y={C - 300}
                 textAnchor="middle"
                 fontSize={12}
                 fontWeight={700}
@@ -559,39 +616,13 @@ export const AgentConstellation: React.FC<ConstellationProps> = props => {
             )}
           </g>
 
-          {/* KNOWLEDGE */}
-          <g opacity={dimWhenUnselected(sel, sel?.kind === 'kb')}>
-            <circle cx={C} cy={C} r={248} fill="none" stroke="hsl(160 60% 45%)" strokeWidth={0.8} opacity={0.4} />
-            <RingLabel r={252} text={kbNodes.length ? 'KNOWLEDGE' : ''} hue={160} id="aoc-kb-ring" />
-            {kbNodes.map((k, i) => {
-              const { x, y } = polar(248, (360 / Math.max(kbNodes.length, 1)) * i + 45);
-              const mine = sel?.kind === 'kb' && sel.name === k.name;
-              return (
-                <g
-                  key={`kb-${k.name}`}
-                  filter="url(#aoc-glow)"
-                  className="aoc-hit"
-                  onClick={pick({ kind: 'kb', name: k.name })}
-                  opacity={dimWhenUnselected(sel, mine || sel?.kind !== 'kb')}
-                >
-                  <title>{k.name}</title>
-                  <circle cx={x} cy={y} r={9} fill="#0d1a16" stroke="hsl(160 75% 55%)" strokeWidth={1.4} />
-                  <circle cx={x} cy={y} r={13} fill="none" stroke="hsl(160 75% 55%)" strokeWidth={0.6} opacity={0.5} />
-                  <text x={x} y={y + 3.5} textAnchor="middle" fontSize={8.5} fill="hsl(160 75% 75%)">
-                    {k.name.slice(0, 2).toUpperCase()}
-                  </text>
-                </g>
-              );
-            })}
-          </g>
-
           {/* TOOLS */}
           <g opacity={dimWhenUnselected(sel, sel?.kind === 'tool')}>
             <g className="aoc-slow">
               <circle
                 cx={C}
                 cy={C}
-                r={208}
+                r={252}
                 fill="none"
                 stroke="hsl(28 80% 55%)"
                 strokeWidth={0.8}
@@ -599,7 +630,7 @@ export const AgentConstellation: React.FC<ConstellationProps> = props => {
                 strokeDasharray="2 5"
               />
               {toolNodes.map((t, i) => {
-                const { x, y } = polar(208, (360 / Math.max(toolNodes.length, 1)) * i);
+                const { x, y } = polar(252, (360 / Math.max(toolNodes.length, 1)) * i);
                 return (
                   <g
                     key={`tool-${t.name}`}
@@ -621,14 +652,64 @@ export const AgentConstellation: React.FC<ConstellationProps> = props => {
                 );
               })}
             </g>
-            <RingLabel r={214} text={toolNodes.length ? 'TOOLS' : ''} hue={28} id="aoc-tool-ring" />
+            <RingLabel r={258} text={toolNodes.length ? 'TOOLS' : ''} hue={28} id="aoc-tool-ring" />
           </g>
 
-          {/* SKILLS */}
+          {/* MEMORY — weighted arcs, the big field */}
+          <g opacity={dimWhenUnselected(sel, sel?.kind === 'memory')}>
+            <RingLabel r={230} text={memory.length ? 'MEMORY' : ''} hue={275} id="aoc-mem-ring" />
+            {memSegs.map(({ item: m, a0, a1 }, i) => {
+              const hue = MEM_HUES[i % MEM_HUES.length];
+              const mine = sel?.kind === 'memory' && sel.name === m.name;
+              const mid = (a0 + a1) / 2;
+              const nodePos = polar(232, mid);
+              return (
+                <g
+                  key={`mem-${m.name}`}
+                  className="aoc-hit"
+                  onClick={pick({ kind: 'memory', name: m.name })}
+                  opacity={dimWhenUnselected(sel, mine || sel?.kind !== 'memory')}
+                >
+                  {dotArc(
+                    `mem-${m.name}`,
+                    a0,
+                    a1,
+                    176,
+                    226,
+                    Array.from({ length: Math.max(1, m.count) }, (_, k) => `${m.name} · ${k + 1}`),
+                    hue,
+                    2,
+                  )}
+                  <g filter="url(#aoc-glow)">
+                    <title>{m.name}</title>
+                    <circle cx={nodePos.x} cy={nodePos.y} r={7} fill={`hsl(${hue} 80% 62%)`} />
+                    <text
+                      x={nodePos.x}
+                      y={nodePos.y - 12}
+                      textAnchor="middle"
+                      fontSize={9.5}
+                      fontWeight={700}
+                      letterSpacing={1}
+                      fill={`hsl(${hue} 85% 80%)`}
+                    >
+                      {m.name.toUpperCase().slice(0, 16)}
+                    </text>
+                    <text x={nodePos.x} y={nodePos.y + 20} textAnchor="middle" fontSize={8} fill={`hsl(${hue} 60% 68%)`}>
+                      {m.count}
+                    </text>
+                  </g>
+                </g>
+              );
+            })}
+          </g>
+
+          {/* SKILLS — weighted arcs */}
           <g opacity={dimWhenUnselected(sel, sel?.kind === 'skill')}>
-            <RingLabel r={172} text={skills.length ? 'SKILLS' : ''} hue={280} id="aoc-skill-ring" />
-            {segs.map(({ s, a0, a1 }) => {
+            <RingLabel r={168} text={skills.length ? 'SKILLS' : ''} hue={280} id="aoc-skill-ring" />
+            {skillSegs.map(({ item: s, a0, a1 }) => {
               const mine = sel?.kind === 'skill' && sel.name === s.name;
+              const mid = (a0 + a1) / 2;
+              const { x, y } = polar(150, mid);
               return (
                 <g
                   key={`seg-${s.name}`}
@@ -636,63 +717,63 @@ export const AgentConstellation: React.FC<ConstellationProps> = props => {
                   onClick={pick({ kind: 'skill', name: s.name })}
                   opacity={dimWhenUnselected(sel, mine || sel?.kind !== 'skill')}
                 >
-                  {dotArc(`arc-${s.name}`, a0, a1, 118, 166, s.leaves, s.hue)}
-                  {(() => {
-                    const mid = (a0 + a1) / 2;
-                    const { x, y } = polar(186, mid);
-                    return (
-                      <g filter="url(#aoc-glow)">
-                        <title>{s.displayName || s.name}</title>
-                        <circle cx={x} cy={y} r={7} fill={`hsl(${s.hue} 80% 60%)`} opacity={0.95} />
-                        <text
-                          x={x}
-                          y={y - 12}
-                          textAnchor="middle"
-                          fontSize={9.5}
-                          fontWeight={700}
-                          letterSpacing={1}
-                          fill={`hsl(${s.hue} 85% 78%)`}
-                        >
-                          {(s.displayName || s.name).toUpperCase().slice(0, 18)}
-                        </text>
-                        <text x={x} y={y + 20} textAnchor="middle" fontSize={8} fill={`hsl(${s.hue} 60% 65%)`}>
-                          {s.leaves.length}
-                        </text>
-                      </g>
-                    );
-                  })()}
+                  {dotArc(`arc-${s.name}`, a0, a1, 112, 162, s.leaves, s.hue)}
+                  <g filter="url(#aoc-glow)">
+                    <title>{s.displayName || s.name}</title>
+                    <circle cx={x} cy={y} r={6.5} fill={`hsl(${s.hue} 80% 60%)`} opacity={0.95} />
+                    <text
+                      x={x}
+                      y={y - 11}
+                      textAnchor="middle"
+                      fontSize={9}
+                      fontWeight={700}
+                      letterSpacing={1}
+                      fill={`hsl(${s.hue} 85% 78%)`}
+                    >
+                      {(s.displayName || s.name).toUpperCase().slice(0, 16)}
+                    </text>
+                    <text x={x} y={y + 18} textAnchor="middle" fontSize={8} fill={`hsl(${s.hue} 60% 65%)`}>
+                      {s.leaves.length}
+                    </text>
+                  </g>
                 </g>
               );
             })}
           </g>
 
-          {/* BRAIN */}
+          {/* BRAIN — static diamond ring, model name ON the ring */}
           <g
             opacity={dimWhenUnselected(sel, sel?.kind === 'brain')}
             className="aoc-hit"
             onClick={pick({ kind: 'brain' })}
           >
-            <title>{brain.label}</title>
-            <g className="aoc-slow">
-              {[86, 74].map((r, ringIdx) =>
-                Array.from({ length: ringIdx === 0 ? 28 : 20 }, (_, i) => {
-                  const { x, y } = polar(r, (360 / (ringIdx === 0 ? 28 : 20)) * i);
-                  return (
-                    <rect
-                      key={`br-${r}-${i}`}
-                      x={x - 2.6}
-                      y={y - 2.6}
-                      width={5.2}
-                      height={5.2}
-                      transform={`rotate(45 ${x} ${y})`}
-                      fill="hsl(18 95% 58%)"
-                      opacity={0.9}
-                    />
-                  );
-                }),
-              )}
-            </g>
-            <RingLabel r={98} text="BRAIN" hue={18} id="aoc-brain-ring" />
+            <title>
+              {brain.label}
+              {brain.connection ? ` — ${brain.connection}` : ''}
+            </title>
+            {[84, 72].map((r, ringIdx) =>
+              Array.from({ length: ringIdx === 0 ? 28 : 20 }, (_, i) => {
+                const { x, y } = polar(r, (360 / (ringIdx === 0 ? 28 : 20)) * i);
+                return (
+                  <rect
+                    key={`br-${r}-${i}`}
+                    x={x - 2.6}
+                    y={y - 2.6}
+                    width={5.2}
+                    height={5.2}
+                    transform={`rotate(45 ${x} ${y})`}
+                    fill="hsl(18 95% 58%)"
+                    opacity={0.9}
+                  />
+                );
+              }),
+            )}
+            <RingLabel
+              r={97}
+              text={`BRAIN · ${brain.label.toUpperCase().slice(0, 24)}`}
+              hue={18}
+              id="aoc-brain-ring"
+            />
           </g>
 
           {/* core */}
@@ -711,15 +792,31 @@ export const AgentConstellation: React.FC<ConstellationProps> = props => {
           <text x={C} y={C + 48} textAnchor="middle" fontSize={13} fontWeight={700} letterSpacing={2} fill="#f2ecff">
             {(name || 'AGENT').toUpperCase()}
           </text>
-          <text x={C} y={C + 63} textAnchor="middle" fontSize={9.5} fill="hsl(18 90% 72%)">
-            {brain.label}
-          </text>
           {brain.connection && (
-            <text x={C} y={C + 76} textAnchor="middle" fontSize={8.5} fill="#8f86ad">
+            <text x={C} y={C + 62} textAnchor="middle" fontSize={8.5} fill="#8f86ad">
               {brain.connection}
             </text>
           )}
         </svg>
+        <div
+          style={{
+            display: 'flex',
+            gap: 14,
+            justifyContent: 'center',
+            padding: '6px 0 2px',
+            fontSize: 10.5,
+            letterSpacing: 1,
+            color: '#8f86ad',
+            flexWrap: 'wrap',
+          }}
+        >
+          <span style={{ color: 'hsl(18 90% 66%)' }}>◆ BRAIN</span>
+          <span style={{ color: 'hsl(280 80% 72%)' }}>● SKILLS</span>
+          <span style={{ color: 'hsl(275 70% 72%)' }}>◍ MEMORY</span>
+          <span style={{ color: 'hsl(28 90% 66%)' }}>⬡ TOOLS</span>
+          <span style={{ color: 'hsl(210 80% 68%)' }}>⬢ TEAM</span>
+          <span>· arc width = weight · click to drill in</span>
+        </div>
       </div>
       <DrillPanel {...props} sel={sel} onClose={() => setSel(null)} />
     </div>
