@@ -21,6 +21,7 @@ metadata:
     app.kubernetes.io/managed-by: agent-office-gitops
 users:
   - dpeterson
+  - kube:admin
 ---
 apiVersion: user.openshift.io/v1
 kind: Group
