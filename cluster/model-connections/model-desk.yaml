@@ -1,0 +1,38 @@
+# model-desk — the cluster's metered model front door (LiteLLM in ns
+# model-desk; deployed from software-factory-deployer). This is the
+# endpoint-kind connection the operator fully renders: gateways whose
+# agents reference it get a models.providers.model-desk block and the
+# key projected from agent-office/model-desk-agent-key (created
+# out-of-band; never in git).
+#
+# NOTE the OpenAI upstream caps tools[] at 128 — an agent with a
+# larger tool surface (a full workshop seat carries ~200) errors on
+# this lane until its tool profile is trimmed or the model moves to
+# an upstream without the cap (vLLM). Proven live 2026-08-31.
+apiVersion: agentoffice.ai/v1alpha1
+kind: ModelConnection
+metadata:
+  name: model-desk
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  displayName: "Models-as-a-Service"
+  description: "Metered front door on the cluster; budgets stay platform-side"
+  kind: endpoint
+  baseUrl: "http://model-desk.model-desk.svc.cluster.local:4000/v1"
+  api: openai-completions
+  apiKeySecretRef:
+    name: model-desk-agent-key
+    namespace: agent-office
+    key: api-key
+  models:
+    - id: gpt-4o-mini
+      name: "GPT-4o mini"
+    - id: gpt-4o
+      name: "GPT-4o"
+  keyStrategy: shared
+  access:
+    groups:
+      - attendees
+    users:
+      - deanpeterson
