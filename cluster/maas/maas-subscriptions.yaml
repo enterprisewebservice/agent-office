@@ -33,6 +33,11 @@ spec:
       tokenRateLimits:
         - limit: 200000
           window: 1m
+    - name: claude-opus-4-6
+      namespace: models-as-a-service
+      tokenRateLimits:
+        - limit: 200000
+          window: 1m
     - name: claude-haiku-4-5
       namespace: models-as-a-service
       tokenRateLimits:

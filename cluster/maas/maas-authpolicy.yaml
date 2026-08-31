@@ -20,5 +20,7 @@ spec:
       namespace: models-as-a-service
     - name: claude-sonnet-5
       namespace: models-as-a-service
+    - name: claude-opus-4-6
+      namespace: models-as-a-service
     - name: claude-haiku-4-5
       namespace: models-as-a-service

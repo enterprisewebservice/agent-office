@@ -25,15 +25,18 @@ spec:
     name: model-desk-agent-key
     namespace: agent-office
     key: api-key
+  # Dean's floor: at least Opus-class. Opus 4.6 is the latest Opus the
+  # project enables, so it is the DEFAULT (first); Sonnet 5 stays on
+  # the menu (newer generation, typically >= prior-gen Opus).
   models:
+    - id: claude-opus-4-6
+      name: "Claude Opus 4.6"
     - id: claude-sonnet-5
       name: "Claude Sonnet 5"
     - id: claude-sonnet-4-5
       name: "Claude Sonnet 4.5"
     - id: claude-haiku-4-5
       name: "Claude Haiku 4.5"
-    - id: claude-opus-4-6
-      name: "Claude Opus 4.6"
   keyStrategy: shared
   access:
     groups:
