@@ -92,4 +92,28 @@ spec:
       tokenRateLimits:
         - limit: 20000
           window: 1m
+---
+# Admin personal-API lane: models billed to Dean's own keys, visible
+# only to model-admins. Subscriptions (Codex/Claude Max OAuth) can
+# NEVER live here — they are runtime auth profiles, not API endpoints.
+apiVersion: maas.opendatahub.io/v1alpha1
+kind: MaaSSubscription
+metadata:
+  name: admin-models
+  namespace: models-as-a-service
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  owner:
+    groups:
+      - name: model-admins
+  priority: 10
+  tokenMetadata:
+    costCenter: admin-personal
+  modelRefs:
+    - name: gpt-4o
+      namespace: models-as-a-service
+      tokenRateLimits:
+        - limit: 200000
+          window: 1m
 
