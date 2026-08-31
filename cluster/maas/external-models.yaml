@@ -224,4 +224,139 @@ spec:
     kind: ExternalModel
     name: gpt-4o
   endpointOverride: https://model-desk.model-desk.svc.cluster.local:8443/v1
+---
+apiVersion: maas.opendatahub.io/v1alpha1
+kind: ExternalModel
+metadata:
+  name: gpt-5-6-sol
+  namespace: models-as-a-service
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  provider: openai
+  endpoint: model-desk.model-desk.svc.cluster.local
+  targetModel: gpt-5.6-sol
+  credentialRef:
+    name: model-desk-upstream-key
+---
+apiVersion: maas.opendatahub.io/v1alpha1
+kind: MaaSModelRef
+metadata:
+  name: gpt-5-6-sol
+  namespace: models-as-a-service
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  modelRef:
+    kind: ExternalModel
+    name: gpt-5-6-sol
+  endpointOverride: https://model-desk.model-desk.svc.cluster.local:8443/v1
+---
+apiVersion: maas.opendatahub.io/v1alpha1
+kind: ExternalModel
+metadata:
+  name: gpt-5-6-terra
+  namespace: models-as-a-service
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  provider: openai
+  endpoint: model-desk.model-desk.svc.cluster.local
+  targetModel: gpt-5.6-terra
+  credentialRef:
+    name: model-desk-upstream-key
+---
+apiVersion: maas.opendatahub.io/v1alpha1
+kind: MaaSModelRef
+metadata:
+  name: gpt-5-6-terra
+  namespace: models-as-a-service
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  modelRef:
+    kind: ExternalModel
+    name: gpt-5-6-terra
+  endpointOverride: https://model-desk.model-desk.svc.cluster.local:8443/v1
+---
+apiVersion: maas.opendatahub.io/v1alpha1
+kind: ExternalModel
+metadata:
+  name: gpt-5-6-luna
+  namespace: models-as-a-service
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  provider: openai
+  endpoint: model-desk.model-desk.svc.cluster.local
+  targetModel: gpt-5.6-luna
+  credentialRef:
+    name: model-desk-upstream-key
+---
+apiVersion: maas.opendatahub.io/v1alpha1
+kind: MaaSModelRef
+metadata:
+  name: gpt-5-6-luna
+  namespace: models-as-a-service
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  modelRef:
+    kind: ExternalModel
+    name: gpt-5-6-luna
+  endpointOverride: https://model-desk.model-desk.svc.cluster.local:8443/v1
+---
+apiVersion: maas.opendatahub.io/v1alpha1
+kind: ExternalModel
+metadata:
+  name: claude-fable-5
+  namespace: models-as-a-service
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  provider: openai
+  endpoint: model-desk.model-desk.svc.cluster.local
+  targetModel: claude-fable-5
+  credentialRef:
+    name: model-desk-upstream-key
+---
+apiVersion: maas.opendatahub.io/v1alpha1
+kind: MaaSModelRef
+metadata:
+  name: claude-fable-5
+  namespace: models-as-a-service
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  modelRef:
+    kind: ExternalModel
+    name: claude-fable-5
+  endpointOverride: https://model-desk.model-desk.svc.cluster.local:8443/v1
+---
+apiVersion: maas.opendatahub.io/v1alpha1
+kind: ExternalModel
+metadata:
+  name: claude-opus-5
+  namespace: models-as-a-service
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  provider: openai
+  endpoint: model-desk.model-desk.svc.cluster.local
+  targetModel: claude-opus-5
+  credentialRef:
+    name: model-desk-upstream-key
+---
+apiVersion: maas.opendatahub.io/v1alpha1
+kind: MaaSModelRef
+metadata:
+  name: claude-opus-5
+  namespace: models-as-a-service
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  modelRef:
+    kind: ExternalModel
+    name: claude-opus-5
+  endpointOverride: https://model-desk.model-desk.svc.cluster.local:8443/v1
 
