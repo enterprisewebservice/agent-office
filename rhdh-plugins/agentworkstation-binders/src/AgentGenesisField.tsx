@@ -506,7 +506,9 @@ export const AgentGenesisField = (
                             skills: e.skills.map(s => ({ name: s.name, installed: s.installed !== false })),
                           }))
                         : [{ pack: p.name, skills: [{ name: p.name }] }],
-                      unmet: (p.dependencies ?? [])
+                      tier: p.tier,
+                      depsTotal: (p.dependencies ?? []).length,
+                      depsUnmet: (p.dependencies ?? [])
                         .filter(d => !d.available)
                         .map(d => ({ name: d.name, kind: d.kind })),
                       requires: (p.packRequires ?? []).map(r => ({
