@@ -146,6 +146,26 @@ export interface RecommendTeam {
   existing: boolean;
 }
 
+// GET /catalog/model-connections (operator >= v1.7.59) — the brain
+// menu. Admin-published ModelConnections: non-secret metadata plus
+// access rules the field filters against the signed-in user's group
+// memberships. Secret references never cross this wire.
+export interface ModelConnectionEntry {
+  name: string;
+  displayName: string;
+  description?: string;
+  kind: 'subscription' | 'apiKey' | 'endpoint';
+  provider?: string;
+  models?: { id: string; name?: string }[];
+  keyStrategy?: string;
+  access?: { groups?: string[]; users?: string[] };
+}
+
+export interface ModelConnectionList {
+  items: ModelConnectionEntry[];
+  count: number;
+}
+
 export const useCatalogClient = () => {
   const discoveryApi = useApi(discoveryApiRef);
   const fetchApi = useApi(fetchApiRef);
@@ -235,8 +255,23 @@ export const useCatalogClient = () => {
     [discoveryApi, fetchApi],
   );
 
+  const listModelConnections = useCallback(async (): Promise<ModelConnectionList> => {
+    const base = await discoveryApi.getBaseUrl('proxy');
+    const res = await fetchApi.fetch(`${base}/agent-office-catalog/model-connections`, {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(
+        `model-connections list failed: HTTP ${res.status} ${text.slice(0, 200)}`,
+      );
+    }
+    return (await res.json()) as ModelConnectionList;
+  }, [discoveryApi, fetchApi]);
+
   return useMemo(
-    () => ({ listSkills, listPacks, recommend, install }),
-    [listSkills, listPacks, recommend, install],
+    () => ({ listSkills, listPacks, recommend, install, listModelConnections }),
+    [listSkills, listPacks, recommend, install, listModelConnections],
   );
 };

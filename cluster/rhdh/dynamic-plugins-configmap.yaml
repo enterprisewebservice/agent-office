@@ -247,7 +247,7 @@ data:
     # activates as soon as Konflux pushes v0.0.1 of the image — until
     # then RHDH will fail to install this one plugin and log it; other
     # plugins keep working.
-    - package: "oci://quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/agent-office-agentworkstation-binders:v0.0.18!agent-office-backstage-plugin-agentworkstation-binders"
+    - package: "oci://quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/agent-office-agentworkstation-binders:v0.0.19!agent-office-backstage-plugin-agentworkstation-binders"
       disabled: false
       pluginConfig:
         proxy:

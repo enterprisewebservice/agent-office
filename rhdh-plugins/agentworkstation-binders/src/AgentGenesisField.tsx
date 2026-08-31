@@ -1,12 +1,18 @@
 /*
- * <AgentGenesisField> — the ONE-STEP agent creator (v0.0.10).
+ * <AgentGenesisField> — the ONE-STEP agent creator (v0.0.19).
  *
  * The whole wizard collapses into this field. The user:
  *
  *   1. describes the job in plain language,
- *   2. picks the brain — Codex subscription (default) or Claude
- *      (which shows the existing API-key path),
+ *   2. picks the brain from the connections the admin published FOR
+ *      THEM (ModelConnections filtered by the signed-in user's group
+ *      memberships — an admin sees the house subscriptions, an
+ *      attendee sees the MaaS lane and the sovereign model),
  *   3. hits Create.
+ *
+ * No credentials are ever typed here. The old paste-an-Anthropic-key
+ * radio was a dead lane (the operator never rendered an anthropic
+ * provider block) and is gone.
  *
  * Everything else comes from POST /catalog/recommend (operator >=
  * v1.7.12): identity (name/displayName/emoji/role/systemPrompt) and
@@ -37,6 +43,7 @@ import {
   CircularProgress,
   Divider,
   FormControlLabel,
+  MenuItem,
   Paper,
   Radio,
   RadioGroup,
@@ -49,10 +56,12 @@ import {
   Typography,
 } from '@material-ui/core';
 import ExpandMoreIcon from '@material-ui/icons/ExpandMore';
+import { identityApiRef, useApi } from '@backstage/core-plugin-api';
 import { FieldExtensionComponentProps } from '@backstage/plugin-scaffolder-react';
 import {
   useCatalogClient,
   CatalogPack,
+  ModelConnectionEntry,
   RecommendResponse,
   RecommendTeam,
 } from './strategies/useCatalogClient';
@@ -83,8 +92,18 @@ export interface GenesisValue {
   emoji: string;
   role: string;
   systemPrompt: string;
-  provider: 'openai-codex' | 'anthropic';
+  /** Provider written to the AgentWorkstation. Subscription/apiKey
+   *  connections carry their preset (`openai-codex`, `openai`);
+   *  endpoint connections emit `custom` + connectionRef, and the
+   *  operator renders the matching gateway provider block. */
+  provider: string;
   modelName: string;
+  /** Cluster-scoped ModelConnection this brain choice rides
+   *  (endpoint kind only; empty for subscription/apiKey presets). */
+  connectionRef: string;
+  /** Vestigial — the template still receives it; always ''. The old
+   *  paste-an-Anthropic-key path was a dead lane (no operator
+   *  rendering) and is gone from the UI. */
   apiKey: string;
   compose: { knowledgeBaseRefs: KbRef[]; mcpServers: McpServerVal[] };
   /** The gateway the agent joins. Chosen by Suggest, shown read-only —
@@ -105,9 +124,51 @@ const EMPTY: GenesisValue = {
   systemPrompt: '',
   provider: 'openai-codex',
   modelName: '',
+  connectionRef: '',
   apiKey: '',
   compose: { knowledgeBaseRefs: [], mcpServers: [] },
   gatewayRef: '',
+};
+
+/** The always-works fallback brain: the platform Codex subscription,
+ *  exactly what the field offered before connections existed. Shown
+ *  when the connections API is unreachable or advertises nothing to
+ *  this user — hiring must never brick on the menu. */
+const FALLBACK_BRAIN: ModelConnectionEntry = {
+  name: '__platform-codex__',
+  displayName: 'Codex subscription (platform credentials)',
+  kind: 'subscription',
+  provider: 'openai-codex',
+  models: [{ id: 'gpt-5.6-sol', name: 'GPT-5.6 Sol' }],
+};
+
+/** Case-insensitive membership test between a connection's access
+ *  rules and the signed-in user's identity refs. Group entries match
+ *  either spelling the platform uses — bare (`attendees`) or full
+ *  (`group:default/attendees`) — same as the genesis template's own
+ *  memberOf checks. No access block ⇒ hidden (publishing is a
+ *  deliberate admin act). */
+const canSee = (
+  conn: ModelConnectionEntry,
+  userName: string,
+  ownershipRefs: string[],
+): boolean => {
+  const a = conn.access;
+  if (!a || ((a.groups ?? []).length === 0 && (a.users ?? []).length === 0)) {
+    return false;
+  }
+  const lcUser = userName.toLowerCase();
+  if ((a.users ?? []).some(u => u.toLowerCase() === lcUser)) return true;
+  const mine = new Set<string>();
+  for (const ref of ownershipRefs) {
+    const lc = ref.toLowerCase();
+    mine.add(lc);
+    const short = lc.split('/').pop();
+    if (short) mine.add(short);
+  }
+  return (a.groups ?? []).some(
+    g => mine.has(g.toLowerCase()) || mine.has(`group:default/${g.toLowerCase()}`),
+  );
 };
 
 const typeChipStyle: Record<string, React.CSSProperties> = {
@@ -139,9 +200,60 @@ export const AgentGenesisField = (
     },
   };
 
+  const identityApi = useApi(identityApiRef);
+
   const [thinking, setThinking] = React.useState(false);
   const [source, setSource] = React.useState<string | undefined>();
   const [error, setError] = React.useState<string | undefined>();
+
+  // The brain menu: admin-published ModelConnections the signed-in
+  // user is allowed to pick, resolved once. Falls back to the
+  // platform Codex subscription when the API is unreachable or
+  // nothing is advertised to this user.
+  const [brains, setBrains] = React.useState<ModelConnectionEntry[]>([FALLBACK_BRAIN]);
+  React.useEffect(() => {
+    let live = true;
+    Promise.all([
+      catalog.listModelConnections().catch(() => ({ items: [], count: 0 })),
+      identityApi.getBackstageIdentity().catch(() => undefined),
+    ]).then(([list, ident]) => {
+      if (!live) return;
+      const userName =
+        ident?.userEntityRef?.split('/').pop() ?? '';
+      const refs = ident?.ownershipEntityRefs ?? [];
+      const visible = (Array.isArray(list.items) ? list.items : []).filter(c =>
+        canSee(c, userName, refs),
+      );
+      setBrains(visible.length > 0 ? visible : [FALLBACK_BRAIN]);
+    });
+    return () => {
+      live = false;
+    };
+  }, [catalog, identityApi]);
+
+  /** Write the brain choice into the form value. Endpoint kind rides
+   *  connectionRef + provider `custom`; subscription/apiKey presets
+   *  ride their legacy provider with no ref. */
+  const pickBrain = (conn: ModelConnectionEntry, modelId?: string) => {
+    const model = modelId || conn.models?.[0]?.id || '';
+    if (conn.kind === 'endpoint') {
+      set({ connectionRef: conn.name, provider: 'custom', modelName: model, apiKey: '' });
+    } else {
+      set({
+        connectionRef: '',
+        provider: conn.provider || 'openai-codex',
+        modelName: model,
+        apiKey: '',
+      });
+    }
+  };
+
+  /** Which menu entry the current form value corresponds to. */
+  const selectedBrain = (): ModelConnectionEntry | undefined =>
+    value.connectionRef
+      ? brains.find(b => b.name === value.connectionRef)
+      : brains.find(b => b.kind !== 'endpoint' && (b.provider || 'openai-codex') === value.provider) ??
+        (value.provider === FALLBACK_BRAIN.provider ? FALLBACK_BRAIN : undefined);
 
   // The whole catalog, for resolving a parent pack to its children.
   // A recommendation returns only the artifacts it chose, so picking
@@ -678,36 +790,63 @@ export const AgentGenesisField = (
               />
             </Box>
 
+            {/* The brain menu is published, not hardcoded: each entry
+                is a ModelConnection the admin created with access
+                rules, so an admin sees the house subscriptions while
+                an attendee sees the metered MaaS lane and the
+                sovereign model — same picker, different menu. No
+                credentials are entered here, ever: subscription
+                entries ride the gateway's stored auth, endpoint
+                entries are keyed by the operator from the admin
+                namespace. */}
             <Box mt={2}>
               <Typography variant="subtitle2">Brain</Typography>
               <RadioGroup
-                row
-                value={value.provider}
-                onChange={e =>
-                  set({ provider: e.target.value as GenesisValue['provider'], apiKey: '' })
-                }
+                value={selectedBrain()?.name ?? ''}
+                onChange={e => {
+                  const conn = brains.find(b => b.name === e.target.value);
+                  if (conn) pickBrain(conn);
+                }}
               >
-                <FormControlLabel
-                  value="openai-codex"
-                  control={<Radio size="small" />}
-                  label="Codex subscription (no key — platform credentials)"
-                />
-                <FormControlLabel
-                  value="anthropic"
-                  control={<Radio size="small" />}
-                  label="Claude (API key)"
-                />
+                {brains.map(b => (
+                  <Box key={b.name} display="flex" alignItems="center" gridGap={8}>
+                    <FormControlLabel
+                      value={b.name}
+                      control={<Radio size="small" />}
+                      label={
+                        <span>
+                          {b.displayName}
+                          {b.description ? (
+                            <Typography
+                              variant="caption"
+                              color="textSecondary"
+                              component="span"
+                              style={{ marginLeft: 8 }}
+                            >
+                              {b.description}
+                            </Typography>
+                          ) : null}
+                        </span>
+                      }
+                    />
+                    {selectedBrain()?.name === b.name && (b.models ?? []).length > 1 && (
+                      <TextField
+                        select
+                        size="small"
+                        value={value.modelName || b.models![0].id}
+                        onChange={e => pickBrain(b, e.target.value)}
+                        style={{ minWidth: 180 }}
+                      >
+                        {b.models!.map(m => (
+                          <MenuItem key={m.id} value={m.id}>
+                            {m.name || m.id}
+                          </MenuItem>
+                        ))}
+                      </TextField>
+                    )}
+                  </Box>
+                ))}
               </RadioGroup>
-              {value.provider === 'anthropic' && (
-                <TextField
-                  size="small"
-                  type="password"
-                  label="Anthropic API key"
-                  value={value.apiKey}
-                  onChange={e => set({ apiKey: e.target.value })}
-                  style={{ minWidth: 320 }}
-                />
-              )}
             </Box>
           </Box>
         )}
