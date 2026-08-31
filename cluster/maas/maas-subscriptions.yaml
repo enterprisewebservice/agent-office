@@ -97,6 +97,16 @@ spec:
       tokenRateLimits:
         - limit: 20000
           window: 1m
+    - name: claude-fable-5
+      namespace: models-as-a-service
+      tokenRateLimits:
+        - limit: 20000
+          window: 1m
+    - name: claude-opus-5
+      namespace: models-as-a-service
+      tokenRateLimits:
+        - limit: 20000
+          window: 1m
 ---
 # Admin personal-API lane: models billed to Dean's own keys, visible
 # only to model-admins. Subscriptions (Codex/Claude Max OAuth) can

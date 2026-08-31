@@ -56,6 +56,10 @@ spec:
       namespace: models-as-a-service
     - name: gpt-5-6-sol
       namespace: models-as-a-service
+    - name: claude-fable-5
+      namespace: models-as-a-service
+    - name: claude-opus-5
+      namespace: models-as-a-service
 ---
 apiVersion: maas.opendatahub.io/v1alpha1
 kind: MaaSAuthPolicy
