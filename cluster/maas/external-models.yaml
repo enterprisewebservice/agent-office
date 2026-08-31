@@ -1,0 +1,91 @@
+# External models registered behind OpenShift AI Models-as-a-Service
+# (RHOAI 3.4 Tech Preview). MaaS is the governor — per-user keys,
+# tiers, token quotas; model-desk (LiteLLM) is the protocol/credential
+# translator behind it (ExternalModel's credentialRef is bearer-key
+# only, and Claude-on-Vertex needs GCP OAuth, which LiteLLM handles).
+#
+# Secret models-as-a-service/model-desk-upstream-key (key "api-key")
+# is created out-of-band: a copy of model-desk's master key.
+#
+# gpt-4o-mini validates the whole governed lane today; the Claude pair
+# activates the moment model-desk gets the Vertex ADC secret.
+apiVersion: maas.opendatahub.io/v1alpha1
+kind: ExternalModel
+metadata:
+  name: gpt-4o-mini
+  namespace: models-as-a-service
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  provider: openai
+  endpoint: model-desk.model-desk.svc.cluster.local
+  targetModel: gpt-4o-mini
+  credentialRef:
+    name: model-desk-upstream-key
+---
+apiVersion: maas.opendatahub.io/v1alpha1
+kind: MaaSModelRef
+metadata:
+  name: gpt-4o-mini
+  namespace: models-as-a-service
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  modelRef:
+    kind: ExternalModel
+    name: gpt-4o-mini
+  endpointOverride: https://model-desk.model-desk.svc.cluster.local:8443/v1
+---
+apiVersion: maas.opendatahub.io/v1alpha1
+kind: ExternalModel
+metadata:
+  name: claude-sonnet-4-5
+  namespace: models-as-a-service
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  provider: openai
+  endpoint: model-desk.model-desk.svc.cluster.local
+  targetModel: claude-sonnet-4-5
+  credentialRef:
+    name: model-desk-upstream-key
+---
+apiVersion: maas.opendatahub.io/v1alpha1
+kind: MaaSModelRef
+metadata:
+  name: claude-sonnet-4-5
+  namespace: models-as-a-service
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  modelRef:
+    kind: ExternalModel
+    name: claude-sonnet-4-5
+  endpointOverride: https://model-desk.model-desk.svc.cluster.local:8443/v1
+---
+apiVersion: maas.opendatahub.io/v1alpha1
+kind: ExternalModel
+metadata:
+  name: claude-haiku-4-5
+  namespace: models-as-a-service
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  provider: openai
+  endpoint: model-desk.model-desk.svc.cluster.local
+  targetModel: claude-haiku-4-5
+  credentialRef:
+    name: model-desk-upstream-key
+---
+apiVersion: maas.opendatahub.io/v1alpha1
+kind: MaaSModelRef
+metadata:
+  name: claude-haiku-4-5
+  namespace: models-as-a-service
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  modelRef:
+    kind: ExternalModel
+    name: claude-haiku-4-5
+  endpointOverride: https://model-desk.model-desk.svc.cluster.local:8443/v1

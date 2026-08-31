@@ -1,0 +1,22 @@
+# Who may reach which MaaS models at all (the subscription grants
+# budgets; this grants access). Mirrors workshop-seats for now.
+apiVersion: maas.opendatahub.io/v1alpha1
+kind: MaaSAuthPolicy
+metadata:
+  name: workshop-access
+  namespace: models-as-a-service
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  subjects:
+    groups:
+      - name: system:authenticated
+  meteringMetadata:
+    costCenter: workshop
+  modelRefs:
+    - name: gpt-4o-mini
+      namespace: models-as-a-service
+    - name: claude-sonnet-4-5
+      namespace: models-as-a-service
+    - name: claude-haiku-4-5
+      namespace: models-as-a-service

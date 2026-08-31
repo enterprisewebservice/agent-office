@@ -1,0 +1,35 @@
+# Who may consume which MaaS models, with token budgets — the
+# governance grant (RHOAI 3.4 MaaS). Workshop seats get the
+# model-desk-translated external models with per-model token limits;
+# every authenticated cluster user qualifies for now (tighten to
+# attendee groups when seats mint their own identities).
+apiVersion: maas.opendatahub.io/v1alpha1
+kind: MaaSSubscription
+metadata:
+  name: workshop-seats
+  namespace: models-as-a-service
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  owner:
+    groups:
+      - name: system:authenticated
+  priority: 0
+  tokenMetadata:
+    costCenter: workshop
+  modelRefs:
+    - name: gpt-4o-mini
+      namespace: models-as-a-service
+      tokenRateLimits:
+        - limit: 100000
+          window: 1m
+    - name: claude-sonnet-4-5
+      namespace: models-as-a-service
+      tokenRateLimits:
+        - limit: 200000
+          window: 1m
+    - name: claude-haiku-4-5
+      namespace: models-as-a-service
+      tokenRateLimits:
+        - limit: 200000
+          window: 1m
