@@ -19,5 +19,7 @@ spec:
     - id: gpt-5.6
       name: "GPT-5.6"
   access:
+    groups:
+      - model-admins
     users:
       - deanpeterson

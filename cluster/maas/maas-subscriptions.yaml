@@ -13,7 +13,8 @@ metadata:
 spec:
   owner:
     groups:
-      - name: system:authenticated
+      - name: redhat-workshop-users
+      - name: model-admins
   priority: 0
   tokenMetadata:
     costCenter: workshop
@@ -43,3 +44,37 @@ spec:
       tokenRateLimits:
         - limit: 200000
           window: 1m
+---
+# Ops validation lane: the platform automation SA (group grants don't
+# reach SA tokens), tiny budget, for end-to-end probes only.
+apiVersion: maas.opendatahub.io/v1alpha1
+kind: MaaSSubscription
+metadata:
+  name: ops-validation
+  namespace: models-as-a-service
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  owner:
+    users:
+      - system:serviceaccount:claude-code-agent:claude-code-agent
+  priority: 0
+  tokenMetadata:
+    costCenter: ops
+  modelRefs:
+    - name: gpt-4o-mini
+      namespace: models-as-a-service
+      tokenRateLimits:
+        - limit: 20000
+          window: 1m
+    - name: claude-sonnet-5
+      namespace: models-as-a-service
+      tokenRateLimits:
+        - limit: 20000
+          window: 1m
+    - name: claude-opus-4-6
+      namespace: models-as-a-service
+      tokenRateLimits:
+        - limit: 20000
+          window: 1m
+

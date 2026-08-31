@@ -10,7 +10,8 @@ metadata:
 spec:
   subjects:
     groups:
-      - name: system:authenticated
+      - name: redhat-workshop-users
+      - name: model-admins
   meteringMetadata:
     costCenter: workshop
   modelRefs:
@@ -24,3 +25,25 @@ spec:
       namespace: models-as-a-service
     - name: claude-haiku-4-5
       namespace: models-as-a-service
+---
+apiVersion: maas.opendatahub.io/v1alpha1
+kind: MaaSAuthPolicy
+metadata:
+  name: ops-validation
+  namespace: models-as-a-service
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  subjects:
+    users:
+      - system:serviceaccount:claude-code-agent:claude-code-agent
+  meteringMetadata:
+    costCenter: ops
+  modelRefs:
+    - name: gpt-4o-mini
+      namespace: models-as-a-service
+    - name: claude-sonnet-5
+      namespace: models-as-a-service
+    - name: claude-opus-4-6
+      namespace: models-as-a-service
+

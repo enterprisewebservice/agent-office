@@ -1,0 +1,45 @@
+# Red Hat AI Services BU LiteMaaS — hosted open models behind an
+# OpenAI-compatible LiteLLM endpoint. This is the brain-swap module's
+# "swap to a Red Hat-served open model" lane.
+#
+# Discovered 2026-08-31: inference base
+# https://litemaas.rhoai.rh-aiservices-bu.com/v1 (portal catalog at
+# litemaas-portal.../api/v1/models is public; keys are minted in the
+# portal UI behind Red Hat SSO). Secret litemaas-api-key is created
+# out-of-band — Dean mints the key at
+# https://litemaas-portal.rhoai.rh-aiservices-bu.com (API Keys).
+#
+# Red Hat-billed => never visible to handsonmode-users.
+apiVersion: agentoffice.ai/v1alpha1
+kind: ModelConnection
+metadata:
+  name: litemaas
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  displayName: "LiteMaaS — Red Hat hosted open models"
+  description: "Qwen and Granite served by the Red Hat AI Services BU"
+  kind: endpoint
+  baseUrl: "https://litemaas.rhoai.rh-aiservices-bu.com/v1"
+  api: openai-completions
+  apiKeySecretRef:
+    name: litemaas-api-key
+    namespace: agent-office
+    key: api-key
+  models:
+    - id: Qwen3.8-27B
+      name: "Qwen 3.8 27B"
+    - id: Qwen3.6-35B-A3B
+      name: "Qwen 3.6 35B (A3B MoE)"
+    - id: Qwen2.5-VL-7B-Instruct
+      name: "Qwen 2.5 VL 7B (vision)"
+    - id: Granite-Vision-3.2
+      name: "Granite Vision 3.2"
+  keyStrategy: shared
+  access:
+    groups:
+      - redhat-workshop-users
+      - attendees
+      - model-admins
+    users:
+      - deanpeterson

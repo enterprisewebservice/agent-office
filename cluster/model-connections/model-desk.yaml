@@ -33,6 +33,9 @@ spec:
   keyStrategy: shared
   access:
     groups:
+      - handsonmode-users
+      - redhat-workshop-users
       - attendees
+      - model-admins
     users:
       - deanpeterson

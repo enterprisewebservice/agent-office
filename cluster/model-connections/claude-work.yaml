@@ -40,6 +40,8 @@ spec:
   keyStrategy: shared
   access:
     groups:
+      - redhat-workshop-users
       - attendees
+      - model-admins
     users:
       - deanpeterson

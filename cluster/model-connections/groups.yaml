@@ -1,0 +1,43 @@
+# Model-access groups — ONE vocabulary for every enforcement surface:
+# ModelConnection access lists (hiring UI), MaaS subscriptions and
+# auth policies (token budgets + access), and console RBAC.
+#
+#   model-admins          -> every connection (Dean & co)
+#   redhat-workshop-users -> Red Hat-billed routes allowed
+#                            (claude-work/Vertex, LiteMaaS)
+#   handsonmode-users     -> external seats: NEVER Red Hat tokens or
+#                            subscriptions; personal-billed and
+#                            sovereign lanes only
+#
+# Membership is managed here (add a user line, commit, apply).
+# Note: Dev Hub's picker matches RHDH identities — seat users carry
+# the RHDH group `attendees`, so connections meant for RH workshop
+# seats list both spellings.
+apiVersion: user.openshift.io/v1
+kind: Group
+metadata:
+  name: model-admins
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+users:
+  - dpeterson
+---
+apiVersion: user.openshift.io/v1
+kind: Group
+metadata:
+  name: redhat-workshop-users
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+users:
+  - user1
+  - user2
+  - user3
+  - user4
+---
+apiVersion: user.openshift.io/v1
+kind: Group
+metadata:
+  name: handsonmode-users
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+users: []
