@@ -1,0 +1,38 @@
+# Claude via the Red Hat work subscription on Google Vertex AI
+# (project itpc-gcp-global-revenue-claude), translated to
+# OpenAI-compatible by model-desk (LiteLLM vertex_ai provider).
+# RHOAI 3.3 MaaS cannot front external SaaS models (llm-d-served
+# models only), so this rides the model-desk lane; the sovereign
+# cluster-served models go through real MaaS instead.
+#
+# Scoped to the workshop audience deliberately: this is Red Hat's
+# work subscription, for Red Hat workshop users — never the public
+# edition. Anthropic has no 128-entry tools[] cap, so full seats
+# (~200 tools) work on this lane.
+apiVersion: agentoffice.ai/v1alpha1
+kind: ModelConnection
+metadata:
+  name: claude-work
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  displayName: "Claude — Red Hat Vertex"
+  description: "Frontier brain on the work subscription; full tool surface"
+  kind: endpoint
+  baseUrl: "http://model-desk.model-desk.svc.cluster.local:4000/v1"
+  api: openai-completions
+  apiKeySecretRef:
+    name: model-desk-agent-key
+    namespace: agent-office
+    key: api-key
+  models:
+    - id: claude-sonnet-4-5
+      name: "Claude Sonnet 4.5"
+    - id: claude-haiku-4-5
+      name: "Claude Haiku 4.5"
+  keyStrategy: shared
+  access:
+    groups:
+      - attendees
+    users:
+      - deanpeterson

@@ -16,8 +16,8 @@ metadata:
   labels:
     app.kubernetes.io/managed-by: agent-office-gitops
 spec:
-  displayName: "Models-as-a-Service"
-  description: "Metered front door on the cluster; budgets stay platform-side"
+  displayName: "Metered frontier — OpenAI"
+  description: "OpenAI via the cluster front door; 128-tool cap applies"
   kind: endpoint
   baseUrl: "http://model-desk.model-desk.svc.cluster.local:4000/v1"
   api: openai-completions
