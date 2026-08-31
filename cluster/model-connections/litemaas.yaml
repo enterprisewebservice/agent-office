@@ -26,15 +26,13 @@ spec:
     name: litemaas-api-key
     namespace: agent-office
     key: api-key
+  # Trimmed to what the stored key's subscription actually serves
+  # (live-checked; the portal catalog lists more).
   models:
     - id: Qwen3.8-27B
       name: "Qwen 3.8 27B"
     - id: Qwen3.6-35B-A3B
       name: "Qwen 3.6 35B (A3B MoE)"
-    - id: Qwen2.5-VL-7B-Instruct
-      name: "Qwen 2.5 VL 7B (vision)"
-    - id: Granite-Vision-3.2
-      name: "Granite Vision 3.2"
   keyStrategy: shared
   access:
     groups:

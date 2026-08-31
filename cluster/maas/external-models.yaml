@@ -143,3 +143,58 @@ spec:
     kind: ExternalModel
     name: claude-opus-4-6
   endpointOverride: https://model-desk.model-desk.svc.cluster.local:8443/v1
+---
+apiVersion: maas.opendatahub.io/v1alpha1
+kind: ExternalModel
+metadata:
+  name: qwen3-8-27b
+  namespace: models-as-a-service
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  provider: openai
+  endpoint: model-desk.model-desk.svc.cluster.local
+  targetModel: Qwen3.8-27B
+  credentialRef:
+    name: model-desk-upstream-key
+---
+apiVersion: maas.opendatahub.io/v1alpha1
+kind: MaaSModelRef
+metadata:
+  name: qwen3-8-27b
+  namespace: models-as-a-service
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  modelRef:
+    kind: ExternalModel
+    name: qwen3-8-27b
+  endpointOverride: https://model-desk.model-desk.svc.cluster.local:8443/v1
+---
+apiVersion: maas.opendatahub.io/v1alpha1
+kind: ExternalModel
+metadata:
+  name: qwen3-6-35b-a3b
+  namespace: models-as-a-service
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  provider: openai
+  endpoint: model-desk.model-desk.svc.cluster.local
+  targetModel: Qwen3.6-35B-A3B
+  credentialRef:
+    name: model-desk-upstream-key
+---
+apiVersion: maas.opendatahub.io/v1alpha1
+kind: MaaSModelRef
+metadata:
+  name: qwen3-6-35b-a3b
+  namespace: models-as-a-service
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  modelRef:
+    kind: ExternalModel
+    name: qwen3-6-35b-a3b
+  endpointOverride: https://model-desk.model-desk.svc.cluster.local:8443/v1
+
