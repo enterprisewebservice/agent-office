@@ -48,3 +48,29 @@ spec:
         # and model project namespaces) — keep attachment open.
         namespaces:
           from: All
+---
+# Public entry for MaaS. The RHOAI dashboard AUTO-DISCOVERS the MaaS
+# URL as https://maas.<apps-domain>/maas-api (maas-ui container log),
+# and the gateway controller creates no Routes itself — this Route is
+# the same shape as the operator's own rh-ai route onto the
+# data-science gateway (reencrypt to the listener's service-ca cert).
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: maas
+  namespace: openshift-ingress
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  host: maas.apps.salamander.aimlworkbench.com
+  port:
+    targetPort: 443
+  tls:
+    termination: reencrypt
+    insecureEdgeTerminationPolicy: Redirect
+  to:
+    kind: Service
+    name: maas-default-gateway-data-science-gateway-class
+    weight: 100
+  wildcardPolicy: None
+
