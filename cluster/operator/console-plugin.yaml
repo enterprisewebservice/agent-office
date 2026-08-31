@@ -44,7 +44,7 @@ spec:
         - name: quay-pull-secret
       containers:
         - name: agent-office-plugin
-          image: quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/agent-office-plugin:v0.0.4
+          image: quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/agent-office-plugin:v0.0.6
           # Same-tag image gets re-pushed during plugin iteration;
           # Always so kubelet picks up the new digest on every restart.
           imagePullPolicy: Always
