@@ -20,10 +20,13 @@ spec:
   displayName: "LiteMaaS — Red Hat hosted open models"
   description: "Qwen and Granite served by the Red Hat AI Services BU"
   kind: endpoint
-  baseUrl: "https://litemaas.rhoai.rh-aiservices-bu.com/v1"
+  # Unified through model-desk (the universal translator): the BU's
+  # LiteMaaS key lives only in model-desk's env; agents authenticate
+  # with the platform's model-desk key like every other endpoint lane.
+  baseUrl: "http://model-desk.model-desk.svc.cluster.local:4000/v1"
   api: openai-completions
   apiKeySecretRef:
-    name: litemaas-api-key
+    name: model-desk-agent-key
     namespace: agent-office
     key: api-key
   # Trimmed to what the stored key's subscription actually serves
