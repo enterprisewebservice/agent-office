@@ -33,6 +33,7 @@ users:
   - user2
   - user3
   - user4
+  - user5
 ---
 apiVersion: user.openshift.io/v1
 kind: Group
