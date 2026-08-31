@@ -65,6 +65,7 @@ import {
   RecommendResponse,
   RecommendTeam,
 } from './strategies/useCatalogClient';
+import { AgentConstellation, packHue } from './AgentConstellation';
 
 interface KbRef {
   name: string;
@@ -459,6 +460,46 @@ export const AgentGenesisField = (
         {ready && (
           <Box mt={2}>
             <Divider />
+            {/* The agent, drawn: a deterministic radial view of what is
+                being assembled — identity core, BRAIN ring, SKILLS as
+                per-pack dot-arcs (meta-packs bloom into their real
+                trees), TOOLS and KNOWLEDGE satellites, the TEAM ring
+                outermost. Same agent ⇒ same constellation, so people
+                learn to read agents at a glance. */}
+            <Box mt={2}>
+              <AgentConstellation
+                emoji={value.emoji}
+                name={value.name}
+                brainLabel={(() => {
+                  const b = selectedBrain();
+                  const m = (b?.models ?? []).find(x => x.id === value.modelName);
+                  return m?.name || value.modelName || b?.models?.[0]?.name || 'auto';
+                })()}
+                brainSub={selectedBrain()?.displayName}
+                skills={value.packs
+                  .filter(p => p.type === 'skill')
+                  .map((p, i) => {
+                    const tree = treeOf(p);
+                    const leaves = tree.flatMap(e => e.skills.map(s => s.name));
+                    return {
+                      pack: p.displayName || p.name,
+                      hue: packHue(i),
+                      skills: leaves.length ? leaves : [p.name],
+                    };
+                  })}
+                tools={value.compose.mcpServers.map(m => m.name)}
+                knowledge={value.compose.knowledgeBaseRefs.map(k => k.name)}
+                team={
+                  value.team
+                    ? {
+                        gateway: value.team.gateway,
+                        members: value.team.members ?? [],
+                        isNew: !value.team.existing,
+                      }
+                    : undefined
+                }
+              />
+            </Box>
             <Box mt={2} display="flex" gridGap={12} alignItems="center" flexWrap="wrap">
               <TextField
                 size="small"
