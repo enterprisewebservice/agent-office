@@ -529,13 +529,10 @@ export const AgentGenesisField = (
                   )?.name,
                 }))}
                 memory={[
-                  {
-                    name: 'workspace',
-                    kind: 'workspace' as const,
-                    count: 4,
-                    detail:
-                      'SOUL.md — persona\nIDENTITY.md — who it is\nTOOLS.md — how to reach its tools\nAGENTS.md — how it works',
-                  },
+                  { name: 'SOUL.md', kind: 'workspace-doc' as const, count: 1, detail: 'The persona — how this agent speaks and carries itself. Seeded from the system prompt at hire; the agent evolves it.' },
+                  { name: 'IDENTITY.md', kind: 'workspace-doc' as const, count: 1, detail: 'Who it is — name, emoji, role. The stable self-description.' },
+                  { name: 'TOOLS.md', kind: 'workspace-doc' as const, count: 1, detail: 'How to reach its tools — endpoints, usage guidance for the governed MCP surface.' },
+                  { name: 'AGENTS.md', kind: 'workspace-doc' as const, count: 1, detail: 'Working agreements — how it operates, conventions, guardrails.' },
                   ...value.compose.knowledgeBaseRefs.map(k => ({
                     name: k.name,
                     kind: 'kb' as const,
