@@ -404,7 +404,7 @@ const DrillPanel: React.FC<ConstellationProps & PanelExtra> = props => {
     const s = props.skills[idx];
     if (!s) return null;
     const readiness = skillReadiness(s);
-    const isBundle = (s.tree?.length ?? 0) > 1 || s.artifactKind === 'meta-pack';
+    const isBundle = s.leaves.length > 1;
     const deepest = s.leaves.length === maxLeaves;
     return (
       <div style={panelStyles}>
@@ -663,19 +663,31 @@ export const AgentConstellation: React.FC<ConstellationProps> = props => {
   const toolNodes = tools.slice(0, 14);
   const crew = team?.members?.slice(0, 8) ?? [];
 
-  /** Hub node + label rendered at the INNER edge of a wedge. */
+  /** Hub node + label at the INNER edge. Enterable hubs carry a »
+   *  marker always, and a pulsing on-canvas ENTER pill when selected
+   *  — the drill-down lives in the diagram, not just the side panel.
+   *  Double-clicking an enterable wedge enters directly. */
   const Hub: React.FC<{
     mid: number;
     hue: number;
     label: string;
     count: number;
     hasUnlit?: boolean;
-  }> = ({ mid, hue, label, count, hasUnlit }) => {
+    enterable?: boolean;
+    selected?: boolean;
+    onEnter?: () => void;
+  }> = ({ mid, hue, label, count, hasUnlit, enterable, selected, onEnter }) => {
     const p = polar(R_HUB, mid);
     const lp = polar(R_HUB - 16, mid);
+    const ep = polar(R_HUB + 22, mid);
     return (
       <g filter="url(#aoc-glow)">
         <circle cx={p.x} cy={p.y} r={6.5} fill={`hsl(${hue} 80% 60%)`} opacity={0.95} />
+        {enterable && (
+          <text x={p.x + 9} y={p.y + 3} fontSize={8} fontWeight={700} fill={`hsl(${hue} 85% 80%)`}>
+            »
+          </text>
+        )}
         <text
           x={lp.x}
           y={lp.y + 3}
@@ -691,6 +703,20 @@ export const AgentConstellation: React.FC<ConstellationProps> = props => {
           {count}
           {hasUnlit ? ' ◌' : ''}
         </text>
+        {enterable && selected && onEnter && (
+          <g
+            className="aoc-hit aoc-core"
+            onClick={e => {
+              e.stopPropagation();
+              onEnter();
+            }}
+          >
+            <rect x={ep.x - 30} y={ep.y - 10} width={60} height={20} rx={10} fill={`hsl(${hue} 65% 25%)`} stroke={`hsl(${hue} 80% 60%)`} strokeWidth={1.2} />
+            <text x={ep.x} y={ep.y + 3.5} textAnchor="middle" fontSize={9.5} fontWeight={700} letterSpacing={1} fill={`hsl(${hue} 90% 82%)`}>
+              ⤵ ENTER
+            </text>
+          </g>
+        )}
       </g>
     );
   };
@@ -827,11 +853,31 @@ export const AgentConstellation: React.FC<ConstellationProps> = props => {
                     const depth = skillDepth(s, maxLeaves);
                     const readiness = skillReadiness(s);
                     const { nodes, rows, litRows } = stadiumWedge(`w-${s.name}`, a0, a1, depth, readiness, s.hue, s.leaves);
+                    const enterable = s.leaves.length > 1;
                     return (
-                      <g key={`seg-${s.name}`} className="aoc-hit" onClick={pick({ kind: 'skill', name: s.name })} opacity={dimWhenUnselected(sel, mine || sel?.kind !== 'skill')}>
+                      <g
+                        key={`seg-${s.name}`}
+                        className="aoc-hit"
+                        onClick={pick({ kind: 'skill', name: s.name })}
+                        onDoubleClick={e => {
+                          if (!enterable) return;
+                          e.stopPropagation();
+                          enterBundle(s.name);
+                        }}
+                        opacity={dimWhenUnselected(sel, mine || sel?.kind !== 'skill')}
+                      >
                         {nodes}
-                        <title>{`${s.displayName || s.name} · ${s.leaves.length} skill(s) · ${Math.round(readiness * 100)}% live`}</title>
-                        <Hub mid={(a0 + a1) / 2} hue={s.hue} label={s.displayName || s.name} count={s.leaves.length} hasUnlit={litRows < rows} />
+                        <title>{`${s.displayName || s.name} · ${s.leaves.length} skill(s) · ${Math.round(readiness * 100)}% live${enterable ? ' · double-click to enter' : ''}`}</title>
+                        <Hub
+                          mid={(a0 + a1) / 2}
+                          hue={s.hue}
+                          label={s.displayName || s.name}
+                          count={s.leaves.length}
+                          hasUnlit={litRows < rows}
+                          enterable={enterable}
+                          selected={mine}
+                          onEnter={() => enterBundle(s.name)}
+                        />
                       </g>
                     );
                   })}
@@ -870,7 +916,13 @@ export const AgentConstellation: React.FC<ConstellationProps> = props => {
             <>
               {/* BUNDLE VIEW — members as stadium wedges */}
               {(() => {
-                const members = bundle.tree;
+                const members =
+                  bundle.tree.length > 1
+                    ? bundle.tree
+                    : bundle.leaves.map(l => ({
+                        pack: l,
+                        skills: [{ name: l, installed: undefined as boolean | undefined }],
+                      }));
                 const maxM = Math.max(...members.map(t => t.skills.length), 1);
                 return wedgeLayout(members.length, 12).map(({ a0, a1 }, i) => {
                   const t = members[i];
@@ -918,7 +970,7 @@ export const AgentConstellation: React.FC<ConstellationProps> = props => {
           {focus.level === 'agent' ? (
             <>
               <span style={{ color: `hsl(${HUE_BRAIN} 90% 66%)` }}>◆ BRAIN</span>
-              <span style={{ color: 'hsl(285 80% 74%)' }}>● SKILL ARTIFACTS — rows out = depth, hollow rim = not live</span>
+              <span style={{ color: 'hsl(285 80% 74%)' }}>● SKILL ARTIFACTS — rows out = depth, hollow rim = not live, » = enterable (double-click)</span>
               <span style={{ color: `hsl(${HUE_MEM} 70% 65%)` }}>▤ MEMORY</span>
               <span style={{ color: `hsl(${HUE_TOOLS} 90% 66%)` }}>⬡ TOOLS</span>
               <span style={{ color: `hsl(${HUE_TEAM} 80% 68%)` }}>⬢ TEAM</span>
