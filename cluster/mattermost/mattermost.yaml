@@ -176,6 +176,10 @@ spec:
               value: Sign in with your workshop account
             - name: MM_GITLABSETTINGS_BUTTONCOLOR
               value: "#ee0000"
+            # Seat removal deletes the person's chat account for real
+            # (otherwise a re-signup collides with a deactivated ghost).
+            - name: MM_SERVICESETTINGS_ENABLEAPIUSERDELETION
+              value: "true"
           ports:
             - containerPort: 8065
           volumeMounts:
