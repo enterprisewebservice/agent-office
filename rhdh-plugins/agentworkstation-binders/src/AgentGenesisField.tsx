@@ -1,14 +1,18 @@
 /*
- * <AgentGenesisField> — the ONE-STEP agent creator (v0.0.19).
+ * <AgentGenesisField> — the ONE-STEP agent creator (v0.0.26: the step
+ * is a conversation now).
  *
  * The whole wizard collapses into this field. The user:
  *
  *   1. describes the job in plain language,
- *   2. picks the brain from the connections the admin published FOR
+ *   2. refines the composed hire in a chat (targeted add/remove/edit
+ *      ops via POST /catalog/refine — never a wholesale re-suggest —
+ *      plus catalog Q&A: "is there a skill for X?"),
+ *   3. picks the brain from the connections the admin published FOR
  *      THEM (ModelConnections filtered by the signed-in user's group
  *      memberships — an admin sees the house subscriptions, an
  *      attendee sees the MaaS lane and the sovereign model),
- *   3. hits Create.
+ *   4. hits Create.
  *
  * No credentials are ever typed here. The old paste-an-Anthropic-key
  * radio was a dead lane (the operator never rendered an anthropic
@@ -64,6 +68,7 @@ import {
   ModelConnectionEntry,
   RecommendResponse,
   RecommendTeam,
+  RefineMessage,
 } from './strategies/useCatalogClient';
 import { AgentConstellation, packHue } from './AgentConstellation';
 
@@ -178,6 +183,37 @@ const typeChipStyle: Record<string, React.CSSProperties> = {
   kb: { backgroundColor: '#e6f4ea' },
 };
 
+/** One turn in the refinement chat. Alignment is the only role marker
+ *  a chat needs: user right and tinted, composer left and bordered. */
+const ChatBubble = ({
+  role,
+  content,
+}: {
+  role: 'user' | 'assistant';
+  content: React.ReactNode;
+}) => (
+  <Box display="flex" justifyContent={role === 'user' ? 'flex-end' : 'flex-start'} mb={1}>
+    <Box
+      style={{
+        maxWidth: '78%',
+        padding: '8px 12px',
+        borderRadius: 12,
+        ...(role === 'user'
+          ? { background: '#e3f2fd', borderBottomRightRadius: 4 }
+          : {
+              background: '#ffffff',
+              border: '1px solid #e0e0e0',
+              borderBottomLeftRadius: 4,
+            }),
+      }}
+    >
+      <Typography variant="body2" component="div" style={{ whiteSpace: 'pre-wrap' }}>
+        {content}
+      </Typography>
+    </Box>
+  </Box>
+);
+
 export const AgentGenesisField = (
   props: FieldExtensionComponentProps<GenesisValue>,
 ) => {
@@ -206,6 +242,20 @@ export const AgentGenesisField = (
   const [thinking, setThinking] = React.useState(false);
   const [source, setSource] = React.useState<string | undefined>();
   const [error, setError] = React.useState<string | undefined>();
+
+  // The refinement conversation. Component state, not form value: the
+  // composition itself (packs/identity/compose) already lives in the
+  // form value and survives a remount — the transcript is the working
+  // session around it, and restarting it fresh after a remount is
+  // fine because every /catalog/refine turn re-sends current state.
+  const [chat, setChat] = React.useState<RefineMessage[]>([]);
+  const [chatInput, setChatInput] = React.useState('');
+  const [refining, setRefining] = React.useState(false);
+  const transcriptRef = React.useRef<HTMLDivElement | null>(null);
+  React.useEffect(() => {
+    const el = transcriptRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [chat, refining]);
 
   // The brain menu: admin-published ModelConnections the signed-in
   // user is allowed to pick, resolved once. Falls back to the
@@ -404,11 +454,98 @@ export const AgentGenesisField = (
         gatewayRef: rec.team?.gateway ?? '',
         team: rec.team,
       });
+      // The composition is a draft, and the conversation says so up
+      // front: the first assistant turn asks whether it's right. From
+      // here the brief box is a chat — edits are targeted ops, not
+      // wholesale re-suggestion.
+      setChat([
+        {
+          role: 'assistant',
+          content:
+            `I composed ${rec.identity.displayName || rec.identity.name} — ` +
+            `${picked.length} catalog pick(s), wired below. Does this look right? ` +
+            `Tell me what to add or remove, or ask what else the catalog has ` +
+            `for a topic.`,
+        },
+      ]);
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setThinking(false);
     }
+  };
+
+  /** One refinement turn: ship the whole conversation plus the CURRENT
+   *  composition; apply whatever came back. The server edits
+   *  surgically (ops), so an unchanged reply means a question was
+   *  answered — nothing to re-apply. */
+  const sendRefinement = async () => {
+    const msg = chatInput.trim();
+    if (!msg || refining) return;
+    const nextChat: RefineMessage[] = [...chat, { role: 'user', content: msg }];
+    setChat(nextChat);
+    setChatInput('');
+    setRefining(true);
+    try {
+      const b = selectedBrain();
+      const chosen = value.modelName || b?.models?.[0]?.id || '';
+      const res = await catalog.refine({
+        description: value.description,
+        current: {
+          identity: {
+            name: value.name,
+            displayName: value.displayName,
+            emoji: value.emoji,
+            role: value.role,
+            systemPrompt: value.systemPrompt,
+          },
+          packs: value.packs.map(p => p.name),
+          brain: b ? `${b.displayName}${chosen ? ` (${chosen})` : ''}` : chosen,
+        },
+        messages: nextChat,
+      });
+      if (res.changed) {
+        const picked = Array.isArray(res.packs) ? res.packs : [];
+        const compose = composeFrom(picked);
+        onChange({
+          ...value,
+          name: res.identity.name || value.name,
+          displayName: res.identity.displayName || value.displayName,
+          emoji: res.identity.emoji || value.emoji,
+          role: res.identity.role || value.role,
+          systemPrompt: res.identity.systemPrompt || value.systemPrompt,
+          packs: picked,
+          selection: summarize(picked, compose),
+          compose,
+          gatewayRef: res.team?.gateway ?? value.gatewayRef,
+          team: res.team ?? value.team,
+        });
+        setSource(res.source);
+      }
+      setChat([...nextChat, { role: 'assistant', content: res.reply || 'Done.' }]);
+    } catch (e) {
+      setChat([
+        ...nextChat,
+        {
+          role: 'assistant',
+          content:
+            `That didn't go through — ${(e as Error).message}. ` +
+            `The composition is unchanged; try again.`,
+        },
+      ]);
+    } finally {
+      setRefining(false);
+    }
+  };
+
+  /** Back to the single input box, brief preserved, composition
+   *  cleared. The destructive escape hatch the old Re-suggest was —
+   *  now it says so instead of masquerading as a refinement. */
+  const startOver = () => {
+    setChat([]);
+    setSource(undefined);
+    setError(undefined);
+    onChange({ ...EMPTY, description: value.description });
   };
 
   const removePack = (name: string) => {
@@ -423,34 +560,113 @@ export const AgentGenesisField = (
     <Paper variant="outlined">
       <Box p={2}>
         <Typography variant="h6">What will your agent be doing?</Typography>
-        <Typography variant="body2" color="textSecondary" gutterBottom>
-          Describe the job. The platform picks the skills, tools, and
-          knowledge it needs from the catalog, drafts the identity, and wires
-          everything — you just review and create.
-        </Typography>
-        <Box display="flex" gridGap={8} alignItems="flex-start">
-          <TextField
-            fullWidth
-            multiline
-            minRows={2}
-            variant="outlined"
-            placeholder="e.g. Every Monday, summarize last week's orders: totals, revenue, stuck shipments, top products."
-            value={value.description}
-            onChange={e => set({ description: e.target.value })}
-          />
-          <Button
-            variant="contained"
-            color="primary"
-            disabled={thinking || !value.description.trim()}
-            onClick={suggest}
-            // nowrap + a floor wide enough for the longer label: the
-            // button is a flex sibling of a full-width TextField, so
-            // without these "Re-suggest" wraps mid-word.
-            style={{ whiteSpace: 'nowrap', minWidth: 132, height: 56 }}
-          >
-            {thinking ? <CircularProgress size={20} /> : ready ? 'Re-suggest' : 'Suggest'}
-          </Button>
-        </Box>
+        {/* ONE input box until the first composition lands; a
+            conversation afterwards. The old Re-suggest regenerated
+            everything — including the parts the user liked. The chat
+            edits exactly what each message asks for, answers catalog
+            questions without touching the composition, and keeps
+            going until it looks right. */}
+        {!ready && (
+          <>
+            <Typography variant="body2" color="textSecondary" gutterBottom>
+              Describe the job. The platform picks the skills, tools, and
+              knowledge it needs from the catalog, drafts the identity, and
+              wires everything — then you refine it in conversation until it
+              looks right.
+            </Typography>
+            <Box display="flex" gridGap={8} alignItems="flex-start">
+              <TextField
+                fullWidth
+                multiline
+                minRows={2}
+                variant="outlined"
+                placeholder="e.g. Every Monday, summarize last week's orders: totals, revenue, stuck shipments, top products."
+                value={value.description}
+                onChange={e => set({ description: e.target.value })}
+              />
+              <Button
+                variant="contained"
+                color="primary"
+                disabled={thinking || !value.description.trim()}
+                onClick={suggest}
+                // nowrap + a width floor: the button is a flex sibling
+                // of a full-width TextField and wraps mid-word without
+                // them.
+                style={{ whiteSpace: 'nowrap', minWidth: 132, height: 56 }}
+              >
+                {thinking ? <CircularProgress size={20} /> : 'Suggest'}
+              </Button>
+            </Box>
+          </>
+        )}
+        {ready && (
+          <Box mt={1}>
+            <div
+              ref={transcriptRef}
+              style={{
+                maxHeight: 300,
+                overflowY: 'auto',
+                background: '#fafafa',
+                border: '1px solid #e0e0e0',
+                borderRadius: 8,
+                padding: 12,
+              }}
+            >
+              <ChatBubble role="user" content={value.description} />
+              {chat.map((m, i) => (
+                <ChatBubble key={`chat-${i}`} role={m.role} content={m.content} />
+              ))}
+              {refining && (
+                <ChatBubble
+                  role="assistant"
+                  content={
+                    <Box display="flex" alignItems="center" gridGap={8}>
+                      <CircularProgress size={14} />
+                      <span>adjusting the composition…</span>
+                    </Box>
+                  }
+                />
+              )}
+            </div>
+            <Box display="flex" gridGap={8} mt={1} alignItems="flex-start">
+              <TextField
+                fullWidth
+                multiline
+                maxRows={3}
+                size="small"
+                variant="outlined"
+                placeholder='Refine the hire — "remove find token", "add something for incident response", or ask what the catalog has.'
+                value={chatInput}
+                onChange={e => setChatInput(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    sendRefinement();
+                  }
+                }}
+                disabled={refining}
+              />
+              <Button
+                variant="contained"
+                color="primary"
+                disabled={refining || !chatInput.trim()}
+                onClick={sendRefinement}
+                style={{ whiteSpace: 'nowrap', minWidth: 88 }}
+              >
+                {refining ? <CircularProgress size={20} /> : 'Send'}
+              </Button>
+            </Box>
+            <Box display="flex" justifyContent="flex-end">
+              <Button
+                size="small"
+                onClick={startOver}
+                style={{ textTransform: 'none', color: '#888' }}
+              >
+                start over with a new brief
+              </Button>
+            </Box>
+          </Box>
+        )}
         {error && (
           <Typography color="error" variant="body2">
             {error}

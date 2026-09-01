@@ -146,6 +146,45 @@ export interface RecommendTeam {
   existing: boolean;
 }
 
+// POST /catalog/refine (operator >= v1.7.61) — the conversational half
+// of the composer. The whole chat rides up each turn; the server
+// applies the model's targeted ops to `current` and returns the full
+// updated composition, so the client swaps state wholesale while the
+// edit itself stays surgical.
+export interface RefineMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+export interface RefineRequest {
+  description: string;
+  current: {
+    identity: {
+      name: string;
+      displayName: string;
+      emoji?: string;
+      role: string;
+      systemPrompt: string;
+    };
+    /** Names only — the server re-resolves against the live catalog. */
+    packs: string[];
+    /** Display label of the chosen brain, for conversation only. */
+    brain?: string;
+  };
+  messages: RefineMessage[];
+}
+
+export interface RefineResponse {
+  source: string;
+  /** What the composer says back — rendered as the assistant bubble. */
+  reply: string;
+  identity: RecommendResponse['identity'];
+  packs: (CatalogPack & { reason?: string })[];
+  team?: RecommendTeam;
+  /** False for question-only turns: nothing to re-apply. */
+  changed: boolean;
+}
+
 // GET /catalog/model-connections (operator >= v1.7.59) — the brain
 // menu. Admin-published ModelConnections: non-secret metadata plus
 // access rules the field filters against the signed-in user's group
@@ -236,6 +275,27 @@ export const useCatalogClient = () => {
     [discoveryApi, fetchApi],
   );
 
+  const refine = useCallback(
+    async (req: RefineRequest): Promise<RefineResponse> => {
+      const base = await discoveryApi.getBaseUrl('proxy');
+      const res = await fetchApi.fetch(`${base}/agent-office-catalog/refine`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify(req),
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(
+          res.status === 404
+            ? 'this platform does not have the conversational composer yet (operator < v1.7.61)'
+            : `refine failed: HTTP ${res.status} ${text.slice(0, 200)}`,
+        );
+      }
+      return (await res.json()) as RefineResponse;
+    },
+    [discoveryApi, fetchApi],
+  );
+
   // Materialize a registry artifact on the cluster (operator >= v1.7.16).
   // A pack installs its member skills; a meta-pack installs everything.
   const install = useCallback(
@@ -271,7 +331,7 @@ export const useCatalogClient = () => {
   }, [discoveryApi, fetchApi]);
 
   return useMemo(
-    () => ({ listSkills, listPacks, recommend, install, listModelConnections }),
-    [listSkills, listPacks, recommend, install, listModelConnections],
+    () => ({ listSkills, listPacks, recommend, refine, install, listModelConnections }),
+    [listSkills, listPacks, recommend, refine, install, listModelConnections],
   );
 };
