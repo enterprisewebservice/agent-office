@@ -154,6 +154,28 @@ spec:
               value: "true"
             - name: MM_PLUGINSETTINGS_ENABLEUPLOADS
               value: "true"
+            # Single sign-on for seats (2026-09-01): Team Edition has no
+            # OpenID Connect, so the GitLab integration points at Gitea's
+            # OAuth2 provider — and Gitea itself signs in via Keycloak.
+            # One account everywhere; the button says so.
+            - name: MM_GITLABSETTINGS_ENABLE
+              value: "true"
+            - name: MM_GITLABSETTINGS_ID
+              valueFrom: { secretKeyRef: { name: mattermost-gitea-oauth, key: id } }
+            - name: MM_GITLABSETTINGS_SECRET
+              valueFrom: { secretKeyRef: { name: mattermost-gitea-oauth, key: secret } }
+            - name: MM_GITLABSETTINGS_SCOPE
+              value: "read:user"
+            - name: MM_GITLABSETTINGS_AUTHENDPOINT
+              value: https://gitea-gitea.apps.salamander.aimlworkbench.com/login/oauth/authorize
+            - name: MM_GITLABSETTINGS_TOKENENDPOINT
+              value: https://gitea-gitea.apps.salamander.aimlworkbench.com/login/oauth/access_token
+            - name: MM_GITLABSETTINGS_USERAPIENDPOINT
+              value: https://gitea-gitea.apps.salamander.aimlworkbench.com/api/v1/user
+            - name: MM_GITLABSETTINGS_BUTTONTEXT
+              value: Sign in with your workshop account
+            - name: MM_GITLABSETTINGS_BUTTONCOLOR
+              value: "#ee0000"
           ports:
             - containerPort: 8065
           volumeMounts:
