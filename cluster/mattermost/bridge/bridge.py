@@ -171,8 +171,27 @@ def list_aws():
         any_ok = True
         for i in items:
             result[i["metadata"]["name"]] = (
-                (i.get("spec", {}).get("displayName") or i["metadata"]["name"]), ns)
+                (i.get("spec", {}).get("displayName") or i["metadata"]["name"]), ns,
+                skills_sig(i))
     return result if any_ok else None
+
+
+def skills_sig(aw):
+    """The agent's declared skill set, but ONLY once the operator reports every
+    ref resolved (the same reconcile that re-seeds the workspace). None while a
+    change is still in flight, so a spec edit is never acted on before the
+    skill folders exist. Legacy agents with no skillRefs: an empty tuple."""
+    refs = (aw.get("spec") or {}).get("skillRefs") or []
+    sig = tuple(sorted((r.get("name", ""), r.get("version", "") or "") for r in refs))
+    if not refs:
+        return sig
+    for c in (aw.get("status") or {}).get("conditions", []):
+        if c.get("type") == "SkillRefsResolved":
+            m = re.match(r"(\d+) of (\d+)", c.get("message") or "")
+            if c.get("status") == "True" and m and m.group(1) == m.group(2) == str(len(refs)):
+                return sig
+            return None
+    return None
 
 
 def mm_slug(name):
@@ -269,11 +288,12 @@ def discover(admin_id, team_id):
     if aws is None:
         return None
     agents = {}
-    for agent, (display, ns) in aws.items():
+    for agent, (display, ns, sig) in aws.items():
         if agent in FAILED:
             continue
         rec = ensure_presence(agent, display, ns, team_id, admin_id)
         if rec:
+            rec["skills_sig"] = sig
             agents[agent] = rec
             PROVISIONED.add(agent)
     for agent in list(PROVISIONED):
@@ -298,6 +318,33 @@ def main():
             last_disc = now
             new = discover(admin_id, team_id)
             if new is not None:  # None == cluster read error → keep the old map
+                for name, rec in new.items():
+                    old = agents.get(name)
+                    if not old:
+                        continue
+                    # Rediscovery rebuilds every record; the session key must
+                    # outlive it or a `new session` silently expires within
+                    # REDISCOVER seconds (it did, until 2026-09-02).
+                    rec["skey"] = old.get("skey")
+                    prev, cur = old.get("skills_sig"), rec.get("skills_sig")
+                    if cur is None:          # operator still resolving: keep the last settled set
+                        rec["skills_sig"] = prev
+                    elif prev is not None and cur != prev and rec["ns"].endswith("-agent-workspace"):
+                        # Skills load when a session starts. The workspace was
+                        # just re-seeded with a different set (Module 4's grant):
+                        # start a fresh session so the agent can use it, and say
+                        # so in the channel — the hands-free "watch it learn" beat.
+                        added = sorted(set(cur) - set(prev)); removed = sorted(set(prev) - set(cur))
+                        parts = []
+                        if added:
+                            parts.append("added: " + ", ".join(n + (" " + v if v else "") for n, v in added))
+                        if removed:
+                            parts.append("removed: " + ", ".join(n for n, _ in removed))
+                        rec["skey"] = f"agent:{name}:mm-{int(time.time())}"
+                        msg = "🔄 Skills changed — " + "; ".join(parts) + ". Fresh session so the agent can use its current skills from the first word."
+                        api("POST", "/api/v4/posts", {"channel_id": rec["channels"][0], "message": msg},
+                            rec.get("token") or ADMIN)
+                        print(f"[bridge] {name}: skills {prev} -> {cur}; fresh session", file=sys.stderr, flush=True)
                 agents = new
                 print(f"[bridge] agents: {sorted(agents)}", file=sys.stderr, flush=True)
                 if not started:
