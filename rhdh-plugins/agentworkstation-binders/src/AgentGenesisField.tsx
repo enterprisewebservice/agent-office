@@ -237,6 +237,9 @@ export const AgentGenesisField = (
       mcpServers: Array.isArray(fd.compose?.mcpServers) ? fd.compose!.mcpServers : [],
     },
   };
+  /** Latest form value for async callbacks (the brains effect). */
+  const valueRef = React.useRef(value);
+  valueRef.current = value;
 
   const identityApi = useApi(identityApiRef);
 
@@ -284,10 +287,22 @@ export const AgentGenesisField = (
       // platform subscription silently. Pre-select the first visible
       // (default-marked) connection instead — the user can still change it.
       if (visible.length > 0) {
-        const current = value.connectionRef
-          ? visible.find(b => b.name === value.connectionRef)
-          : visible.find(b => b.kind !== 'endpoint' && (b.provider || 'openai-codex') === value.provider);
-        if (!current) pickBrain(visible[0]);
+        // Read the LATEST form value, not this effect's render-time
+        // closure: the list resolves a few hundred ms after mount, and a
+        // stale spread would erase whatever the user typed meanwhile.
+        const latest = valueRef.current;
+        const current = latest.connectionRef
+          ? visible.find(b => b.name === latest.connectionRef)
+          : visible.find(b => b.kind !== 'endpoint' && (b.provider || 'openai-codex') === latest.provider);
+        if (!current) {
+          const first = visible[0];
+          const model = first.models?.[0]?.id || '';
+          onChange(
+            first.kind === 'endpoint'
+              ? { ...latest, connectionRef: first.name, provider: 'custom', modelName: model, apiKey: '' }
+              : { ...latest, connectionRef: '', provider: first.provider || 'openai-codex', modelName: model, apiKey: '' },
+          );
+        }
       }
     });
     return () => {
