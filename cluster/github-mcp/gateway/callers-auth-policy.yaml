@@ -1,0 +1,105 @@
+# AuthPolicy — WHO may call WHAT through the MCP gateway's front door.
+#
+# Attaches to the `mcp` listener: the shared /mcp route that every agent's
+# `governed` MCP server points at (seats and platform agents alike). Until
+# 2026-09-02 this listener had no policy at all — any token, or none, got
+# the full aggregated tool list and could invoke any backend with the
+# platform credential the broker injects. Two checks now run per request:
+#
+#   1. authentication — `Authorization: Bearer <token>` must equal the
+#      `api_key` of a Secret labelled agentoffice.ai/mcp-gateway-caller=true
+#      (any namespace; Authorino runs cluster-wide). The SAME Secrets the
+#      operator already renders into each agent's MCP header double as the
+#      identity, so rotation moves both sides together (operator >= v1.7.46
+#      re-renders the header from the Secret; Authorino watches the Secret):
+#        * a seat's <user>-gitea-token — its own Gitea token (refresher /
+#          provisioner-written) with a second key `api_key` = GITEA_TOKEN
+#        * agent-office/github-mcp-installation-token — the platform agents
+#          (newsdesks, forge-dev, ops reporter) present the App installation
+#          token; ESO renders `api_key` beside GITHUB_PERSONAL_ACCESS_TOKEN
+#   2. authorization — the MCP router (ext_proc, INSERT_FIRST on this
+#      listener) stamps x-mcp-toolname / x-mcp-servername on every
+#      tools/call before Kuadrant's auth filter runs. The Rego allows the
+#      call only if the caller's identity Secret says so:
+#        annotation agentoffice.ai/mcp-servers   comma list of
+#            <namespace>/<MCPServerRegistration> this caller may use, or "*"
+#        annotation agentoffice.ai/mcp-namespace the caller's own namespace:
+#            every server registered THERE is allowed too, so a seat's own
+#            registrations work without touching this policy
+#      Session traffic that is not a tool call (initialize, tools/list,
+#      ping, notifications) passes for any authenticated caller;
+#      /.well-known stays anonymous (OAuth protected-resource discovery).
+#
+# Denials are JSON: 401 without a recognised token, 403 naming the tool and
+# server — an agent's tool.error log then says exactly why.
+#
+# Vendor reference: Kuadrant mcp-gateway docs/guides/authorization.md
+# (x-mcp-* headers, Gateway-listener attachment) and authentication.md
+# (/.well-known exemption). Visibility filtering of tools/list (the signed
+# x-mcp-authorized wristband) is a separate, optional step.
+apiVersion: kuadrant.io/v1
+kind: AuthPolicy
+metadata:
+  name: mcp-gateway-callers
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/name: mcp-gateway
+    app.kubernetes.io/component: caller-authorization
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: Gateway
+    name: mcp-gateway
+    sectionName: mcp
+  when:
+    - predicate: "!request.path.startsWith('/.well-known/')"
+  rules:
+    authentication:
+      "gateway-callers":
+        apiKey:
+          selector:
+            matchLabels:
+              agentoffice.ai/mcp-gateway-caller: "true"
+          allNamespaces: true
+        credentials:
+          authorizationHeader:
+            prefix: Bearer
+    authorization:
+      "tool-access":
+        opa:
+          rego: |
+            default allow = false
+
+            headers := input.context.request.http.headers
+            tool := object.get(headers, "x-mcp-toolname", "")
+            server := object.get(headers, "x-mcp-servername", "")
+            meta := object.get(input.auth.identity, "metadata", {})
+            ann := object.get(meta, "annotations", {})
+            allowed := split(object.get(ann, "agentoffice.ai/mcp-servers", ""), ",")
+            home := object.get(ann, "agentoffice.ai/mcp-namespace", "")
+
+            # session traffic that is not a tool call
+            allow { tool == "" }
+
+            # platform callers: every registered server
+            allow { tool != ""; allowed[_] == "*" }
+
+            # a server this identity lists explicitly (<namespace>/<registration>)
+            allow { tool != ""; allowed[_] == server }
+
+            # any server registered in the caller's own namespace
+            allow { tool != ""; home != ""; startswith(server, sprintf("%s/", [home])) }
+    response:
+      unauthenticated:
+        code: 401
+        headers:
+          "WWW-Authenticate":
+            value: Bearer realm="mcp-gateway"
+        body:
+          value: '{"error":"Unauthorized","message":"MCP access denied: no recognised caller token. Send Authorization: Bearer <your seat token>."}'
+      unauthorized:
+        code: 403
+        body:
+          expression: |
+            '{"error":"Forbidden","message":"MCP access denied: this caller may not use tool ' + ('x-mcp-toolname' in request.headers ? request.headers['x-mcp-toolname'] : '?') + ' on server ' + ('x-mcp-servername' in request.headers ? request.headers['x-mcp-servername'] : '?') + '"}'
