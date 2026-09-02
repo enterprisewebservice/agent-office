@@ -41,8 +41,11 @@ data:
         location ^~ /files/   { proxy_pass http://mattermost:8065; include /etc/nginx-custom/proxy.conf; }
         location ^~ /hooks/   { proxy_pass http://mattermost:8065; include /etc/nginx-custom/proxy.conf; }
         location ^~ /oauth/   { proxy_pass http://mattermost:8065; include /etc/nginx-custom/proxy.conf; }
-        location ^~ /signup/  { proxy_pass http://mattermost:8065; include /etc/nginx-custom/proxy.conf; }
-        location ^~ /login/   { proxy_pass http://mattermost:8065; include /etc/nginx-custom/proxy.conf; }
+        # The OAuth callbacks only — NOT "/login/": a prefix location
+        # ending in a slash makes nginx 301 "/login" to "/login/", which
+        # would hand the dead login page straight back.
+        location ^~ /signup/gitlab/ { proxy_pass http://mattermost:8065; include /etc/nginx-custom/proxy.conf; }
+        location ^~ /login/gitlab/  { proxy_pass http://mattermost:8065; include /etc/nginx-custom/proxy.conf; }
         location = /sso-login.html { internal; root /opt/app-root/src/site; }
 
         # Every other path is the web app: the SPA boots, finds no session
@@ -52,7 +55,7 @@ data:
         # destination after sign-in. A browser with a session (MMAUTHTOKEN)
         # goes straight through.
         location / {
-          if ($cookie_MMAUTHTOKEN = "") { rewrite ^ /sso-login.html?redirect_to=$uri last; }
+          if ($cookie_MMAUTHTOKEN = "") { rewrite ^ /sso-login.html last; }
           proxy_pass http://mattermost:8065;
           include /etc/nginx-custom/proxy.conf;
         }
@@ -108,7 +111,10 @@ data:
     </main>
     <script>
       // Honour Mattermost's own deep link (/login?redirect_to=/team/channel).
+      // The browser's URL is the destination: the server rewrote it to this
+      // page internally. A /login?redirect_to=X deep link unwraps to X.
       let rt = new URLSearchParams(location.search).get('redirect_to');
+      if (!rt && location.pathname !== '/login' && location.pathname !== '/login/') rt = location.pathname + location.search;
       if (rt === '/login' || rt === '/login/') rt = null;
       if (rt && rt.startsWith('/') && !rt.startsWith('//')) {
         document.getElementById('go').href = '/oauth/gitlab/login?redirect_to=' + encodeURIComponent(rt);
@@ -131,7 +137,7 @@ spec:
       labels: { app: mattermost-front }
       annotations:
         # Roll the pod when the page or config changes (kubectl rollout restart after apply).
-        mattermost-front/config: "v3"
+        mattermost-front/config: "v4"
     spec:
       containers:
         - name: nginx
