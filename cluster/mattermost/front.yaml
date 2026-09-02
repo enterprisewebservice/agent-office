@@ -33,18 +33,26 @@ data:
         listen 8080 default_server;
         absolute_redirect off;
 
-        # Mattermost's own login page is replaced for browsers without a
-        # session: one click into the workshop sign-in. A browser that still
-        # holds a session (MMAUTHTOKEN) goes through to Mattermost, which
-        # forwards it to its channels itself.
-        location = /login {
-          if ($cookie_MMAUTHTOKEN = "") { rewrite ^ /sso-login.html last; }
-          proxy_pass http://mattermost:8065;
-          include /etc/nginx-custom/proxy.conf;
-        }
+        # Machine paths always pass through: the API and websocket, static
+        # assets, plugins, file uploads, the OAuth start/callback routes.
+        location ^~ /api/     { proxy_pass http://mattermost:8065; include /etc/nginx-custom/proxy.conf; }
+        location ^~ /static/  { proxy_pass http://mattermost:8065; include /etc/nginx-custom/proxy.conf; }
+        location ^~ /plugins/ { proxy_pass http://mattermost:8065; include /etc/nginx-custom/proxy.conf; }
+        location ^~ /files/   { proxy_pass http://mattermost:8065; include /etc/nginx-custom/proxy.conf; }
+        location ^~ /hooks/   { proxy_pass http://mattermost:8065; include /etc/nginx-custom/proxy.conf; }
+        location ^~ /oauth/   { proxy_pass http://mattermost:8065; include /etc/nginx-custom/proxy.conf; }
+        location ^~ /signup/  { proxy_pass http://mattermost:8065; include /etc/nginx-custom/proxy.conf; }
+        location ^~ /login/   { proxy_pass http://mattermost:8065; include /etc/nginx-custom/proxy.conf; }
         location = /sso-login.html { internal; root /opt/app-root/src/site; }
 
+        # Every other path is the web app: the SPA boots, finds no session
+        # and switches to ITS login view client-side, which the server
+        # never sees — so a browser without a Mattermost session gets the
+        # sign-in page here, for any app URL, with that URL as the
+        # destination after sign-in. A browser with a session (MMAUTHTOKEN)
+        # goes straight through.
         location / {
+          if ($cookie_MMAUTHTOKEN = "") { rewrite ^ /sso-login.html?redirect_to=$uri last; }
           proxy_pass http://mattermost:8065;
           include /etc/nginx-custom/proxy.conf;
         }
@@ -100,7 +108,8 @@ data:
     </main>
     <script>
       // Honour Mattermost's own deep link (/login?redirect_to=/team/channel).
-      const rt = new URLSearchParams(location.search).get('redirect_to');
+      let rt = new URLSearchParams(location.search).get('redirect_to');
+      if (rt === '/login' || rt === '/login/') rt = null;
       if (rt && rt.startsWith('/') && !rt.startsWith('//')) {
         document.getElementById('go').href = '/oauth/gitlab/login?redirect_to=' + encodeURIComponent(rt);
       }
@@ -122,7 +131,7 @@ spec:
       labels: { app: mattermost-front }
       annotations:
         # Roll the pod when the page or config changes (kubectl rollout restart after apply).
-        mattermost-front/config: "v2"
+        mattermost-front/config: "v3"
     spec:
       containers:
         - name: nginx
