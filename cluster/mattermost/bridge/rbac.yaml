@@ -36,3 +36,44 @@ subjects:
   - kind: ServiceAccount
     name: mm-bridge
     namespace: agent-office
+---
+# Dynamic seats: the bridge lists namespaces by label to find them …
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: mm-bridge-namespaces
+rules:
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: [get, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: mm-bridge-namespaces
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: mm-bridge-namespaces
+subjects:
+  - kind: ServiceAccount
+    name: mm-bridge
+    namespace: agent-office
+---
+# … and each seat namespace binds this ClusterRole to the bridge SA (the
+# factory-hub seat policy does it at provisioning; the deployer's fixed
+# seats carry an equivalent namespaced Role). Never bound cluster-wide.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: mm-bridge-seat
+rules:
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list]
+  - apiGroups: [""]
+    resources: [pods/exec]
+    verbs: [create]
+  - apiGroups: [agentoffice.ai]
+    resources: [agentworkstations]
+    verbs: [get, list]

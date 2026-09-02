@@ -29,6 +29,11 @@ TEAM_NAME = os.environ.get("MM_TEAM", "agents")
 # Comma-separated: the shared namespace plus per-attendee agent workspaces
 # (user1-agent-workspace, ...). Every AW record carries its own namespace.
 GW_NAMESPACES = [n.strip() for n in os.environ.get("GW_NS", "agent-office").split(",") if n.strip()]
+# Dynamic seats (factory-hub) are not in GW_NS: they are discovered by the
+# same label the operator uses (agentoffice.ai/managed=true), re-read on
+# every rediscovery, so a seat provisioned after the bridge started is
+# bridged within REDISCOVER seconds. Needs `list namespaces` (rbac.yaml).
+SEAT_NS_LABEL = os.environ.get("SEAT_NS_LABEL", "agentoffice.ai/managed=true")
 POLL = int(os.environ.get("POLL_SECONDS", "3"))
 REDISCOVER = int(os.environ.get("REDISCOVER_SECONDS", "60"))
 CTX = ssl.create_default_context(); CTX.check_hostname = False; CTX.verify_mode = ssl.CERT_NONE
@@ -133,13 +138,29 @@ def aw_gateway(agent, ns):
     return gw or None
 
 
+def bridged_namespaces():
+    """GW_NS plus every namespace carrying SEAT_NS_LABEL (dynamic seats).
+    A failed label read degrades to the static list — never to nothing."""
+    names = list(GW_NAMESPACES)
+    out = oc("get", "namespaces", "-l", SEAT_NS_LABEL, "-o", "json") if SEAT_NS_LABEL else ""
+    if out:
+        try:
+            for i in json.loads(out).get("items", []):
+                n = i["metadata"]["name"]
+                if n not in names:
+                    names.append(n)
+        except Exception:
+            pass
+    return names
+
+
 def list_aws():
     """{name: (displayName, namespace)} for every AgentWorkstation across all
     bridged namespaces, or None when EVERY namespace read fails (so we never
     tear down on a transient failure)."""
     result = {}
     any_ok = False
-    for ns in GW_NAMESPACES:
+    for ns in bridged_namespaces():
         out = oc("get", "agentworkstations", "-n", ns, "-o", "json")
         if not out:
             continue
