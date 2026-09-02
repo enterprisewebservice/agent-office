@@ -218,7 +218,8 @@ metadata:
   name: mattermost
   namespace: mattermost
 spec:
-  to: { kind: Service, name: mattermost }
+  # The SSO-only sign-in page (front.yaml) fronts the server; see README.
+  to: { kind: Service, name: mattermost-front }
   port: { targetPort: http }
   tls:
     termination: edge

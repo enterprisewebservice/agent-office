@@ -67,3 +67,20 @@ For each agent it ensures: a **bot** `@<agent>` (its own name) + **bot token**
 
 Supersedes the Discord approach in `docs/design/discord-per-agent-channels.md`
 (kept for history; Discord is unusable for automated bot creation).
+
+## Sign-in page (`front.yaml`)
+
+Mattermost Free runs the GitLab-style OAuth flow (Gitea → Keycloak) but only a
+licensed server renders the sign-in *button*, so its `/login` is a dead end.
+`mattermost-front` (nginx) sits on the Route: `/login` without a Mattermost
+session serves a one-click "Sign in with your workshop account" page that starts
+the OAuth flow (honouring `redirect_to`); everything else — API, websocket,
+static, OAuth callback — is proxied to `mattermost:8065`. Chat identity follows
+the Gitea session; the page links Gitea's sign-out for switching users.
+
+Apply order after edits: `oc apply -f cluster/mattermost/front.yaml` then
+`oc rollout restart deployment/mattermost-front -n mattermost`. The Route in
+`mattermost.yaml` targets `mattermost-front`. The live `mattermost` Deployment
+carries settings applied directly (SSO env); apply individual objects from
+`mattermost.yaml`, not the whole file.
+
