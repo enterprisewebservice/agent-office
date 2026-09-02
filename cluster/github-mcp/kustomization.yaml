@@ -53,4 +53,4 @@ resources:
   - gateway/github-mcp-registration.yaml
   - gateway/broker-token-externalsecret.yaml
   - gateway/broker-rbac.yaml
-  - gateway/callers-auth-policy.yaml
+  # - gateway/callers-auth-policy.yaml   # re-enabled once the Rego compiles on the canary route
