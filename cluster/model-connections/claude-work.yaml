@@ -13,6 +13,9 @@ apiVersion: agentoffice.ai/v1alpha1
 kind: ModelConnection
 metadata:
   name: claude-work
+  annotations:
+    # The hiring form pre-selects this connection for everyone who can see it (operator >= v1.7.65).
+    agentoffice.ai/default-brain: "true"
   labels:
     app.kubernetes.io/managed-by: agent-office-gitops
 spec:
