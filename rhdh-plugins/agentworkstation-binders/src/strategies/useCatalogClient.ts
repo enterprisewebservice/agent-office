@@ -198,6 +198,9 @@ export interface ModelConnectionEntry {
   models?: { id: string; name?: string }[];
   keyStrategy?: string;
   access?: { groups?: string[]; users?: string[] };
+  /** Pre-selected for users who can see it (operator >= v1.7.65,
+   *  annotation agentoffice.ai/default-brain=true). */
+  default?: boolean;
 }
 
 export interface ModelConnectionList {

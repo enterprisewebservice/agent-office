@@ -1,6 +1,7 @@
 /*
- * <AgentGenesisField> — the ONE-STEP agent creator (v0.0.26: the step
- * is a conversation now).
+ * <AgentGenesisField> — the ONE-STEP agent creator (v0.0.27: the step
+ * is a conversation; the brain is never silently the platform Codex
+ * subscription — the admin-marked default connection is pre-selected).
  *
  * The whole wizard collapses into this field. The user:
  *
@@ -272,10 +273,22 @@ export const AgentGenesisField = (
       const userName =
         ident?.userEntityRef?.split('/').pop() ?? '';
       const refs = ident?.ownershipEntityRefs ?? [];
-      const visible = (Array.isArray(list.items) ? list.items : []).filter(c =>
-        canSee(c, userName, refs),
-      );
+      const visible = (Array.isArray(list.items) ? list.items : [])
+        .filter(c => canSee(c, userName, refs))
+        // The admin-marked default first; otherwise API order.
+        .sort((a, b) => Number(!!b.default) - Number(!!a.default));
       setBrains(visible.length > 0 ? visible : [FALLBACK_BRAIN]);
+      // Never let the form submit a brain the user cannot see. The EMPTY
+      // value carries the platform Codex preset; for an attendee that
+      // preset is not on their menu, and leaving it would hire on the
+      // platform subscription silently. Pre-select the first visible
+      // (default-marked) connection instead — the user can still change it.
+      if (visible.length > 0) {
+        const current = value.connectionRef
+          ? visible.find(b => b.name === value.connectionRef)
+          : visible.find(b => b.kind !== 'endpoint' && (b.provider || 'openai-codex') === value.provider);
+        if (!current) pickBrain(visible[0]);
+      }
     });
     return () => {
       live = false;
