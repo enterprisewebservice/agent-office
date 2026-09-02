@@ -1,7 +1,8 @@
 /*
- * <AgentGenesisField> — the ONE-STEP agent creator (v0.0.27: the step
+ * <AgentGenesisField> — the ONE-STEP agent creator (v0.0.29: the step
  * is a conversation; the brain is never silently the platform Codex
- * subscription — the admin-marked default connection is pre-selected).
+ * subscription — the admin-marked default connection is pre-selected —
+ * and every connection lists its models as clickable chips).
  *
  * The whole wizard collapses into this field. The user:
  *
@@ -48,7 +49,6 @@ import {
   CircularProgress,
   Divider,
   FormControlLabel,
-  MenuItem,
   Paper,
   Radio,
   RadioGroup,
@@ -1154,44 +1154,58 @@ export const AgentGenesisField = (
                   if (conn) pickBrain(conn);
                 }}
               >
-                {brains.map(b => (
-                  <Box key={b.name} display="flex" alignItems="center" gridGap={8}>
-                    <FormControlLabel
-                      value={b.name}
-                      control={<Radio size="small" />}
-                      label={
-                        <span>
-                          {b.displayName}
-                          {b.description ? (
-                            <Typography
-                              variant="caption"
-                              color="textSecondary"
-                              component="span"
-                              style={{ marginLeft: 8 }}
+                {brains.map(b => {
+                  const mine = selectedBrain()?.name === b.name;
+                  const chosen = mine ? value.modelName || b.models?.[0]?.id : undefined;
+                  return (
+                    <Box key={b.name} mb={0.5}>
+                      <FormControlLabel
+                        value={b.name}
+                        control={<Radio size="small" />}
+                        label={
+                          <span>
+                            {b.displayName}
+                            {b.description ? (
+                              <Typography
+                                variant="caption"
+                                color="textSecondary"
+                                component="span"
+                                style={{ marginLeft: 8 }}
+                              >
+                                {b.description}
+                              </Typography>
+                            ) : null}
+                          </span>
+                        }
+                      />
+                      {/* Every model the connection publishes, visible
+                          under it whether or not it is selected — the
+                          choices are part of the menu, not hidden behind
+                          the radio. Clicking one selects the connection
+                          AND the model; the first entry is the
+                          connection's default. */}
+                      {(b.models ?? []).length > 0 && (
+                        <Box display="flex" flexWrap="wrap" gridGap={6} ml={4} mb={0.5}>
+                          {b.models!.map((m, i) => (
+                            <Tooltip
+                              key={m.id}
+                              title={i === 0 ? 'Default model for this connection' : m.id}
                             >
-                              {b.description}
-                            </Typography>
-                          ) : null}
-                        </span>
-                      }
-                    />
-                    {selectedBrain()?.name === b.name && (b.models ?? []).length > 1 && (
-                      <TextField
-                        select
-                        size="small"
-                        value={value.modelName || b.models![0].id}
-                        onChange={e => pickBrain(b, e.target.value)}
-                        style={{ minWidth: 180 }}
-                      >
-                        {b.models!.map(m => (
-                          <MenuItem key={m.id} value={m.id}>
-                            {m.name || m.id}
-                          </MenuItem>
-                        ))}
-                      </TextField>
-                    )}
-                  </Box>
-                ))}
+                              <Chip
+                                size="small"
+                                clickable
+                                label={m.name || m.id}
+                                color={chosen === m.id ? 'primary' : 'default'}
+                                variant={chosen === m.id ? 'default' : 'outlined'}
+                                onClick={() => pickBrain(b, m.id)}
+                              />
+                            </Tooltip>
+                          ))}
+                        </Box>
+                      )}
+                    </Box>
+                  );
+                })}
               </RadioGroup>
             </Box>
           </Box>
