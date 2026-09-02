@@ -1,46 +1,54 @@
-# AuthPolicy — WHO may call WHAT through the MCP gateway's front door.
+# ⛔ DRAFT — DO NOT APPLY AS-IS. Kept in git as the map, OUT of the Argo app
+# (commented in kustomization.yaml). Applying the version below is proven
+# INEFFECTIVE at best and, on the mcps hop, HARMFUL (fail-closes every tool
+# call). Two live experiments on 2026-09-02 established why:
 #
-# Attaches to the `mcp` listener: the shared /mcp route that every agent's
-# `governed` MCP server points at (seats and platform agents alike). Until
-# 2026-09-02 this listener had no policy at all — any token, or none, got
-# the full aggregated tool list and could invoke any backend with the
-# platform credential the broker injects. Two checks now run per request:
+# The MCP gateway front door is a SINGLE Envoy listener (0.0.0.0_80). Its HTTP
+# filter chain is:  ext_proc(MCP router, INSERT_FIRST) -> ... -> wasm(Kuadrant
+# auth) -> router.  The caller identity (Bearer <seat/platform token>) only
+# exists on the FRONT hop; the broker's second hop to a backend presents that
+# backend's REGISTRATION credential, not the caller's.
 #
-#   1. authentication — `Authorization: Bearer <token>` must equal the
-#      `api_key` of a Secret labelled agentoffice.ai/mcp-gateway-caller=true
-#      (any namespace; Authorino runs cluster-wide). The SAME Secrets the
-#      operator already renders into each agent's MCP header double as the
-#      identity, so rotation moves both sides together (operator >= v1.7.46
-#      re-renders the header from the Secret; Authorino watches the Secret):
-#        * a seat's <user>-gitea-token — its own Gitea token (refresher /
-#          provisioner-written) with a second key `api_key` = GITEA_TOKEN
-#        * agent-office/github-mcp-installation-token — the platform agents
-#          (newsdesks, forge-dev, ops reporter) present the App installation
-#          token; ESO renders `api_key` beside GITHUB_PERSONAL_ACCESS_TOKEN
-#   2. authorization — the MCP router (ext_proc, INSERT_FIRST on this
-#      listener) stamps x-mcp-toolname / x-mcp-servername on every
-#      tools/call before Kuadrant's auth filter runs. The Rego allows the
-#      call only if the caller's identity Secret says so:
-#        annotation agentoffice.ai/mcp-servers   comma list of
-#            <namespace>/<MCPServerRegistration> this caller may use, or "*"
-#        annotation agentoffice.ai/mcp-namespace the caller's own namespace:
-#            every server registered THERE is allowed too, so a seat's own
-#            registrations work without touching this policy
-#      Session traffic that is not a tool call (initialize, tools/list,
-#      ping, notifications) passes for any authenticated caller;
-#      /.well-known stays anonymous (OAuth protected-resource discovery).
+#   Attach to `mcp`  (front listener): the ext_proc router answers initialize
+#     and tools/list itself and short-circuits the chain, so the wasm auth
+#     filter never runs for them (auth-service cluster cx_total stayed 0). And
+#     ext_proc runs BEFORE the auth filter, so even for tools/call the broker
+#     has already been invoked before Authorino sees the request. Result: no
+#     enforcement on discovery; a tokenless client still initialized + listed
+#     all 165 tools.
+#   Attach to `mcps` (backend listener): the wasm auth filter DOES run on the
+#     broker->backend hop, but that hop carries the broker's registration
+#     credential (e.g. gitea-mcp-broker-token), which is not one of our
+#     api_key identities -> apiKey auth fail-closes EVERY tool call with 500,
+#     including the platform token's own calls. Discovery (tools/list) still
+#     worked because its backend calls don't match the x-mcp-toolname guard.
+#     Verified and reverted within one script; production newsdesks logged
+#     zero auth errors.
 #
-# Denials are JSON: 401 without a recognised token, 403 naming the tool and
-# server — an agent's tool.error log then says exactly why.
+# THE VENDOR-INTENDED PATH is the signed "wristband": the MCPGatewayExtension
+# already has trustedHeadersKey.generate: Enabled and the operator minted
+# mcp-gateway-trusted-headers(+ -private). A front AuthPolicy would
+# authenticate the caller and, in response.success.headers, issue an
+# `x-mcp-authorized` JWT (customClaims allowed-capabilities, signed ES256 with
+# trusted-headers-private-key) that the broker validates to filter tools/list.
+# BLOCKER on THIS gateway class (OpenShift data-science-gateway-class): the
+# broker's ext_proc is INSERT_FIRST, i.e. it runs BEFORE the Kuadrant auth
+# filter, so the wristband the auth step would produce is not yet present when
+# the broker builds its response. Making Authorino run ahead of the MCP
+# ext_proc is the open question (filter-order / isolated-gateway per the
+# vendor's isolated-gateway-deployment.md). Until that is settled with Dean,
+# enforcement is not wired. The CALLER IDENTITIES this policy needs are already
+# shipped (every seat + the platform token carry api_key + the
+# agentoffice.ai/mcp-* labels/annotations), so whichever design wins, the
+# substrate is in place.
 #
-# Vendor reference: Kuadrant mcp-gateway docs/guides/authorization.md
-# (x-mcp-* headers, Gateway-listener attachment) and authentication.md
-# (/.well-known exemption). Visibility filtering of tools/list (the signed
-# x-mcp-authorized wristband) is a separate, optional step.
+# Kuadrant refs: docs/guides/authorization.md (x-mcp-* headers),
+# user-based-tool-filter.md (wristband), isolated-gateway-deployment.md.
+#
 apiVersion: kuadrant.io/v1
 kind: AuthPolicy
 metadata:
-  name: mcp-gateway-callers
+  name: mcp-gateway-callers   # DRAFT — see header; do not apply
   namespace: agent-office
   labels:
     app.kubernetes.io/name: mcp-gateway
