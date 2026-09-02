@@ -69,8 +69,7 @@ spec:
       "tool-access":
         opa:
           rego: |
-            default allow = false
-
+            # (Authorino prepends `default allow = false` itself — do not repeat it)
             headers := input.context.request.http.headers
             tool := object.get(headers, "x-mcp-toolname", "")
             server := object.get(headers, "x-mcp-servername", "")
