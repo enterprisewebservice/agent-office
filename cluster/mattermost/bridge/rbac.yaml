@@ -77,3 +77,8 @@ rules:
   - apiGroups: [agentoffice.ai]
     resources: [agentworkstations]
     verbs: [get, list]
+  # MCP gateway registrations in the seat: when one appears/changes, the
+  # bridge reloads the seat's agent runtimes so they re-list governed tools.
+  - apiGroups: [mcp.kuadrant.io]
+    resources: [mcpserverregistrations]
+    verbs: [get, list]
