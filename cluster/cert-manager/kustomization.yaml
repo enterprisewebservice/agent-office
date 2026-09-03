@@ -1,0 +1,21 @@
+# cert-manager's operand CRDs and the estate's ClusterIssuer, held in git.
+#
+# Why this exists: twice now (2026-08-29, 2026-09-03 03:45Z) the six
+# cert-manager.io CRDs vanished from the cluster — the Red Hat
+# cert-manager operator's v1.20.0 CSV lists them as OWNED but the bundle
+# does not (re)install them, so once they are gone the CSV sits
+# Pending/RequirementsNotMet, cainjector crash-loops, every ClusterIssuer
+# and Certificate CR dies with its CRD, and every Let's Encrypt renewal in
+# the estate is silently dead until someone notices a "not secure" page.
+# Sites stay up on their existing TLS Secrets until they expire.
+#
+# OpenShift GitOps self-heals this directory: if the CRDs or the issuer
+# disappear again they are back within a reconcile, Certificates
+# regenerate from Ingress annotations (ingress-shim), and the CSV goes
+# Succeeded on its own. Match the CRD file to the operand minor
+# (operator 1.20 -> upstream cert-manager v1.20.x crds).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - crds-v1.20.0.yaml
+  - clusterissuer-letsencrypt-http01.yaml

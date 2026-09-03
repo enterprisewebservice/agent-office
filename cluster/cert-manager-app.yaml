@@ -1,0 +1,37 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cert-manager-crds
+  namespace: openshift-gitops
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/enterprisewebservice/agent-office.git
+    targetRevision: main
+    path: cluster/cert-manager
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cert-manager
+  syncPolicy:
+    automated:
+      prune: false
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+      - RespectIgnoreDifferences=true
+  # OLM stamps its ownership labels on the CRDs (olm.managed,
+  # operators.coreos.com/...) and cert-manager's conversion webhook adds
+  # its caBundle; neither is drift.
+  ignoreDifferences:
+    - group: apiextensions.k8s.io
+      kind: CustomResourceDefinition
+      jsonPointers:
+        - /metadata/labels
+        - /metadata/annotations
+        - /spec/conversion
+    - group: cert-manager.io
+      kind: ClusterIssuer
+      jsonPointers:
+        - /metadata/annotations
