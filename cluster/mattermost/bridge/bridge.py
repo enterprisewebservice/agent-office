@@ -277,6 +277,71 @@ def get_user(username):
 
 
 # agents this bridge has provisioned — so teardown only ever touches our own.
+
+REG_SIGS = {}  # seat namespace -> last settled registration set
+
+
+def regs_sig(ns):
+    """(name, ready, toolCount) for every MCPServerRegistration in a seat
+    namespace, or None on a read error (never act on a transient failure)."""
+    out = oc("get", "mcpserverregistrations", "-n", ns, "-o", "json")
+    if not out:
+        return None
+    try:
+        items = json.loads(out).get("items", [])
+    except Exception:
+        return None
+    sig = []
+    for i in items:
+        conds = {c.get("type"): c.get("status") for c in (i.get("status") or {}).get("conditions", [])}
+        sig.append((i["metadata"]["name"], conds.get("Ready") == "True", (i.get("status") or {}).get("toolCount")))
+    return tuple(sorted(sig))
+
+
+def reconcile_registrations(agents):
+    """A seat's agent lists its governed tools when its MCP runtime connects,
+    so a server registered afterwards is invisible until it reconnects. When a
+    seat namespace's registration set changes (Module 6: the attendee
+    registers the service they shipped), dispose the cached runtimes in every
+    gateway pod of that namespace (`openclaw mcp reload` -- the next message
+    rebuilds the connection and re-lists the tools) and say so in the
+    channel. No attendee step."""
+    by_ns = {}
+    for name, rec in agents.items():
+        if rec["ns"].endswith("-agent-workspace"):
+            by_ns.setdefault(rec["ns"], []).append((name, rec))
+    for ns, members in by_ns.items():
+        cur = regs_sig(ns)
+        if cur is None:
+            continue
+        prev = REG_SIGS.get(ns)
+        REG_SIGS[ns] = cur
+        if prev is None or cur == prev:
+            continue
+        prev_names = {p[0] for p in prev}; cur_names = {c[0] for c in cur}
+        added = [n for n, r, t in cur if n not in prev_names]
+        removed = [n for n, r, t in prev if n not in cur_names]
+        updated = [n for n, r, t in cur if n in prev_names and (n, r, t) not in prev]
+        tools = {n: t for n, r, t in cur}
+        for name, rec in members:
+            pod = gw_pod(rec["gw"], ns)
+            if pod:
+                subprocess.run(["oc", "exec", "-n", ns, pod, "-c", "openclaw", "--", "openclaw", "mcp", "reload"],
+                               capture_output=True, text=True, timeout=120)
+        what = []
+        if added: what.append("added " + ", ".join(f"{n} ({tools[n]} tools)" if tools.get(n) is not None else n for n in added))
+        if removed: what.append("removed " + ", ".join(removed))
+        if updated: what.append("updated " + ", ".join(updated))
+        msg = ("🔧 Governed tools changed — " + ("; ".join(what) or "registration changed") +
+               ". Reconnecting your assistant to the gateway; the new tools are in its list from its next message.")
+        for name, rec in members:
+            try:
+                api("POST", "/api/v4/posts", {"channel_id": rec["channels"][0], "message": msg}, rec.get("token") or ADMIN)
+            except Exception:
+                pass
+        print(f"[bridge] {ns}: registrations {prev} -> {cur}; runtimes reloaded", file=sys.stderr, flush=True)
+
+
 PROVISIONED = set()
 
 
@@ -347,6 +412,10 @@ def main():
                         print(f"[bridge] {name}: skills {prev} -> {cur}; fresh session", file=sys.stderr, flush=True)
                 agents = new
                 print(f"[bridge] agents: {sorted(agents)}", file=sys.stderr, flush=True)
+                try:
+                    reconcile_registrations(agents)
+                except Exception as e:  # never let a registration hiccup stop the chat loop
+                    print(f"[bridge] registration reconcile failed: {e}", file=sys.stderr, flush=True)
                 if not started:
                     # on first discovery, mark existing posts seen (answer only NEW msgs)
                     for a in agents.values():
