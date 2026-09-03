@@ -1,0 +1,38 @@
+# Detection for the CRD wipe. Routed by Alertmanager's `severity = critical`
+# route (the Critical receiver, email). Evaluated by the platform Prometheus,
+# which is the one that scrapes OLM's csv_* metrics.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: cert-manager-operand-health
+  namespace: openshift-monitoring
+  labels:
+    prometheus: k8s
+    role: alert-rules
+spec:
+  groups:
+    - name: cert-manager-operand
+      rules:
+        - alert: CertManagerOperatorNotSucceeded
+          expr: max by (name, reason) (csv_abnormal{name=~"cert-manager-operator.*"}) == 1
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: "cert-manager operator CSV is not Succeeded ({{ $labels.reason }})"
+            description: >-
+              The Red Hat cert-manager operator's CSV {{ $labels.name }} has left Succeeded
+              (reason {{ $labels.reason }}). Twice this meant the six operand CRDs were deleted:
+              every ClusterIssuer and Certificate died with them and renewals silently stopped.
+              OpenShift GitOps app cert-manager-crds restores the CRDs; check
+              `oc get csv -n cert-manager-operator` and the API audit log for the deleter.
+        - alert: CertManagerCainjectorCrashLooping
+          expr: increase(kube_pod_container_status_restarts_total{namespace="cert-manager", container="cert-manager-cainjector"}[30m]) > 3
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "cert-manager cainjector is crash-looping"
+            description: >-
+              cainjector restarts when the certificates.cert-manager.io CRD is missing —
+              the first visible symptom of the CRD wipe. See the cert-manager-crds GitOps app.

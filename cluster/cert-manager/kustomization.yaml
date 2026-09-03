@@ -1,7 +1,7 @@
 # cert-manager's operand CRDs and the estate's ClusterIssuer, held in git.
 #
 # Why this exists: twice now (2026-08-29, 2026-09-03 03:45Z) the six
-# cert-manager.io CRDs vanished from the cluster — the Red Hat
+# cert-manager.io operand CRDs vanished from the cluster — the Red Hat
 # cert-manager operator's v1.20.0 CSV lists them as OWNED but the bundle
 # does not (re)install them, so once they are gone the CSV sits
 # Pending/RequirementsNotMet, cainjector crash-loops, every ClusterIssuer
@@ -12,10 +12,15 @@
 # OpenShift GitOps self-heals this directory: if the CRDs or the issuer
 # disappear again they are back within a reconcile, Certificates
 # regenerate from Ingress annotations (ingress-shim), and the CSV goes
-# Succeeded on its own. Match the CRD file to the operand minor
-# (operator 1.20 -> upstream cert-manager v1.20.x crds).
+# Succeeded on its own. The CRDs are the seven Red Hat's operator bundle
+# ships (six operand + trust-manager bundles), pulled from the bundle
+# image with `oc image extract`, so the supported operator stays the owner
+# of exactly its own CRDs; re-extract after an operator upgrade. The PrometheusRule pages RuntabOps if the CSV leaves
+# Succeeded or cainjector crash-loops, so the next occurrence is caught
+# while the API audit log still names the deleter.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
-  - crds-v1.20.0.yaml
+  - crds-redhat-cert-manager-operator-1.20.0.yaml
   - clusterissuer-letsencrypt-http01.yaml
+  - alerts.yaml
