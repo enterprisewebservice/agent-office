@@ -340,6 +340,11 @@ def main():
                     p = ps["posts"][pid]
                     if p["user_id"] == a["bot_id"] or p.get("type"):
                         continue
+                    # Platform notices (operator: "Governed tools changed", "Skills
+                    # changed") carry this prop; they are for the attendee, not a
+                    # message to the agent.
+                    if (p.get("props") or {}).get("agentoffice.ai/notice"):
+                        continue
                     text = (p.get("message") or "").strip()
                     if not text:
                         continue
