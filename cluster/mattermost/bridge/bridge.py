@@ -251,7 +251,15 @@ def drive(agent, gw, ns, text, skey=None):
         out = subprocess.run(cmd, capture_output=True, text=True, timeout=1260)
     except subprocess.TimeoutExpired:
         return "(I took too long thinking — try again?)"
-    return ANSI.sub("", out.stdout).strip() or "(no reply)"
+    reply = ANSI.sub("", out.stdout).strip()
+    if out.returncode != 0 and not reply:
+        # The exec itself failed: the gateway pod is restarting (a brain
+        # swap rolls it twice: once for the key, once for the provider
+        # block) or is not ready yet. Say so instead of "(no reply)".
+        err = (out.stderr or "").strip()
+        print(f"[bridge] {agent} exec failed rc={out.returncode}: {err[:160]}", file=sys.stderr, flush=True)
+        return "(my gateway is restarting — give it a minute and ask again)"
+    return reply or "(no reply)"
 
 
 def get_user(username):
