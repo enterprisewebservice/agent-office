@@ -90,3 +90,10 @@ spec:
       name: newsroom
       type: http
       url: http://newsroom-mcp.nl2sql.svc.cluster.local/mcp
+  schedules:
+    # Declared shift (operator >= v1.7.74 renders it into the gateway's cron table;
+    # replaces deploy/agents/40-cron-setup.sh, which stays as the manual fallback).
+    - name: newsroom-bench-6h
+      cron: "20 */6 * * *"
+      message: |
+        Shift trigger (6-hourly): run your benchmark check per your system prompt. Start with newsroom_snapshot.

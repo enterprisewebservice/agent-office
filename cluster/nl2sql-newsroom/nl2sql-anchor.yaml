@@ -75,3 +75,10 @@ spec:
       name: newsroom
       type: http
       url: http://newsroom-mcp.nl2sql.svc.cluster.local/mcp
+  schedules:
+    # Declared shift (operator >= v1.7.74 renders it into the gateway's cron table;
+    # replaces deploy/agents/40-cron-setup.sh, which stays as the manual fallback).
+    - name: newsroom-anchor-2h
+      cron: "45 */2 * * *"
+      message: |
+        Shift trigger (2-hourly): run your review pass per your system prompt. Start with newsroom_snapshot; publish what passes, send back what doesn't.
