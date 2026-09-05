@@ -60,8 +60,6 @@ spec:
       name: '{{ trimSuffix "-gitops" .repository }}'
       labels:
         app.kubernetes.io/managed-by: agent-office-applicationset
-      finalizers:
-        - resources-finalizer.argocd.argoproj.io
     spec:
       project: agent-office
       source:

@@ -35,8 +35,6 @@ spec:
       name: '{{ .repository }}'
       labels:
         app.kubernetes.io/managed-by: supply-chain-services-appset
-      finalizers:
-        - resources-finalizer.argocd.argoproj.io
     spec:
       project: default
       source:
