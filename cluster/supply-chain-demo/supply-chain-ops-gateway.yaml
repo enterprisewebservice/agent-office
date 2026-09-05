@@ -1,0 +1,34 @@
+# supply-chain-ops-gateway — the team Suggest founds for Morgan's agent.
+#
+# Suggest creates this on camera in Act 4 (it decided no existing crew did this
+# work, so it founded one). It lives here as well because the gateway CR is
+# generated from the FOUNDING agent's gitops repo -- delete that repo during a
+# reset and the gateway disappears with no way back, stranding every agent
+# still pointing at it.
+#
+# It also stands as the regression test for v1.7.37: before that release the
+# operator rendered `openai-codex-responses`, an api id openclaw removed, so
+# any newly created gateway refused to start and its agents sat Pending. If
+# this pod comes up 2/2, the fix holds.
+apiVersion: agentoffice.ai/v1alpha1
+kind: AgentGateway
+metadata:
+  name: supply-chain-ops-gateway
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/managed-by: agent-office
+    agentoffice.ai/team: supply-chain-ops
+spec:
+  displayName: Supply Chain Ops
+  description: |
+    Shared runtime for the supply-chain ops crew. Morgan's reporting agent runs
+    here as a logical openclaw persona, alongside anything else routed to this
+    team by Suggest.
+  # PINNED, and not to :latest. On this registry :latest is OLDER than
+  # v2026.7.1 -- it predates the api-id change, so a gateway on :latest
+  # rejects the very id v2026.7.1 requires. The two working gateways both run
+  # v2026.7.1; the operator's default is :latest, which is how this one came
+  # up on a build three weeks behind the rest of the fleet.
+  image: quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/openclaw:v2026.7.1
+  codexCredentialsSecretRef: codex-subscription-credentials
+  autoApproveNodeHost: true

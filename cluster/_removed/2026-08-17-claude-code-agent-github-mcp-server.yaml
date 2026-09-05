@@ -1,0 +1,171 @@
+apiVersion: v1
+items:
+- apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    annotations:
+      deployment.kubernetes.io/revision: "3"
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"apps/v1","kind":"Deployment","metadata":{"annotations":{"secret.reloader.stakater.com/reload":"github-mcp-installation-token,github-mcp-broker-token"},"labels":{"app.kubernetes.io/component":"mcp-server","app.kubernetes.io/managed-by":"agent-office-gitops","app.kubernetes.io/name":"github-mcp-server"},"name":"github-mcp-server","namespace":"claude-code-agent"},"spec":{"replicas":1,"selector":{"matchLabels":{"app.kubernetes.io/name":"github-mcp-server"}},"strategy":{"type":"Recreate"},"template":{"metadata":{"labels":{"app.kubernetes.io/component":"mcp-server","app.kubernetes.io/name":"github-mcp-server"}},"spec":{"containers":[{"args":["printf 'proxy_set_header Authorization \"%s\";\\n' \"$(tr -d '\\n' \u003c /run/ghtoken/AUTHORIZATION)\" \u003e /tmp/auth.conf\nexec nginx -g 'daemon off;'\n"],"command":["/bin/sh","-c"],"image":"registry.access.redhat.com/ubi9/nginx-124:latest","imagePullPolicy":"IfNotPresent","name":"accept-proxy","ports":[{"containerPort":8080,"name":"sse","protocol":"TCP"}],"readinessProbe":{"periodSeconds":10,"tcpSocket":{"port":"sse"}},"resources":{"limits":{"cpu":"200m","memory":"128Mi"},"requests":{"cpu":"10m","memory":"32Mi"}},"securityContext":{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]}},"startupProbe":{"failureThreshold":12,"periodSeconds":5,"tcpSocket":{"port":"sse"}},"volumeMounts":[{"mountPath":"/etc/nginx/nginx.conf","name":"accept-proxy-config","readOnly":true,"subPath":"nginx.conf"},{"mountPath":"/tmp","name":"nginx-tmp"},{"mountPath":"/run/ghtoken","name":"ghtoken","readOnly":true}]},{"args":["http","--port=8082","--toolsets=all"],"envFrom":[{"secretRef":{"name":"github-mcp-installation-token"}}],"image":"ghcr.io/github/github-mcp-server:v1.1.2","imagePullPolicy":"IfNotPresent","name":"mcp-server","ports":[{"containerPort":8082,"name":"mcp","protocol":"TCP"}],"readinessProbe":{"periodSeconds":10,"tcpSocket":{"port":"mcp"}},"resources":{"limits":{"cpu":"500m","memory":"256Mi"},"requests":{"cpu":"100m","memory":"128Mi"}},"securityContext":{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]},"readOnlyRootFilesystem":true},"startupProbe":{"failureThreshold":12,"periodSeconds":5,"tcpSocket":{"port":"mcp"}}}],"securityContext":{"runAsNonRoot":true,"seccompProfile":{"type":"RuntimeDefault"}},"volumes":[{"configMap":{"name":"github-mcp-accept-proxy"},"name":"accept-proxy-config"},{"emptyDir":{},"name":"nginx-tmp"},{"name":"ghtoken","secret":{"secretName":"github-mcp-broker-token"}}]}}}}
+      secret.reloader.stakater.com/reload: github-mcp-installation-token,github-mcp-broker-token
+    creationTimestamp: "2026-05-25T18:52:32Z"
+    generation: 3
+    labels:
+      app.kubernetes.io/component: mcp-server
+      app.kubernetes.io/managed-by: agent-office-gitops
+      app.kubernetes.io/name: github-mcp-server
+    name: github-mcp-server
+    namespace: claude-code-agent
+    resourceVersion: "978853759"
+    uid: ad3efee8-b9e3-475c-ae30-dec3eaa2b5fe
+  spec:
+    progressDeadlineSeconds: 600
+    replicas: 1
+    revisionHistoryLimit: 10
+    selector:
+      matchLabels:
+        app.kubernetes.io/name: github-mcp-server
+    strategy:
+      type: Recreate
+    template:
+      metadata:
+        labels:
+          app.kubernetes.io/component: mcp-server
+          app.kubernetes.io/name: github-mcp-server
+      spec:
+        containers:
+        - args:
+          - |
+            printf 'proxy_set_header Authorization "%s";\n' "$(tr -d '\n' < /run/ghtoken/AUTHORIZATION)" > /tmp/auth.conf
+            exec nginx -g 'daemon off;'
+          command:
+          - /bin/sh
+          - -c
+          image: registry.access.redhat.com/ubi9/nginx-124:latest
+          imagePullPolicy: IfNotPresent
+          name: accept-proxy
+          ports:
+          - containerPort: 8080
+            name: sse
+            protocol: TCP
+          readinessProbe:
+            failureThreshold: 3
+            periodSeconds: 10
+            successThreshold: 1
+            tcpSocket:
+              port: sse
+            timeoutSeconds: 1
+          resources:
+            limits:
+              cpu: 200m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+          startupProbe:
+            failureThreshold: 12
+            periodSeconds: 5
+            successThreshold: 1
+            tcpSocket:
+              port: sse
+            timeoutSeconds: 1
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /etc/nginx/nginx.conf
+            name: accept-proxy-config
+            readOnly: true
+            subPath: nginx.conf
+          - mountPath: /tmp
+            name: nginx-tmp
+          - mountPath: /run/ghtoken
+            name: ghtoken
+            readOnly: true
+        - args:
+          - http
+          - --port=8082
+          - --toolsets=all
+          envFrom:
+          - secretRef:
+              name: github-mcp-installation-token
+          image: ghcr.io/github/github-mcp-server:v1.1.2
+          imagePullPolicy: IfNotPresent
+          name: mcp-server
+          ports:
+          - containerPort: 8082
+            name: mcp
+            protocol: TCP
+          readinessProbe:
+            failureThreshold: 3
+            periodSeconds: 10
+            successThreshold: 1
+            tcpSocket:
+              port: mcp
+            timeoutSeconds: 1
+          resources:
+            limits:
+              cpu: 500m
+              memory: 256Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+            readOnlyRootFilesystem: true
+          startupProbe:
+            failureThreshold: 12
+            periodSeconds: 5
+            successThreshold: 1
+            tcpSocket:
+              port: mcp
+            timeoutSeconds: 1
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+        dnsPolicy: ClusterFirst
+        restartPolicy: Always
+        schedulerName: default-scheduler
+        securityContext:
+          runAsNonRoot: true
+          seccompProfile:
+            type: RuntimeDefault
+        terminationGracePeriodSeconds: 30
+        volumes:
+        - configMap:
+            defaultMode: 420
+            name: github-mcp-accept-proxy
+          name: accept-proxy-config
+        - emptyDir: {}
+          name: nginx-tmp
+        - name: ghtoken
+          secret:
+            defaultMode: 420
+            secretName: github-mcp-broker-token
+  status:
+    conditions:
+    - lastTransitionTime: "2026-05-25T18:52:32Z"
+      lastUpdateTime: "2026-05-25T18:52:32Z"
+      message: Deployment does not have minimum availability.
+      reason: MinimumReplicasUnavailable
+      status: "False"
+      type: Available
+    - lastTransitionTime: "2026-06-03T02:28:05Z"
+      lastUpdateTime: "2026-06-03T02:28:05Z"
+      message: ReplicaSet "github-mcp-server-68fd5748ff" has timed out progressing.
+      reason: ProgressDeadlineExceeded
+      status: "False"
+      type: Progressing
+    observedGeneration: 3
+    replicas: 1
+    unavailableReplicas: 1
+    updatedReplicas: 1
+kind: List
+metadata:
+  resourceVersion: ""
