@@ -27,7 +27,7 @@ MM = os.environ["MM_URL"]
 ADMIN = os.environ["MM_ADMIN_TOKEN"]
 TEAM_NAME = os.environ.get("MM_TEAM", "agents")
 # Comma-separated: the shared namespace plus per-attendee agent workspaces
-# (user1-agent-workspace, ...). Every AW record carries its own namespace.
+# (<handle>-agent-workspace, ...). Every AW record carries its own namespace.
 GW_NAMESPACES = [n.strip() for n in os.environ.get("GW_NS", "agent-office").split(",") if n.strip()]
 # Dynamic seats (factory-hub) are not in GW_NS: they are discovered by the
 # same label the operator uses (agentoffice.ai/managed=true), re-read on

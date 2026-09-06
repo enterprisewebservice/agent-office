@@ -42,4 +42,4 @@ spec:
       # workshop cluster where the namespace set is closed. Found live
       # on the first fresh-seat walk, 2026-08-28.
       - name: MANAGED_NAMESPACES
-        value: agent-office,user1-agent-workspace,user2-agent-workspace,user3-agent-workspace,user4-agent-workspace,user5-agent-workspace
+        value: agent-office
