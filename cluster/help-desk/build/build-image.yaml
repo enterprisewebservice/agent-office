@@ -1,0 +1,48 @@
+# In-cluster image build for seat-triage-mcp (same recipe as projectboard-mcp):
+# clone the repo, buildah bud the Dockerfile, push to the cluster's Quay.
+# Not part of the help-desk kustomization; run build/run/taskrun.yaml.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: seat-triage-mcp-build
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/name: seat-triage-mcp
+spec:
+  params:
+    - name: git-url
+      type: string
+      default: https://github.com/enterprisewebservice/agent-office.git
+    - name: git-revision
+      type: string
+      default: main
+    - name: image
+      type: string
+      default: quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/seat-triage-mcp:v0.1.0
+    - name: context
+      type: string
+      default: mcp-servers/seat-triage-mcp
+  workspaces:
+    - name: dockerconfig
+      description: quay-push-secret (kubernetes.io/dockerconfigjson)
+  steps:
+    - name: build-and-push
+      image: quay.io/buildah/stable:latest
+      # pipelines-scc is RunAsAny but not privileged: newer buildah/stable
+      # images default to an unprivileged user and then fail on uid_map
+      # ("operation not permitted"). Run the step as root, chroot isolation,
+      # vfs storage — no user namespaces needed.
+      securityContext:
+        runAsUser: 0
+      env:
+        - name: BUILDAH_ISOLATION
+          value: chroot
+      script: |
+        set -euo pipefail
+        AUTH="$(workspaces.dockerconfig.path)/.dockerconfigjson"
+        git clone --depth 1 --branch "$(params.git-revision)" "$(params.git-url)" /tmp/src
+        cd "/tmp/src/$(params.context)"
+        echo "building $(params.image) from local context $(pwd)"
+        buildah --storage-driver=vfs bud --isolation chroot -f Dockerfile -t "$(params.image)" .
+        buildah --storage-driver=vfs push --authfile "$AUTH" "$(params.image)"
+        echo "pushed $(params.image)"

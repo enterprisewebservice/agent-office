@@ -1,0 +1,16 @@
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  generateName: seat-triage-mcp-build-
+  namespace: agent-office
+spec:
+  taskRef:
+    name: seat-triage-mcp-build
+  serviceAccountName: pipeline
+  workspaces:
+    - name: dockerconfig
+      secret:
+        secretName: quay-push-secret
+        items:
+          - key: .dockerconfigjson
+            path: .dockerconfigjson
