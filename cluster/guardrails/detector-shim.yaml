@@ -66,14 +66,25 @@ data:
                 out.append({"start": 0, "end": len(text), "text": text, "detection": risk, "detection_type": "risk", "score": round(s, 4), "evidences": []})
         return out
 
+    # Per-risk policy (env RISK_THRESHOLDS): applied whenever the caller does not send
+    # an explicit `threshold` — that is how the guardrails gateway calls, so the front
+    # door blocks on the same per-risk lines as the Mattermost bridge. A caller that
+    # sends `threshold` (the bridge sends 0.0) gets everything at or above it and
+    # applies its own policy. Risks not in the policy are reported, never blocking.
+    POLICY = {k.strip(): float(v) for k, v in (x.split("=", 1) for x in os.environ.get(
+        "RISK_THRESHOLDS", "sexual_content=0.5,illegal_activity=0.6,violence=0.7,harm=0.8,unethical_behavior=0.8,jailbreak=0.8").split(",") if "=" in x)}
+
     @app.post("/api/v1/text/contents")
     async def contents(req: Request):
         body = await req.json()
         contents = body.get("contents") or []
         params = body.get("detector_params") or {}
-        threshold = float(params.get("threshold", 0.0) or 0.0)
         res = await asyncio.gather(*(analyse(t) for t in contents))
-        res = [[d for d in r if d["score"] >= threshold] for r in res]
+        if params.get("threshold") is not None:
+            threshold = float(params.get("threshold") or 0.0)
+            res = [[d for d in r if d["score"] >= threshold] for r in res]
+        else:
+            res = [[d for d in r if d["detection"] in POLICY and d["score"] >= POLICY[d["detection"]]] for r in res]
         return JSONResponse(res, headers={"detector-id": DETECTOR_ID})
 
     @app.get("/health")

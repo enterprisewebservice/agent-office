@@ -12,10 +12,16 @@ metadata:
     app.kubernetes.io/managed-by: agent-office-gitops
 data:
   config.yaml: |
+    # the client's bearer (each seat gateway carries the model-desk key) travels
+    # through to LiteLLM; the orchestrator never holds a model credential itself
+    passthrough_headers:
+      - authorization
+      - Authorization
     openai:
       service:
-        hostname: model-desk.model-desk.svc.cluster.local
-        port: 4000
+        # frontdoor-proxy answers /tokenize (which LiteLLM lacks) and streams the rest to LiteLLM
+        hostname: frontdoor-proxy.guardrails.svc.cluster.local
+        port: 8000
     detectors:
       granite-guardian:
         type: text_contents

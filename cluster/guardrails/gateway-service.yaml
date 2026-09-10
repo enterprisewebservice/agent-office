@@ -1,0 +1,18 @@
+# The guardrails gateway sidecar listens on 8090 in the orchestrator pod; the
+# operator's Service only exposes the orchestrator ports, so this one exposes
+# the gateway: http://guardrails-gateway.guardrails.svc.cluster.local:8090/all/v1
+apiVersion: v1
+kind: Service
+metadata:
+  name: guardrails-gateway
+  namespace: guardrails
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  selector:
+    app: guardrails
+    component: guardrails
+  ports:
+    - name: http
+      port: 8090
+      targetPort: 8090

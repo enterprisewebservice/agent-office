@@ -1,0 +1,107 @@
+# frontdoor-proxy — the generation backend the orchestrator talks to. The
+# orchestrator was built against vLLM: before it runs input detection it calls
+# POST /tokenize on the generation service, and LiteLLM (the platform front
+# door, model-desk) has no such endpoint. This ~60-line proxy answers /tokenize
+# by asking LiteLLM's own /utils/token_counter (accurate per model), and streams
+# everything else to LiteLLM untouched — headers, bearer, SSE included.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: frontdoor-proxy-src
+  namespace: guardrails
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+data:
+  app.py: |
+    import json, os
+    import httpx
+    from fastapi import FastAPI, Request, Response
+    from fastapi.responses import JSONResponse, StreamingResponse
+
+    UP = os.environ.get("UPSTREAM", "http://model-desk.model-desk.svc.cluster.local:4000").rstrip("/")
+    MAX_LEN = int(os.environ.get("MAX_MODEL_LEN", "200000"))
+    app = FastAPI()
+    client = httpx.AsyncClient(timeout=httpx.Timeout(600.0, connect=10.0))
+    HOP = {"host", "content-length", "connection", "transfer-encoding", "keep-alive"}
+
+    def fwd_headers(req: Request):
+        return {k: v for k, v in req.headers.items() if k.lower() not in HOP}
+
+    @app.post("/tokenize")
+    async def tokenize(req: Request):
+        body = await req.json()
+        payload = {"model": body.get("model")}
+        if body.get("messages") is not None:
+            payload["messages"] = body["messages"]
+        else:
+            payload["prompt"] = body.get("prompt") or ""
+        r = await client.post(UP + "/utils/token_counter", json=payload, headers=fwd_headers(req))
+        if r.status_code != 200:
+            return JSONResponse({"error": "token_counter failed", "upstream": r.text[:300]}, status_code=r.status_code)
+        n = int((r.json() or {}).get("total_tokens") or 0)
+        return {"count": n, "max_model_len": MAX_LEN, "tokens": [], "token_strs": None}
+
+    @app.get("/health")
+    async def health():
+        return {"status": "ok", "upstream": UP}
+
+    @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"])
+    async def proxy(path: str, req: Request):
+        url = UP + "/" + path + (("?" + req.url.query) if req.url.query else "")
+        body = await req.body()
+        up = client.build_request(req.method, url, headers=fwd_headers(req), content=body)
+        r = await client.send(up, stream=True)
+        hdrs = {k: v for k, v in r.headers.items() if k.lower() not in HOP}
+        async def gen():
+            try:
+                async for chunk in r.aiter_raw():
+                    yield chunk
+            finally:
+                await r.aclose()
+        return StreamingResponse(gen(), status_code=r.status_code, headers=hdrs, media_type=r.headers.get("content-type"))
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontdoor-proxy
+  namespace: guardrails
+  labels:
+    app.kubernetes.io/name: frontdoor-proxy
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app.kubernetes.io/name: frontdoor-proxy }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: frontdoor-proxy }
+    spec:
+      containers:
+        - name: proxy
+          image: registry.access.redhat.com/ubi9/python-312:latest
+          command: ["bash", "-c"]
+          args:
+            - pip install --quiet --no-cache-dir "fastapi>=0.110" "uvicorn>=0.29" "httpx>=0.27" && exec uvicorn app:app --host 0.0.0.0 --port 8000 --app-dir /app
+          env:
+            - { name: UPSTREAM, value: "http://model-desk.model-desk.svc.cluster.local:4000" }
+          ports: [{ containerPort: 8000, name: http }]
+          volumeMounts: [{ name: src, mountPath: /app, readOnly: true }]
+          readinessProbe: { httpGet: { path: /health, port: 8000 }, initialDelaySeconds: 20, periodSeconds: 10 }
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+            limits: { cpu: "1", memory: 512Mi }
+      volumes:
+        - name: src
+          configMap: { name: frontdoor-proxy-src }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontdoor-proxy
+  namespace: guardrails
+  labels:
+    app.kubernetes.io/name: frontdoor-proxy
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  selector: { app.kubernetes.io/name: frontdoor-proxy }
+  ports: [{ name: http, port: 8000, targetPort: 8000 }]

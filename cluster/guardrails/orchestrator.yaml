@@ -8,5 +8,6 @@ metadata:
 spec:
   orchestratorConfig: fms-orchestr8-config-nlp
   enableBuiltInDetectors: true      # regex/PII detector sidecar (detector id "regex")
-  enableGuardrailsGateway: false    # the OpenAI-compatible gateway comes with the front-door phase
+  enableGuardrailsGateway: true     # sidecar: /all/v1/chat/completions with input+output detection
+  guardrailsGatewayConfig: fms-orchestr8-config-gateway
   replicas: 1

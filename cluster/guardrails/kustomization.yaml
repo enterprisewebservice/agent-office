@@ -16,4 +16,7 @@ resources:
   - inferenceservice.yaml
   - detector-shim.yaml
   - orchestrator-config.yaml
+  - gateway-config.yaml
+  - gateway-service.yaml
+  - frontdoor-proxy.yaml
   - orchestrator.yaml
