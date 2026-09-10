@@ -76,7 +76,10 @@ def screen(text):
         scores[name or (GUARD_RISKS[i] if i < len(GUARD_RISKS) else f"risk{i}")] = float(d.get("score") or 0.0)
     hits = [(r, s) for r, s in scores.items() if r in GUARD_BLOCK and s >= GUARD_BLOCK[r]]
     if hits:
-        r, s = max(hits, key=lambda x: x[1])
+        # name the most specific reason, not the highest score: an explicit request
+        # also scores high on "harm"/"unethical behavior", which tells the person nothing.
+        order = ["sexual_content", "illegal_activity", "violence", "jailbreak", "profanity", "social_bias", "harm", "unethical_behavior"]
+        r, s = sorted(hits, key=lambda x: (order.index(x[0]) if x[0] in order else 99, -x[1]))[0]
         return r, s, scores
     return None, None, scores
 
