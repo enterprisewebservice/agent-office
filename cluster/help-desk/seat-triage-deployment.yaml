@@ -29,7 +29,7 @@ spec:
       containers:
         - name: mcp-server
           # Built in-cluster from mcp-servers/seat-triage-mcp (build/ next to this file).
-          image: quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/seat-triage-mcp:v0.1.1
+          image: quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/seat-triage-mcp:v0.1.2
           imagePullPolicy: IfNotPresent
           ports:
             - name: mcp

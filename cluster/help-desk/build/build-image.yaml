@@ -18,7 +18,7 @@ spec:
       default: main
     - name: image
       type: string
-      default: quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/seat-triage-mcp:v0.1.1
+      default: quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/seat-triage-mcp:v0.1.2
     - name: context
       type: string
       default: mcp-servers/seat-triage-mcp
