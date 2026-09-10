@@ -13,6 +13,11 @@ apiVersion: agentoffice.ai/v1alpha1
 kind: ModelConnection
 metadata:
   name: model-desk
+  annotations:
+    # Pre-selected for anyone who cannot see claude-work (handsonmode.ai seats):
+    # the hiring form sorts defaults first, then by name, so Red Hat hub seats
+    # still land on claude-work.
+    agentoffice.ai/default-brain: "true"
   labels:
     app.kubernetes.io/managed-by: agent-office-gitops
 spec:
@@ -25,17 +30,28 @@ spec:
     name: model-desk-agent-key
     namespace: agent-office
     key: api-key
+  # First model = the connection's default in the hiring form. GPT-5.6 on
+  # the metered API (verified 2026-09-10: sol/terra/luna all answer through
+  # model-desk); 4o stays as the cheap option.
   models:
-    - id: gpt-4o-mini
-      name: "GPT-4o mini"
+    - id: gpt-5.6-sol
+      name: "GPT-5.6 Sol"
+    - id: gpt-5.6-terra
+      name: "GPT-5.6 Terra"
+    - id: gpt-5.6-luna
+      name: "GPT-5.6 Luna"
     - id: gpt-4o
       name: "GPT-4o"
+    - id: gpt-4o-mini
+      name: "GPT-4o mini"
   keyStrategy: shared
   access:
     groups:
+      - handsonmode-attendees
+      - redhat-attendees
+      - attendees
       - handsonmode-users
       - redhat-workshop-users
-      - attendees
       - model-admins
     users:
       - deanpeterson

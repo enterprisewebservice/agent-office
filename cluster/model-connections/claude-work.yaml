@@ -41,10 +41,13 @@ spec:
     - id: claude-haiku-4-5
       name: "Claude Haiku 4.5"
   keyStrategy: shared
+  # Red Hat hub seats only: the work subscription is Red Hat's. handsonmode.ai
+  # seats carry handsonmode-attendees (never redhat-attendees) and get the
+  # OpenAI-API brains on model-desk instead.
   access:
     groups:
+      - redhat-attendees
       - redhat-workshop-users
-      - attendees
       - model-admins
     users:
       - deanpeterson
