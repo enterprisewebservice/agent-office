@@ -84,15 +84,31 @@ def screen(text):
     return None, None, scores
 
 
-def guarded_drive(agent, a, ch, text):
+def react(a, pid, emoji):
+    """Visible proof on the message itself: the bot reacts to every human post it screened."""
+    if pid and a.get("bot_id") and a.get("token"):
+        try:
+            api("POST", "/api/v4/reactions", {"user_id": a["bot_id"], "post_id": pid, "emoji_name": emoji}, token=a["token"])
+        except Exception:
+            pass
+
+
+def guarded_drive(agent, a, ch, text, pid=None):
     if GUARD_URL:
+        t0 = time.time()
         try:
             risk, score, scores = screen(text)
         except Exception as e:
             print(f"[guard] {agent} screen failed: {str(e)[:160]}", file=sys.stderr, flush=True)
+            react(a, pid, "warning")
             if GUARD_FAIL_CLOSED:
                 return "(the content guardrail is unavailable right now — try again in a minute)"
             risk = None
+        else:
+            top = max(scores.items(), key=lambda x: x[1]) if scores else ("-", 0.0)
+            print(f"[guard] screened agent={agent} channel={ch} post={pid} ms={int((time.time() - t0) * 1000)} "
+                  f"{'BLOCK' if risk else 'pass'} top={top[0]}:{top[1]:.2f} scores={ {k: round(v, 2) for k, v in scores.items()} }", file=sys.stderr, flush=True)
+            react(a, pid, "no_entry_sign" if risk else "shield")
         if risk:
             print(f"[guard] BLOCKED agent={agent} channel={ch} risk={risk} score={score:.2f} "
                   f"scores={ {k: round(v, 2) for k, v in scores.items()} } text={text[:160]!r}", file=sys.stderr, flush=True)
@@ -441,7 +457,7 @@ def main():
                     # hire runs with no indicator and no retry).
                     if not a.get("ws"):
                         a["ws"] = get_ws(agent, a.get("token", ""))
-                    reply = with_typing(a.get("ws"), ch, lambda: guarded_drive(agent, a, ch, text))
+                    reply = with_typing(a.get("ws"), ch, lambda: guarded_drive(agent, a, ch, text, p.get("id")))
                     print(f"[bridge] {agent} -> {reply[:80]!r}", file=sys.stderr, flush=True)
                     api("POST", "/api/v4/posts", {"channel_id": ch, "message": reply}, token=a["token"])
         time.sleep(POLL)
