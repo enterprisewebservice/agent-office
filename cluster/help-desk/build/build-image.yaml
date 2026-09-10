@@ -25,7 +25,17 @@ spec:
   workspaces:
     - name: dockerconfig
       description: quay-push-secret (kubernetes.io/dockerconfigjson)
+    - name: source
+      description: scratch space shared by the clone and build steps (emptyDir in the TaskRun)
   steps:
+    - name: clone
+      # The cluster's own git-init image (from the openshift-pipelines git-clone task):
+      # the Red Hat buildah image below carries no git.
+      image: registry.redhat.io/openshift-pipelines/pipelines-git-init-rhel9@sha256:d8de2ba836fe94183804e10e122a9e19ff480a63be43feeaf3bc88d5f32c21cb
+      script: |
+        set -euo pipefail
+        rm -rf "$(workspaces.source.path)/src"
+        git clone --depth 1 --branch "$(params.git-revision)" "$(params.git-url)" "$(workspaces.source.path)/src"
     - name: build-and-push
       # The same image + capability the cluster's own `buildah` task
       # (openshift-pipelines) runs with under pipelines-scc. Upstream
@@ -41,8 +51,7 @@ spec:
       script: |
         set -euo pipefail
         AUTH="$(workspaces.dockerconfig.path)/.dockerconfigjson"
-        git clone --depth 1 --branch "$(params.git-revision)" "$(params.git-url)" /tmp/src
-        cd "/tmp/src/$(params.context)"
+        cd "$(workspaces.source.path)/src/$(params.context)"
         echo "building $(params.image) from local context $(pwd)"
         buildah --storage-driver=vfs bud --isolation chroot -f Dockerfile -t "$(params.image)" .
         buildah --storage-driver=vfs push --authfile "$AUTH" "$(params.image)"
