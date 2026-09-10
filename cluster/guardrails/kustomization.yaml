@@ -14,5 +14,6 @@ resources:
   - model-pvc.yaml
   - servingruntime.yaml
   - inferenceservice.yaml
+  - detector-shim.yaml
   - orchestrator-config.yaml
   - orchestrator.yaml

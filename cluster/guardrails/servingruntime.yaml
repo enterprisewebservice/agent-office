@@ -1,35 +1,37 @@
-# The Red Hat Hugging Face detector runtime that ships with OpenShift AI 3.4.4
-# (same object the dashboard template "Hugging Face Detector ServingRuntime for
-# KServe" renders). Serves Granite Guardian (GraniteForCausalLM) as an IBM
-# Detector API on :8000 — /api/v1/text/contents — scoring every predefined
-# risk (harm, social_bias, jailbreak, profanity, unethical_behavior,
-# sexual_content, violence) per request.
+# Red Hat's vLLM runtime (the object the dashboard template "vLLM NVIDIA GPU
+# ServingRuntime for KServe" renders in OpenShift AI 3.4.4). Serves Granite
+# Guardian as an OpenAI-compatible model on :8080; guardian-detector (see
+# detector-shim.yaml) turns that into the Detector API the orchestrator
+# expects, seven risks in parallel instead of one after another.
 apiVersion: serving.kserve.io/v1alpha1
 kind: ServingRuntime
 metadata:
-  name: guardrails-detector-hf-runtime
+  name: vllm-cuda-runtime
   namespace: guardrails
+  annotations:
+    openshift.io/display-name: vLLM NVIDIA GPU ServingRuntime for KServe
   labels:
     app.kubernetes.io/managed-by: agent-office-gitops
-  annotations:
-    openshift.io/display-name: "Hugging Face Detector ServingRuntime for KServe"
-    prometheus.io/port: "8080"
-    prometheus.io/path: "/metrics"
 spec:
-  supportedModelFormats:
-    - name: guardrails-detector-hf-runtime
-      autoSelect: true
-  multiModel: false
+  annotations:
+    opendatahub.io/kserve-runtime: vllm
+    prometheus.io/path: /metrics
+    prometheus.io/port: "8080"
   containers:
     - name: kserve-container
-      image: registry.redhat.io/rhoai/odh-guardrails-detector-huggingface-runtime-rhel9@sha256:db3a4a8f434a9c9c07e0b7cc8045b613b45c19bf583c8e07bee69d0f5a72b431
-      command: ["uvicorn", "app:app"]
-      args: ["--workers=1", "--host=0.0.0.0", "--port=8000", "--log-config=/common/log_conf.yaml"]
+      image: registry.redhat.io/rhaii/vllm-cuda-rhel9@sha256:dd65c7ed88a9369b962f1299ed19c6c8819ff0a64595c10e32f1e82ab0750e27
+      command: ["python", "-m", "vllm.entrypoints.openai.api_server"]
+      args:
+        - --port=8080
+        - --model=/mnt/models
+        - --served-model-name={{.Name}}
       env:
-        - { name: MODEL_DIR, value: /mnt/models }
-        - { name: HF_HOME, value: /tmp/hf_home }
-        - { name: DETECTOR_NAME, value: granite-guardian }
-        - { name: THRESHOLD, value: "0.5" }
+        - name: HF_HOME
+          value: /tmp/hf_home
       ports:
-        - containerPort: 8000
+        - containerPort: 8080
           protocol: TCP
+  multiModel: false
+  supportedModelFormats:
+    - name: vLLM
+      autoSelect: true

@@ -52,7 +52,7 @@ spec:
             - name: GUARDRAILS_DETECTOR
               value: granite-guardian
             - name: GUARDRAILS_BLOCK
-              value: "sexual_content=0.5,violence=0.7,harm=0.8,unethical_behavior=0.8,jailbreak=0.8"
+              value: "sexual_content=0.5,illegal_activity=0.6,violence=0.7,harm=0.8,unethical_behavior=0.8,jailbreak=0.8"
             - name: GUARDRAILS_FAIL_CLOSED
               value: "true"
             - name: GW_NS

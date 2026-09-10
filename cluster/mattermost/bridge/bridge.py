@@ -51,7 +51,7 @@ GUARD_URL = os.environ.get("GUARDRAILS_URL", "").rstrip("/")      # https://guar
 GUARD_DETECTOR = os.environ.get("GUARDRAILS_DETECTOR", "granite-guardian")
 GUARD_RISKS = ["harm", "social_bias", "jailbreak", "profanity", "unethical_behavior", "sexual_content", "violence"]
 GUARD_BLOCK = {k.strip(): float(v) for k, v in (x.split("=", 1) for x in
-               os.environ.get("GUARDRAILS_BLOCK", "sexual_content=0.5,violence=0.7,harm=0.8,unethical_behavior=0.8,jailbreak=0.8").split(",") if "=" in x)}
+               os.environ.get("GUARDRAILS_BLOCK", "sexual_content=0.5,illegal_activity=0.6,violence=0.7,harm=0.8,unethical_behavior=0.8,jailbreak=0.8").split(",") if "=" in x)}
 GUARD_FAIL_CLOSED = os.environ.get("GUARDRAILS_FAIL_CLOSED", "true").lower() == "true"
 GUARD_CA = "/var/run/secrets/kubernetes.io/serviceaccount/service-ca.crt"
 GUARD_REPLY = os.environ.get("GUARDRAILS_REPLY",
@@ -70,7 +70,10 @@ def screen(text):
     dets = [d for d in out.get("detections", []) if d.get("detector_id", GUARD_DETECTOR) == GUARD_DETECTOR]
     scores = {}
     for i, d in enumerate(dets):
-        scores[GUARD_RISKS[i] if i < len(GUARD_RISKS) else f"risk{i}"] = float(d.get("score") or 0.0)
+        # the shim labels each result with its risk name (detection); the shipped
+        # HF runtime does not and returns them in GUARD_RISKS order instead.
+        name = d.get("detection") if d.get("detection") in GUARD_RISKS or str(d.get("detection", "")).endswith("_activity") else None
+        scores[name or (GUARD_RISKS[i] if i < len(GUARD_RISKS) else f"risk{i}")] = float(d.get("score") or 0.0)
     hits = [(r, s) for r, s in scores.items() if r in GUARD_BLOCK and s >= GUARD_BLOCK[r]]
     if hits:
         r, s = max(hits, key=lambda x: x[1])

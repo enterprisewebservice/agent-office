@@ -1,5 +1,5 @@
 # FMS Guardrails Orchestrator config. One detector today (Granite Guardian on
-# the GPU); the built-in regex/PII detector is enabled on the CR and reachable
+# the GPU behind the guardian-detector shim); the built-in regex/PII detector is enabled on the CR and reachable
 # as detector id "regex" if a caller asks for it. chat_generation points at the
 # cluster's LiteLLM front door (model-desk) so the orchestrator's
 # /api/v2/chat/completions-detection can also front the metered brains later.
@@ -20,7 +20,7 @@ data:
       granite-guardian:
         type: text_contents
         service:
-          hostname: granite-guardian-predictor.guardrails.svc.cluster.local
+          hostname: guardian-detector.guardrails.svc.cluster.local
           port: 8000
         chunker_id: whole_doc_chunker
         default_threshold: 0.5

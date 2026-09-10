@@ -1,0 +1,129 @@
+# guardian-detector — the IBM Detector API (/api/v1/text/contents) that the
+# Guardrails Orchestrator speaks, implemented over a vLLM-served Granite
+# Guardian. Why not the shipped Hugging Face detector runtime: it runs the
+# model through plain transformers, seven risks one after another — 20 s per
+# message on the 3090 Ti (measured 2026-09-10), too slow for chat. vLLM
+# (Red Hat's image) answers each risk in a few hundred ms and this shim asks
+# for all of them in parallel, labels every result with its risk name, and
+# adds one custom criterion Granite Guardian does not ship: illegal_activity.
+# ~90 lines of Python on the UBI Python image; deps pip-installed at boot
+# (the same pattern as mm-bridge).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: guardian-detector-src
+  namespace: guardrails
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+data:
+  app.py: |
+    import asyncio, json, math, os
+    import httpx
+    from fastapi import FastAPI, Request
+    from fastapi.responses import JSONResponse
+
+    VLLM = os.environ.get("VLLM_URL", "http://granite-guardian-predictor.guardrails.svc.cluster.local:8080")
+    MODEL = os.environ.get("VLLM_MODEL", "granite-guardian")
+    DETECTOR_ID = os.environ.get("DETECTOR_ID", "granite-guardian")
+    RISKS = [r for r in os.environ.get("RISKS", "harm,social_bias,jailbreak,profanity,unethical_behavior,sexual_content,violence,illegal_activity").split(",") if r]
+    CUSTOM = {
+        "illegal_activity": os.environ.get("ILLEGAL_ACTIVITY_DEFINITION",
+            "The user asks for help planning, committing, facilitating or concealing a crime, evading law enforcement, "
+            "or obtaining illegal goods, weapons, drugs, or unauthorized access to systems or accounts."),
+    }
+    app = FastAPI()
+    client = httpx.AsyncClient(timeout=60.0)
+
+    async def score(text, risk):
+        cfg = {"risk_name": risk}
+        if risk in CUSTOM:
+            cfg = {"risk_name": risk, "risk_definition": CUSTOM[risk]}
+        body = {"model": MODEL, "messages": [{"role": "user", "content": text}], "max_tokens": 4, "temperature": 0,
+                "logprobs": True, "top_logprobs": 10, "chat_template_kwargs": {"guardian_config": cfg}}
+        r = await client.post(VLLM + "/v1/chat/completions", json=body)
+        r.raise_for_status()
+        ch = r.json()["choices"][0]
+        toks = ((ch.get("logprobs") or {}).get("content") or [])
+        yes = no = 0.0
+        for t in toks[:2]:                       # first generated token(s): "Yes"/"No" (sometimes preceded by whitespace)
+            for alt in t.get("top_logprobs") or []:
+                w = (alt.get("token") or "").strip().lower()
+                if w == "yes": yes += math.exp(alt["logprob"])
+                elif w == "no": no += math.exp(alt["logprob"])
+            if yes or no: break
+        if yes + no == 0:                        # fall back to the generated text
+            txt = (ch.get("message", {}).get("content") or "").strip().lower()
+            return 1.0 if txt.startswith("yes") else 0.0
+        return yes / (yes + no)
+
+    async def analyse(text):
+        results = await asyncio.gather(*(score(text, r) for r in RISKS), return_exceptions=True)
+        out = []
+        for risk, s in zip(RISKS, results):
+            if isinstance(s, Exception):
+                out.append({"start": 0, "end": len(text), "text": text, "detection": risk, "detection_type": "risk", "score": 0.0, "evidences": [], "error": str(s)[:120]})
+            else:
+                out.append({"start": 0, "end": len(text), "text": text, "detection": risk, "detection_type": "risk", "score": round(s, 4), "evidences": []})
+        return out
+
+    @app.post("/api/v1/text/contents")
+    async def contents(req: Request):
+        body = await req.json()
+        contents = body.get("contents") or []
+        params = body.get("detector_params") or {}
+        threshold = float(params.get("threshold", 0.0) or 0.0)
+        res = await asyncio.gather(*(analyse(t) for t in contents))
+        res = [[d for d in r if d["score"] >= threshold] for r in res]
+        return JSONResponse(res, headers={"detector-id": DETECTOR_ID})
+
+    @app.get("/health")
+    async def health():
+        return {"status": "ok", "risks": RISKS, "vllm": VLLM}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: guardian-detector
+  namespace: guardrails
+  labels:
+    app.kubernetes.io/name: guardian-detector
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app.kubernetes.io/name: guardian-detector }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: guardian-detector }
+    spec:
+      containers:
+        - name: detector
+          image: registry.access.redhat.com/ubi9/python-312:latest
+          command: ["bash", "-c"]
+          args:
+            - pip install --quiet --no-cache-dir "fastapi>=0.110" "uvicorn>=0.29" "httpx>=0.27" && exec uvicorn app:app --host 0.0.0.0 --port 8000 --app-dir /app
+          env:
+            - { name: VLLM_URL, value: "http://granite-guardian-predictor.guardrails.svc.cluster.local:8080" }
+            - { name: VLLM_MODEL, value: "granite-guardian" }
+            - { name: DETECTOR_ID, value: "granite-guardian" }
+          ports: [{ containerPort: 8000, name: http }]
+          volumeMounts: [{ name: src, mountPath: /app, readOnly: true }]
+          readinessProbe: { httpGet: { path: /health, port: 8000 }, initialDelaySeconds: 20, periodSeconds: 10 }
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+            limits: { cpu: "1", memory: 512Mi }
+      volumes:
+        - name: src
+          configMap: { name: guardian-detector-src }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: guardian-detector
+  namespace: guardrails
+  labels:
+    app.kubernetes.io/name: guardian-detector
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  selector: { app.kubernetes.io/name: guardian-detector }
+  ports: [{ name: http, port: 8000, targetPort: 8000 }]
