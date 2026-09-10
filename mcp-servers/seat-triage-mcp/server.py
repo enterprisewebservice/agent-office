@@ -530,8 +530,8 @@ def seat_errors(ov, prog):
             errs.append({"kind": "pipeline", "text": f"{pr['name']}: {pr.get('reason')} {(pr.get('message') or '')[:160]}".strip()})
     for w in ov.get("warnings", [])[:8]:
         errs.append({"kind": "event", "text": f"{w.get('object')}: {w.get('reason')} {(w.get('message') or '')[:160]}".strip()})
-    for k, v in prog.items():
-        if k.startswith("module") and v.get("status") == "looks wrong":
+    for k, v in (prog.get("modules") or {}).items():
+        if v.get("status") == "looks wrong":
             for mis in v.get("suspected_mistakes", [])[:2]:
                 errs.append({"kind": "check", "text": f"{k}: {mis[:200]}"})
     seen, out = set(), []
@@ -567,10 +567,8 @@ def sweep_once():
             continue
         old = (prev.get(h) or {}).get("modules") or {}
         mods = {}
-        for k, v in prog.items():
-            if not k.startswith("module "):
-                continue
-            n, st = k.split()[1], v.get("status", "")
+        for k, v in (prog.get("modules") or {}).items():      # keys "module 1".."module 7"
+            n, st = k.split()[-1], v.get("status", "")
             first = (old.get(n) or {}).get("first_done")
             if st == "done" and not first:
                 first = _now_iso()
