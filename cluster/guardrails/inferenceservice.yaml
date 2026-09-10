@@ -13,7 +13,7 @@ metadata:
     app.kubernetes.io/managed-by: agent-office-gitops
   annotations:
     openshift.io/display-name: "Granite Guardian 3.2 5B (content detector)"
-    serving.kserve.io/deploymentMode: RawDeployment
+    serving.kserve.io/deploymentMode: Standard   # what the API canonicalises RawDeployment to
 spec:
   predictor:
     minReplicas: 1

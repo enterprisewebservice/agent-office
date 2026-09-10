@@ -23,6 +23,7 @@ spec:
         - /spec/predictor/automountServiceAccountToken
         - /spec/predictor/model/name
         - /spec/predictor/deploymentStrategy
+        - /metadata/annotations/modelFormat
   syncPolicy:
     automated:
       prune: true
