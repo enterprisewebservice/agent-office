@@ -27,13 +27,14 @@ spec:
       description: quay-push-secret (kubernetes.io/dockerconfigjson)
   steps:
     - name: build-and-push
-      image: quay.io/buildah/stable:latest
-      # pipelines-scc is RunAsAny but not privileged: newer buildah/stable
-      # images default to an unprivileged user and then fail on uid_map
-      # ("operation not permitted"). Run the step as root, chroot isolation,
-      # vfs storage — no user namespaces needed.
+      # The same image + capability the cluster's own `buildah` task
+      # (openshift-pipelines) runs with under pipelines-scc. Upstream
+      # quay.io/buildah/stable now fails there on uid_map ("operation not
+      # permitted"); the Red Hat build carries the setuid helpers it needs.
+      image: registry.redhat.io/rhel9/buildah@sha256:43905f40b285c32725fd6239c236df7a6bfc562e5c1b7d8338dc369a2aa2b9f8
       securityContext:
-        runAsUser: 0
+        capabilities:
+          add: ["SETFCAP"]
       env:
         - name: BUILDAH_ISOLATION
           value: chroot
