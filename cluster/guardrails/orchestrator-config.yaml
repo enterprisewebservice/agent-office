@@ -1,6 +1,6 @@
 # FMS Guardrails Orchestrator config. One detector today (Granite Guardian on
 # the GPU behind the guardian-detector shim); the built-in regex/PII detector is enabled on the CR and reachable
-# as detector id "regex" if a caller asks for it. chat_generation points at the
+# as detector id "regex" if a caller asks for it. `openai` points at the
 # cluster's LiteLLM front door (model-desk) so the orchestrator's
 # /api/v2/chat/completions-detection can also front the metered brains later.
 apiVersion: v1
@@ -12,7 +12,7 @@ metadata:
     app.kubernetes.io/managed-by: agent-office-gitops
 data:
   config.yaml: |
-    chat_generation:
+    openai:
       service:
         hostname: model-desk.model-desk.svc.cluster.local
         port: 4000

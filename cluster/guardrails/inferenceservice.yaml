@@ -18,6 +18,10 @@ spec:
   predictor:
     minReplicas: 1
     maxReplicas: 1
+    # one GPU on the node: a rolling update can never schedule the new pod
+    # beside the old one, so replace instead of surge.
+    deploymentStrategy:
+      type: Recreate
     nodeSelector:
       kubernetes.io/hostname: ec-0d-9a-89-19-46
     model:
