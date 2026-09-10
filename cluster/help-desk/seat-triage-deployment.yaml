@@ -42,6 +42,8 @@ spec:
             - { name: APPS_DOMAIN, value: apps.salamander.aimlworkbench.com }
             - { name: GITEA_URL, value: https://gitea-gitea.apps.salamander.aimlworkbench.com }
             - { name: ARGO_NS, value: openshift-gitops }
+            - { name: SWEEP_SECONDS, value: "600" }   # judge every ready seat every 10 min -> factory-hub/factory-sweep
+            - { name: SWEEP_CM, value: factory-sweep }
             - { name: GUIDE_RAW, value: https://raw.githubusercontent.com/enterprisewebservice/showroom-openshift-software-factory/main/content/modules/ROOT/pages/ }
           securityContext:
             allowPrivilegeEscalation: false

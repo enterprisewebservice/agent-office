@@ -481,5 +481,124 @@ def seat_oc(handle: str, args: str) -> dict:
             "stdout": redact((r.stdout or "")[-12000:]), "stderr": redact((r.stderr or "")[-3000:])}
 
 
+
+# ------------------------------------------------------------------ the sweep
+# Every SWEEP_SECONDS, judge every ready seat the way the help desk would
+# (seat_overview + seat_progress) and write the verdicts — with the first time
+# each module was seen done, and the errors visible right now — to the hub's
+# factory-sweep ConfigMap, one JSON per handle. The hub's admin page and its
+# daily digest read that; the help desk keeps calling the tools live.
+import threading
+import time as _time
+
+SWEEP_SECONDS = int(os.environ.get("SWEEP_SECONDS", "600"))
+SWEEP_CM = os.environ.get("SWEEP_CM", "factory-sweep")
+
+
+def _k8s_patch(path, body):
+    global _ctx, _tok
+    if _ctx is None:
+        _k8s(f"/api/v1/namespaces/{HUB_NS}")
+    req = urllib.request.Request(K8S + path, data=json.dumps(body).encode(), method="PATCH")
+    req.add_header("Authorization", "Bearer " + _tok)
+    req.add_header("Content-Type", "application/merge-patch+json")
+    try:
+        with urllib.request.urlopen(req, context=_ctx, timeout=20) as r:
+            return r.status
+    except urllib.error.HTTPError as e:
+        return e.code
+    except Exception:
+        return 0
+
+
+def _now_iso():
+    return dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def seat_errors(ov, prog):
+    """What is wrong in the seat right now: pods, GitOps apps, pipeline runs,
+    warning events, and the checks' suspected mistakes. Deduplicated, capped."""
+    errs = []
+    for p in ov.get("pods", []):
+        if p.get("waiting") or p.get("phase") not in ("Running", "Succeeded") or p.get("restarts", 0) >= 3:
+            errs.append({"kind": "pod", "text": f"{p['name']}: {p.get('phase')} {' '.join(p.get('waiting') or [])} restarts={p.get('restarts', 0)}".strip()})
+    for a in ov.get("gitopsApplications", []):
+        if a.get("sync") not in ("Synced", None) or a.get("health") not in ("Healthy", "Progressing", None) or a.get("error"):
+            errs.append({"kind": "gitops", "text": f"{a['name']}: sync={a.get('sync')} health={a.get('health')} {a.get('error') or ''}".strip()})
+    for pr in ov.get("pipelineRuns", []):
+        if pr.get("status") == "False":
+            errs.append({"kind": "pipeline", "text": f"{pr['name']}: {pr.get('reason')} {(pr.get('message') or '')[:160]}".strip()})
+    for w in ov.get("warnings", [])[:8]:
+        errs.append({"kind": "event", "text": f"{w.get('object')}: {w.get('reason')} {(w.get('message') or '')[:160]}".strip()})
+    for k, v in prog.items():
+        if k.startswith("module") and v.get("status") == "looks wrong":
+            for mis in v.get("suspected_mistakes", [])[:2]:
+                errs.append({"kind": "check", "text": f"{k}: {mis[:200]}"})
+    seen, out = set(), []
+    for e in errs:
+        if e["text"] not in seen:
+            seen.add(e["text"]); out.append(e)
+    return out[:20]
+
+
+def _cm_json(name):
+    code, cm = _k8s(f"/api/v1/namespaces/{HUB_NS}/configmaps/{name}")
+    out = {}
+    for h, raw in ((cm.get("data") or {}) if code == 200 and isinstance(cm, dict) else {}).items():
+        try:
+            out[h] = json.loads(raw)
+        except Exception:
+            pass
+    return out
+
+
+def sweep_once():
+    seats, prev, patch = _cm_json(SEATS_CM), _cm_json(SWEEP_CM), {}
+    for h, rec in seats.items():
+        if rec.get("phase") != "ready":
+            continue
+        try:
+            ov = seat_overview(h)
+            prog = seat_progress(h) if "error" not in ov else ov
+            if "error" in ov or "error" in prog:
+                continue
+        except Exception as e:
+            patch[h] = json.dumps({"at": _now_iso(), "error": str(e)[:200], "modules": (prev.get(h) or {}).get("modules") or {}})
+            continue
+        old = (prev.get(h) or {}).get("modules") or {}
+        mods = {}
+        for k, v in prog.items():
+            if not k.startswith("module "):
+                continue
+            n, st = k.split()[1], v.get("status", "")
+            first = (old.get(n) or {}).get("first_done")
+            if st == "done" and not first:
+                first = _now_iso()
+            mods[n] = {"status": st, "first_done": first,
+                       "evidence": [str(x)[:160] for x in (v.get("evidence") or [])[:3]],
+                       "mistakes": [str(x)[:200] for x in (v.get("suspected_mistakes") or [])[:3]]}
+        patch[h] = json.dumps({"at": _now_iso(), "modules": mods, "errors": seat_errors(ov, prog),
+                               "agents": [[a.get("name"), a.get("phase")] for a in ov.get("agentworkstations", [])],
+                               "gateways": [[g.get("name"), g.get("phase")] for g in ov.get("agentgateways", [])]})
+    if patch:
+        st = _k8s_patch(f"/api/v1/namespaces/{HUB_NS}/configmaps/{SWEEP_CM}", {"data": patch})
+        print(f"sweep: {len(patch)} seat(s) judged, {SWEEP_CM} patch -> {st}", flush=True)
+    return len(patch)
+
+
+def _sweeper():
+    _time.sleep(20)
+    while True:
+        try:
+            sweep_once()
+        except Exception as e:
+            print(f"sweep failed: {e}", flush=True)
+        _time.sleep(SWEEP_SECONDS)
+
+
+if SWEEP_SECONDS > 0:
+    threading.Thread(target=_sweeper, daemon=True).start()
+
+
 if __name__ == "__main__":
     mcp.run(transport="streamable-http")
