@@ -30,12 +30,12 @@ spec:
     name: model-desk-agent-key
     namespace: agent-office
     key: api-key
-  # First model = the connection's default in the hiring form. GPT-5.6 on
-  # the metered API (verified 2026-09-10: sol/terra/luna all answer through
-  # model-desk); 4o stays as the cheap option.
+  # First model = the connection's default in the hiring form. GPT-5.6 on the
+  # metered API: Terra (OpenAI's production tier) is the default, Luna the
+  # fast/cheap tier; both call tools, diagnose build logs and fix YAML in the
+  # workshop probes (2026-09-10). Sol is deliberately NOT offered here: 2x
+  # Terra's price for the same workshop outcome.
   models:
-    - id: gpt-5.6-sol
-      name: "GPT-5.6 Sol"
     - id: gpt-5.6-terra
       name: "GPT-5.6 Terra"
     - id: gpt-5.6-luna
