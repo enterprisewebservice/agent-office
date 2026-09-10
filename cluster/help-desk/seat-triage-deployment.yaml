@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: seat-triage-mcp
+  labels:
+    app.kubernetes.io/name: seat-triage-mcp
+    app.kubernetes.io/component: mcp-server
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: seat-triage-mcp
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: seat-triage-mcp
+        app.kubernetes.io/component: mcp-server
+    spec:
+      serviceAccountName: seat-triage
+      imagePullSecrets:
+        - name: quay-pull-secret
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: mcp-server
+          # Built in-cluster from mcp-servers/seat-triage-mcp (build/ next to this file).
+          image: quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/seat-triage-mcp:v0.1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: mcp
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - { name: PORT, value: "8080" }
+            - { name: HUB_NS, value: factory-hub }
+            - { name: SEATS_CM, value: factory-seats }
+            - { name: APPS_DOMAIN, value: apps.salamander.aimlworkbench.com }
+            - { name: GITEA_URL, value: https://gitea-gitea.apps.salamander.aimlworkbench.com }
+            - { name: ARGO_NS, value: openshift-gitops }
+            - { name: GUIDE_RAW, value: https://raw.githubusercontent.com/enterprisewebservice/showroom-openshift-software-factory/main/content/modules/ROOT/pages/ }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          readinessProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 10m
+              memory: 96Mi
+            limits:
+              memory: 384Mi

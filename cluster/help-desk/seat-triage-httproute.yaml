@@ -1,0 +1,29 @@
+# Attaches the tool server to the platform's MCP gateway (same shape as
+# projectboard-mcp / ops-metrics): the gateway stays the governance point,
+# the route is this backend's declaration.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: seat-triage-mcp-route
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/name: seat-triage-mcp
+    app.kubernetes.io/component: backend-route
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: mcp-gateway
+      namespace: agent-office
+      sectionName: mcps
+  hostnames:
+    - seat-triage.mcp.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /mcp
+      backendRefs:
+        - name: seat-triage-mcp
+          port: 8080

@@ -1,0 +1,18 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# The Hands-On Mode help desk: the seat-triage tool server (registered on the
+# governed MCP gateway), the workshop know-how Skill the help agent is hired
+# with, and the one Role that lets the hub's broker read the help gateway's
+# token. The agent itself is a Dev Hub hire: its own gitops repo
+# (enterprisewebservice/handsonmode-help-agent-gitops) declares the
+# AgentWorkstation + AgentGateway; ArgoCD's agent-office-agents ApplicationSet
+# adopts it. Image build for the tool server: build/ (not part of this app).
+namespace: agent-office
+resources:
+  - seat-triage-rbac.yaml
+  - seat-triage-deployment.yaml
+  - seat-triage-service.yaml
+  - seat-triage-httproute.yaml
+  - seat-triage-registration.yaml
+  - skill-workshop-help-desk.yaml
+  - hub-token-reader-rbac.yaml

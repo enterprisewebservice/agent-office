@@ -1,0 +1,54 @@
+# The tool server's identity. Two layers, by design:
+#   * cluster-wide: READ-ONLY discovery of what exists (namespaces, the
+#     GitOps applications that target a seat, the model connections) — no
+#     pod logs, no secrets, nothing writable;
+#   * per seat: namespace `admin` in <handle>-agent-workspace and
+#     showroom-<handle>, granted by the hub's seat-policy.yaml the moment a
+#     seat is provisioned (the same file that grants the attendee and the
+#     seat's terminal their admin). That is what lets it read logs, exec into
+#     the seat's gateway pod, restart a rollout or delete a stuck pod — in
+#     THAT seat only. Seats are dynamic; the binding travels with them.
+# The server additionally fences every call to the attendee it is helping
+# and refuses handles that are not seats.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: seat-triage
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/name: seat-triage-mcp
+    app.kubernetes.io/managed-by: agent-office-gitops
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: seat-triage-discovery
+  labels:
+    app.kubernetes.io/name: seat-triage-mcp
+    app.kubernetes.io/managed-by: agent-office-gitops
+rules:
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: [get, list, watch]
+  - apiGroups: [argoproj.io]
+    resources: [applications]
+    verbs: [get, list, watch]
+  - apiGroups: [agentoffice.ai]
+    resources: [modelconnections]
+    verbs: [get, list, watch]
+  - apiGroups: [authorization.k8s.io]
+    resources: [selfsubjectaccessreviews]
+    verbs: [create]                         # `oc auth can-i`
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: seat-triage-discovery
+  labels:
+    app.kubernetes.io/name: seat-triage-mcp
+    app.kubernetes.io/managed-by: agent-office-gitops
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: seat-triage-discovery }
+subjects:
+  - kind: ServiceAccount
+    name: seat-triage
+    namespace: agent-office

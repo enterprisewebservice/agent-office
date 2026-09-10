@@ -1,0 +1,31 @@
+# The hub's broker (ns factory-hub, SA factory-hub) talks to the help desk
+# agent through its gateway's OpenAI-compatible endpoint, authenticated by
+# the gateway token the operator mints as Secret <gateway>-token. This is the
+# one read the broker gets in agent-office: that Secret, nothing else.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: help-desk-gateway-token-reader
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/name: handsonmode-help
+    app.kubernetes.io/managed-by: agent-office-gitops
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames: [handsonmode-help-token]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: help-desk-gateway-token-reader
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/name: handsonmode-help
+    app.kubernetes.io/managed-by: agent-office-gitops
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: help-desk-gateway-token-reader }
+subjects:
+  - kind: ServiceAccount
+    name: factory-hub
+    namespace: factory-hub

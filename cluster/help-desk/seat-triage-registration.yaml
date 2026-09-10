@@ -1,0 +1,28 @@
+# Registers the seat-triage backend with the gateway broker: tools appear to
+# governed callers as seat_overview, seat_progress, seat_events, seat_logs,
+# seat_gitea, seat_oc, workshop_guide. credentialRef is the broker's discovery
+# credential only (the backend ignores it), exactly like ops-metrics.
+apiVersion: mcp.kuadrant.io/v1alpha1
+kind: MCPServerRegistration
+metadata:
+  name: seat-triage
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/name: seat-triage-mcp
+    app.kubernetes.io/component: registration
+    app.kubernetes.io/managed-by: agent-office-gitops
+  annotations:
+    # client-recipe (served by the operator's /catalog/packs): the governed
+    # gateway entry every platform agent already carries is enough.
+    agentoffice.ai/description: "Governed read-mostly look at ONE attendee's workshop seat: overview, module-by-module progress, events, redacted logs, Gitea, a fenced `oc`, and the guide text (seat_* tools)."
+spec:
+  path: /mcp
+  prefix: seat_
+  state: Enabled
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: seat-triage-mcp-route
+  credentialRef:
+    name: github-mcp-broker-token
+    key: AUTHORIZATION
