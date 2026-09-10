@@ -14,6 +14,15 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: guardrails
+  # KServe fills predictor defaults (automountServiceAccountToken, model.name)
+  # and normalises deploymentStrategy; none of it is drift.
+  ignoreDifferences:
+    - group: serving.kserve.io
+      kind: InferenceService
+      jsonPointers:
+        - /spec/predictor/automountServiceAccountToken
+        - /spec/predictor/model/name
+        - /spec/predictor/deploymentStrategy
   syncPolicy:
     automated:
       prune: true
