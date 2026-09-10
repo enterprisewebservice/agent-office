@@ -1,0 +1,12 @@
+apiVersion: trustyai.opendatahub.io/v1alpha1
+kind: GuardrailsOrchestrator
+metadata:
+  name: guardrails
+  namespace: guardrails
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  orchestratorConfig: fms-orchestr8-config-nlp
+  enableBuiltInDetectors: true      # regex/PII detector sidecar (detector id "regex")
+  enableGuardrailsGateway: false    # the OpenAI-compatible gateway comes with the front-door phase
+  replicas: 1

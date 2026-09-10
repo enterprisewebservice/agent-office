@@ -1,0 +1,41 @@
+# One-shot: pull ibm-granite/granite-guardian-3.2-5b (Apache-2.0, ungated) onto
+# the guardian-models PVC. Re-run (delete + create) to change the model; the
+# InferenceService's storageUri names the directory.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: download-granite-guardian
+  namespace: guardrails
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: download
+          image: registry.access.redhat.com/ubi9/python-312:latest
+          env:
+            - { name: MODEL, value: ibm-granite/granite-guardian-3.2-5b }
+            - { name: HF_HUB_ENABLE_HF_TRANSFER, value: "0" }
+          command: ["bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              pip install --quiet --no-cache-dir "huggingface_hub>=0.30"
+              python - <<'EOF'
+              import os
+              from huggingface_hub import snapshot_download
+              m = os.environ["MODEL"]; d = "/models/" + m.split("/")[-1]
+              p = snapshot_download(m, local_dir=d, allow_patterns=["*.json", "*.safetensors", "*.txt", "*.jinja", "*.model", "*.py"])
+              print("downloaded", m, "->", p)
+              print(sorted(os.listdir(d)))
+              EOF
+          volumeMounts:
+            - { name: models, mountPath: /models }
+          resources:
+            requests: { cpu: 500m, memory: 1Gi }
+            limits: { memory: 4Gi }
+      volumes:
+        - name: models
+          persistentVolumeClaim: { claimName: guardian-models }

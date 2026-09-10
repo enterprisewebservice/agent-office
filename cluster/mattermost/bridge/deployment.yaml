@@ -45,6 +45,16 @@ spec:
                 secretKeyRef: { name: mattermost-admin-token, key: token }
             - name: MM_TEAM
               value: agents
+            # content guardrail (bridge.py screen()): Granite Guardian behind the
+            # Guardrails Orchestrator in ns guardrails; fails closed.
+            - name: GUARDRAILS_URL
+              value: https://guardrails-service.guardrails.svc.cluster.local:8032
+            - name: GUARDRAILS_DETECTOR
+              value: granite-guardian
+            - name: GUARDRAILS_BLOCK
+              value: "sexual_content=0.5,violence=0.7,harm=0.8,unethical_behavior=0.8,jailbreak=0.8"
+            - name: GUARDRAILS_FAIL_CLOSED
+              value: "true"
             - name: GW_NS
               # Shared namespace + every per-seat agent workspace (deployer
               # keeps this list in step with deploy/salamander-workspaces).

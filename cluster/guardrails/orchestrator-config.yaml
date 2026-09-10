@@ -1,0 +1,26 @@
+# FMS Guardrails Orchestrator config. One detector today (Granite Guardian on
+# the GPU); the built-in regex/PII detector is enabled on the CR and reachable
+# as detector id "regex" if a caller asks for it. chat_generation points at the
+# cluster's LiteLLM front door (model-desk) so the orchestrator's
+# /api/v2/chat/completions-detection can also front the metered brains later.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fms-orchestr8-config-nlp
+  namespace: guardrails
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+data:
+  config.yaml: |
+    chat_generation:
+      service:
+        hostname: model-desk.model-desk.svc.cluster.local
+        port: 4000
+    detectors:
+      granite-guardian:
+        type: text_contents
+        service:
+          hostname: granite-guardian-predictor.guardrails.svc.cluster.local
+          port: 8000
+        chunker_id: whole_doc_chunker
+        default_threshold: 0.5

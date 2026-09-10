@@ -39,6 +39,61 @@ REDISCOVER = int(os.environ.get("REDISCOVER_SECONDS", "60"))
 CTX = ssl.create_default_context(); CTX.check_hostname = False; CTX.verify_mode = ssl.CERT_NONE
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
+# --- content guardrail: Granite Guardian via the Guardrails Orchestrator ----------
+# Every human message is screened BEFORE it reaches any agent (and therefore any
+# model), inside the typing indicator so the chat feels the same. The detector
+# (Red Hat HF detector runtime serving Granite Guardian) scores the fixed risk
+# list below, in this order, one result each; the bridge blocks when a risk it
+# is configured to block clears its threshold. Fails CLOSED by default: if the
+# guardrail is unreachable the message is not relayed. Flagged messages are
+# logged (who, channel, risk, scores, text) — never sent on.
+GUARD_URL = os.environ.get("GUARDRAILS_URL", "").rstrip("/")      # https://guardrails-service.guardrails.svc.cluster.local:8032
+GUARD_DETECTOR = os.environ.get("GUARDRAILS_DETECTOR", "granite-guardian")
+GUARD_RISKS = ["harm", "social_bias", "jailbreak", "profanity", "unethical_behavior", "sexual_content", "violence"]
+GUARD_BLOCK = {k.strip(): float(v) for k, v in (x.split("=", 1) for x in
+               os.environ.get("GUARDRAILS_BLOCK", "sexual_content=0.5,violence=0.7,harm=0.8,unethical_behavior=0.8,jailbreak=0.8").split(",") if "=" in x)}
+GUARD_FAIL_CLOSED = os.environ.get("GUARDRAILS_FAIL_CLOSED", "true").lower() == "true"
+GUARD_CA = "/var/run/secrets/kubernetes.io/serviceaccount/service-ca.crt"
+GUARD_REPLY = os.environ.get("GUARDRAILS_REPLY",
+    "I can't help with that here. The platform's content guardrail flagged this message ({risk}), so it was not sent to the model. "
+    "This workshop is for building and running agents; a person reviews flagged messages.")
+
+
+def screen(text):
+    """Ask the orchestrator to score `text`. Returns (blocked_risk, score, scores) — blocked_risk None when clean. Raises on outage."""
+    body = json.dumps({"detectors": {GUARD_DETECTOR: {"threshold": 0.0}}, "content": text}).encode()
+    req = urllib.request.Request(GUARD_URL + "/api/v2/text/detection/content", data=body,
+                                 headers={"Content-Type": "application/json", "Accept": "application/json"})
+    ctx = ssl.create_default_context(cafile=GUARD_CA) if (GUARD_URL.startswith("https") and os.path.exists(GUARD_CA)) else CTX
+    with urllib.request.urlopen(req, context=ctx, timeout=60) as r:
+        out = json.load(r)
+    dets = [d for d in out.get("detections", []) if d.get("detector_id", GUARD_DETECTOR) == GUARD_DETECTOR]
+    scores = {}
+    for i, d in enumerate(dets):
+        scores[GUARD_RISKS[i] if i < len(GUARD_RISKS) else f"risk{i}"] = float(d.get("score") or 0.0)
+    hits = [(r, s) for r, s in scores.items() if r in GUARD_BLOCK and s >= GUARD_BLOCK[r]]
+    if hits:
+        r, s = max(hits, key=lambda x: x[1])
+        return r, s, scores
+    return None, None, scores
+
+
+def guarded_drive(agent, a, ch, text):
+    if GUARD_URL:
+        try:
+            risk, score, scores = screen(text)
+        except Exception as e:
+            print(f"[guard] {agent} screen failed: {str(e)[:160]}", file=sys.stderr, flush=True)
+            if GUARD_FAIL_CLOSED:
+                return "(the content guardrail is unavailable right now — try again in a minute)"
+            risk = None
+        if risk:
+            print(f"[guard] BLOCKED agent={agent} channel={ch} risk={risk} score={score:.2f} "
+                  f"scores={ {k: round(v, 2) for k, v in scores.items()} } text={text[:160]!r}", file=sys.stderr, flush=True)
+            return GUARD_REPLY.format(risk=risk.replace("_", " "))
+    return drive(agent, a["gw"], a["ns"], text, a.get("skey"))
+
+
 # --- presence + typing via a per-bot WebSocket --------------------------------
 # A live WS connection makes a bot show ONLINE (green); user_typing events on it
 # drive the "…is typing" indicator while the agent thinks. Graceful if the lib
@@ -380,7 +435,7 @@ def main():
                     # hire runs with no indicator and no retry).
                     if not a.get("ws"):
                         a["ws"] = get_ws(agent, a.get("token", ""))
-                    reply = with_typing(a.get("ws"), ch, lambda: drive(agent, a["gw"], a["ns"], text, a.get("skey")))
+                    reply = with_typing(a.get("ws"), ch, lambda: guarded_drive(agent, a, ch, text))
                     print(f"[bridge] {agent} -> {reply[:80]!r}", file=sys.stderr, flush=True)
                     api("POST", "/api/v4/posts", {"channel_id": ch, "message": reply}, token=a["token"])
         time.sleep(POLL)

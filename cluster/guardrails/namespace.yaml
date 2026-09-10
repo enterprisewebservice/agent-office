@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: guardrails
+  labels:
+    opendatahub.io/dashboard: "true"        # visible as a project in the OpenShift AI dashboard
+    app.kubernetes.io/managed-by: agent-office-gitops
+  annotations:
+    openshift.io/display-name: "Guardrails (content safety for agent chats)"

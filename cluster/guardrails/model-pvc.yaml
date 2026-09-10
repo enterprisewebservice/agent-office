@@ -1,0 +1,14 @@
+# Model weights live on a PVC (filled once by jobs/download-granite-guardian.yaml);
+# KServe's storage initializer copies pvc://guardian-models/<dir> into /mnt/models.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: guardian-models
+  namespace: guardrails
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 40Gi

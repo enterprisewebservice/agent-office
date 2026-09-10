@@ -1,0 +1,36 @@
+# Granite Guardian 3.2 5B on the free RTX 3090 Ti (ec-0d-9a-89-19-46). Raw
+# deployment (the cluster's KServe mode), one replica, the whole card.
+# Swap the model by re-running jobs/download-granite-guardian.yaml with another
+# MODEL and pointing storageUri at its directory.
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: granite-guardian
+  namespace: guardrails
+  labels:
+    opendatahub.io/dashboard: "true"
+    trustyai/guardrails-detector: "true"
+    app.kubernetes.io/managed-by: agent-office-gitops
+  annotations:
+    openshift.io/display-name: "Granite Guardian 3.2 5B (content detector)"
+    serving.kserve.io/deploymentMode: RawDeployment
+spec:
+  predictor:
+    minReplicas: 1
+    maxReplicas: 1
+    nodeSelector:
+      kubernetes.io/hostname: ec-0d-9a-89-19-46
+    model:
+      modelFormat:
+        name: guardrails-detector-hf-runtime
+      runtime: guardrails-detector-hf-runtime
+      storageUri: pvc://guardian-models/granite-guardian-3.2-5b
+      resources:
+        requests:
+          cpu: "2"
+          memory: 20Gi
+          nvidia.com/gpu: "1"
+        limits:
+          cpu: "4"
+          memory: 24Gi
+          nvidia.com/gpu: "1"

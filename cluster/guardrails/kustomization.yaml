@@ -1,0 +1,18 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# Content guardrails for every chat that reaches an agent (Dean, 2026-09-10:
+# "make sure anyone using this workshop isn't doing anything illegal";
+# sexual content the top worry). All Red Hat pieces that ship with
+# OpenShift AI 3.4: the Hugging Face detector runtime serving Granite
+# Guardian (GraniteForCausalLM is a supported model class), and the
+# FMS Guardrails Orchestrator in front of it. The Mattermost bridge asks
+# the orchestrator about every human message BEFORE driving the agent.
+# The model download Job lives in jobs/ (run once by hand; not synced).
+namespace: guardrails
+resources:
+  - namespace.yaml
+  - model-pvc.yaml
+  - servingruntime.yaml
+  - inferenceservice.yaml
+  - orchestrator-config.yaml
+  - orchestrator.yaml
