@@ -25,5 +25,8 @@ spec:
             type: PathPrefix
             value: /mcp
       backendRefs:
-        - name: seat-triage-mcp
+        - group: ""
+          kind: Service
+          name: seat-triage-mcp
           port: 8080
+          weight: 1
