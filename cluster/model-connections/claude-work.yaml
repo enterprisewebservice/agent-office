@@ -22,7 +22,9 @@ spec:
   displayName: "Claude — Red Hat Vertex"
   description: "Frontier brain on the work subscription; full tool surface"
   kind: endpoint
-  baseUrl: "http://model-desk.model-desk.svc.cluster.local:4000/v1"
+  # Through the content guardrail: the guardrails gateway screens every request
+  # (input + output, Granite Guardian) and forwards to the LiteLLM front door.
+  baseUrl: "http://guardrails-gateway.guardrails.svc.cluster.local:8090/all/v1"
   api: openai-completions
   apiKeySecretRef:
     name: model-desk-agent-key
