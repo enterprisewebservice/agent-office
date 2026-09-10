@@ -17,8 +17,8 @@ metadata:
   labels:
     app.kubernetes.io/managed-by: agent-office-gitops
 spec:
-  displayName: "LiteMaaS — Red Hat hosted open models"
-  description: "Qwen and Granite served by the Red Hat AI Services BU"
+  displayName: "LiteMaaS — open models"
+  description: "Qwen and Granite open-weight models behind the platform front door"
   kind: endpoint
   # Unified through model-desk (the universal translator): the BU's
   # LiteMaaS key lives only in model-desk's env; agents authenticate
