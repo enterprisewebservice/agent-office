@@ -1,0 +1,86 @@
+# Auto-unseal CronJob: checks Vault every 2 minutes and unseals it if
+# it came back sealed.
+#
+# Why this exists next to unseal-job.yaml: that Job is an ArgoCD
+# PostSync hook, so it only runs when the vault-bootstrap Application
+# syncs. A plain pod restart (node blip, cold boot) does not trigger a
+# sync, so Vault stayed sealed for hours on 2026-09-14 and every
+# Vault-backed ExternalSecret stalled. This CronJob closes that gap.
+#
+# Behaviour: /v1/sys/health 200/429/472/473 -> nothing to do; 503 ->
+# POST the unseal key to /v1/sys/unseal (key read from the
+# vault-bootstrap-keys Secret, written to a file and posted from it,
+# so it never appears on a command line); 501 or unreachable -> exit
+# without unsealing. Idempotent; one pod at a time.
+#
+# HARDEN-LATER: replace with KMS/transit auto-unseal, then delete this
+# and unseal-job.yaml.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: vault-unsealer
+  namespace: vault
+  labels:
+    app.kubernetes.io/name: vault-unsealer
+spec:
+  schedule: "*/2 * * * *"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 100
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 90
+      backoffLimit: 0
+      ttlSecondsAfterFinished: 300
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: vault-unsealer
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: unsealer
+              image: docker.io/hashicorp/vault:1.17.6   # same image as the chart, already on the nodes
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+              env:
+                - name: VAULT_ADDR
+                  value: "http://vault.vault.svc:8200"
+                - name: UNSEAL_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: vault-bootstrap-keys
+                      key: unseal-key-1
+                      optional: true
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -eu
+                  if [ -z "${UNSEAL_KEY:-}" ]; then
+                    echo "vault-bootstrap-keys not present; nothing to do"
+                    exit 0
+                  fi
+                  code=$(wget --quiet -O /dev/null --server-response \
+                    "$VAULT_ADDR/v1/sys/health" 2>&1 | \
+                    awk '/HTTP\/1.[01]/ {print $2}' | tail -1 || true)
+                  case "${code:-none}" in
+                    200|429|472|473) echo "Vault is unsealed (HTTP $code); nothing to do"; exit 0 ;;
+                    503) echo "Vault is sealed (HTTP 503); unsealing" ;;
+                    501) echo "Vault is not initialized; leaving it to the init Job"; exit 0 ;;
+                    *)   echo "Vault not reachable (HTTP ${code:-none}); will retry next run"; exit 1 ;;
+                  esac
+                  printf '{"key":"%s"}' "$UNSEAL_KEY" > /tmp/unseal.json
+                  out=$(wget --quiet -O - --post-file=/tmp/unseal.json "$VAULT_ADDR/v1/sys/unseal" 2>&1 || true)
+                  rm -f /tmp/unseal.json
+                  case "$out" in
+                    *'"sealed":false'*) echo "Vault unsealed" ;;
+                    *) echo "Unseal did not complete: $(echo "$out" | head -c 200)"; exit 1 ;;
+                  esac

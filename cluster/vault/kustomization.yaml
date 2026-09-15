@@ -9,7 +9,9 @@ kind: Kustomization
 # Resources here are the things ArgoCD's helm path can't render:
 #   * namespace (helm doesn't create it before the install)
 #   * bootstrap init Job (one-time on first install)
-#   * unseal Job (every pod restart)
+#   * unseal Job (on every ArgoCD sync)
+#   * unseal CronJob (every 2 minutes, catches pod restarts that
+#     happen without a sync — see unseal-cronjob.yaml)
 #
 # These are wired as PostSync hooks so they fire AFTER the chart's
 # StatefulSet exists.
@@ -19,3 +21,4 @@ resources:
   - scc-binding.yaml
   - init-job.yaml
   - unseal-job.yaml
+  - unseal-cronjob.yaml
