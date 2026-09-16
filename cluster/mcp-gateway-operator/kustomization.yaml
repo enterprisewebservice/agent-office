@@ -14,6 +14,11 @@ kind: Kustomization
 # get registered via MCPServerRegistration CRs that live alongside
 # the server they describe; the operator picks them up from any
 # namespace.
+#
+# rhcl-operator-subscription.yaml adopts the Connectivity Link
+# Subscription itself (same namespace, same OperatorGroup) so its
+# operator resource settings are declared here too.
 
 resources:
   - subscription.yaml
+  - rhcl-operator-subscription.yaml

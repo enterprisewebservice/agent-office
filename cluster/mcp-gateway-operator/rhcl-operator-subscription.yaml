@@ -1,0 +1,43 @@
+# Subscription: rhcl-operator (Red Hat Connectivity Link)
+#
+# Installs the Kuadrant operator (AuthPolicy, RateLimitPolicy,
+# TokenRateLimitPolicy, DNSPolicy, TLSPolicy) plus its Authorino,
+# Limitador and DNS operator dependencies. Created by hand on 2026-03-03
+# and adopted here so its OLM config lives in git next to the
+# mcp-gateway Subscription in the same namespace.
+#
+# Why spec.config.resources: the CSV ships the controller-manager at
+# 200m / 300Mi. The operator caches every ConfigMap and Deployment in
+# the cluster (its label filters are applied client-side, see
+# Kuadrant/kuadrant-operator#1731), and on salamander the ConfigMaps
+# alone are ~165 MiB of JSON. RHCL 1.4.2 averaged 454 MiB with a
+# 664 MiB peak under a hand-edited 1Gi limit; the 1.4.3 upgrade on
+# 2026-09-08 put the CSV's 300Mi back and every start was OOMKilled
+# while the cache loaded. 2Gi leaves room for ConfigMap growth.
+#
+# OLM copies this block onto the operator Deployment on every CSV sync;
+# a direct Deployment edit only lasts until the next upgrade. To return
+# to the CSV defaults, delete the config block. Prune=false and
+# Delete=false keep Argo from ever deleting this Subscription, which
+# predates the Application.
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: rhcl-operator
+  namespace: kuadrant-system
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+spec:
+  channel: stable
+  name: rhcl-operator
+  source: redhat-operators-v420
+  sourceNamespace: openshift-marketplace
+  installPlanApproval: Automatic
+  config:
+    resources:
+      requests:
+        cpu: 200m
+        memory: 768Mi
+      limits:
+        cpu: 500m
+        memory: 2Gi

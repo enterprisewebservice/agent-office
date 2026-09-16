@@ -1,6 +1,7 @@
 # ArgoCD Application — reconciles cluster/mcp-gateway-operator/ into
 # the kuadrant-system namespace. Installs the mcp-gateway operator
-# (Kuadrant Tech Preview) via OLM.
+# (Kuadrant Tech Preview) via OLM and carries the rhcl-operator
+# (Connectivity Link) Subscription's config.
 #
 # Sync-wave -1: install the operator + CRDs BEFORE any MCPServerRegistration
 # / MCPGatewayExtension / MCPVirtualServer CRs land. Those CRs will be
