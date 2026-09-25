@@ -38,3 +38,4 @@ Thumbs.db
 
 # Container build artifacts
 tmp/
+__pycache__/
