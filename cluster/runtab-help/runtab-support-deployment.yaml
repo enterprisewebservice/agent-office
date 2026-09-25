@@ -29,7 +29,7 @@ spec:
       containers:
         - name: mcp-server
           # Built in-cluster from mcp-servers/runtab-support-mcp (build/ next to this file).
-          image: quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/runtab-support-mcp:v0.1.0
+          image: quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/runtab-support-mcp:v0.1.1
           imagePullPolicy: IfNotPresent
           ports:
             - name: mcp

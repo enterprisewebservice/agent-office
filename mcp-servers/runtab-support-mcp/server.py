@@ -5,7 +5,9 @@ agent look at ONE Runtab user's state: account and plan, the linked bank
 them, the current release, and product facts.
 
 Registered on the platform's Kuadrant MCP gateway like every other tool
-server (HTTPRoute + MCPServerRegistration, prefix `runtab_`). The agent never
+server (HTTPRoute + MCPServerRegistration, prefix `runtab_`): the tools are
+named account/link/activity/release/knowledge HERE and reach agents as
+runtab_account, runtab_link, ... (the registration adds the prefix). The agent never
 holds the backend key: this server carries it (ExternalSecret mirror of the
 backend's CCS_API_KEY) and only calls the backend's /internal/support routes,
 which never return balances, transactions, card numbers or tokens.
@@ -41,7 +43,7 @@ def _get(path: str, **q) -> dict:
 
 
 @mcp.tool()
-def runtab_account(email: str) -> dict:
+def account(email: str) -> dict:
     """Account and plan state for ONE Runtab user, identified by the email the
     platform gave you. Says whether an app account exists (they signed in at
     least once), the plan (trial, active, expired, owner), trial days left,
@@ -51,7 +53,7 @@ def runtab_account(email: str) -> dict:
 
 
 @mcp.tool()
-def runtab_link(email: str) -> dict:
+def link(email: str) -> dict:
     """The user's linked bank(s): institution, when it was linked, whether Plaid
     says the login must be redone (needs_reconnect), any Plaid error code with
     its plain message, whether the bank is degraded for the areas a card balance
@@ -61,7 +63,7 @@ def runtab_link(email: str) -> dict:
 
 
 @mcp.tool()
-def runtab_activity(email: str, days: int = 7) -> dict:
+def activity(email: str, days: int = 7) -> dict:
     """Recent sync activity for the user over the last `days` days: transactions
     observed per day and the latest daily snapshot, which shows whether the app
     has been polling successfully. Amounts are never included."""
@@ -69,7 +71,7 @@ def runtab_activity(email: str, days: int = 7) -> dict:
 
 
 @mcp.tool()
-def runtab_release() -> dict:
+def release() -> dict:
     """The current Runtab for Mac release served at runtab.io/download: version,
     build date, size, minimum macOS, notarization, and the download URL."""
     return _get("/internal/support/release")
@@ -124,7 +126,7 @@ KNOWLEDGE = {
 
 
 @mcp.tool()
-def runtab_knowledge(topic: str = "") -> dict:
+def knowledge(topic: str = "") -> dict:
     """Runtab product facts for the help desk. Topics: install, signin, link,
     bank-issue, refresh, trial-billing, privacy, contact. Empty topic lists them."""
     t = (topic or "").strip().lower()
