@@ -1,0 +1,19 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# The Runtab help desk: the runtab-support tool server (registered on the
+# governed MCP gateway, prefix runtab_), the product know-how Skill the help
+# agent is hired with, the ExternalSecret that mirrors the Runtab backend's
+# API key into this namespace, and the one Role that lets the Runtab backend
+# (ns claude-code-agent) read the help gateway's token. The agent itself is a
+# Dev Hub hire: its own gitops repo (enterprisewebservice/runtab-help-agent-gitops)
+# declares the AgentWorkstation + AgentGateway. Image build: build/ (not part
+# of this app).
+namespace: agent-office
+resources:
+  - runtab-support-rbac.yaml
+  - runtab-support-secret.yaml
+  - runtab-support-deployment.yaml
+  - runtab-support-service.yaml
+  - runtab-support-httproute.yaml
+  - runtab-support-registration.yaml
+  - skill-runtab-help-desk.yaml

@@ -1,0 +1,52 @@
+# The tool server needs no cluster access at all: it only talks to the Runtab
+# backend over the network. Its ServiceAccount exists so the pod never runs
+# as `default`.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: runtab-support-mcp
+  labels:
+    app.kubernetes.io/name: runtab-support-mcp
+    app.kubernetes.io/managed-by: agent-office-gitops
+---
+# External Secrets reads the backend's CCS_API_KEY out of
+# claude-code-agent/ccs-secrets as this ServiceAccount (the Role granting
+# that one read lives with the Runtab backend: credit-card-stream
+# deploy/help-desk.yaml).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: runtab-support-secret-reader
+  labels:
+    app.kubernetes.io/name: runtab-support-mcp
+    app.kubernetes.io/managed-by: agent-office-gitops
+---
+# The Runtab backend (ns claude-code-agent, SA ccs-backend) talks to the help
+# desk agent through its gateway's OpenAI-compatible endpoint, authenticated
+# by the gateway token the operator mints as Secret <gateway>-token. This is
+# the one read it gets in agent-office: that Secret, nothing else.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: runtab-help-gateway-token-reader
+  labels:
+    app.kubernetes.io/name: runtab-help
+    app.kubernetes.io/managed-by: agent-office-gitops
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames: [runtab-help-token]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: runtab-help-gateway-token-reader
+  labels:
+    app.kubernetes.io/name: runtab-help
+    app.kubernetes.io/managed-by: agent-office-gitops
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: runtab-help-gateway-token-reader }
+subjects:
+  - kind: ServiceAccount
+    name: ccs-backend
+    namespace: claude-code-agent

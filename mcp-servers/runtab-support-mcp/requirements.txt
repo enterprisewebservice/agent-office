@@ -1,0 +1,1 @@
+mcp>=1.2.0,<2   # 2.x renamed FastMCP; the other tool servers pin the same

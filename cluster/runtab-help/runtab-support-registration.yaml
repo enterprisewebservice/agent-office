@@ -1,0 +1,25 @@
+# Registers the runtab-support backend with the gateway broker: tools appear
+# to governed callers as runtab_account, runtab_link, runtab_activity,
+# runtab_release, runtab_knowledge. credentialRef is the broker's discovery
+# credential only (the backend ignores it), exactly like seat-triage.
+apiVersion: mcp.kuadrant.io/v1alpha1
+kind: MCPServerRegistration
+metadata:
+  name: runtab-support
+  labels:
+    app.kubernetes.io/name: runtab-support-mcp
+    app.kubernetes.io/component: registration
+    app.kubernetes.io/managed-by: agent-office-gitops
+  annotations:
+    agentoffice.ai/description: "Governed read-only look at ONE Runtab user's account, bank link health, sync activity, sent emails and the current release (runtab_* tools). Never balances, transactions or card numbers."
+spec:
+  path: /mcp
+  prefix: runtab_
+  state: Enabled
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: runtab-support-mcp-route
+  credentialRef:
+    name: github-mcp-broker-token
+    key: AUTHORIZATION

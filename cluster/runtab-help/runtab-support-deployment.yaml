@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: runtab-support-mcp
+  labels:
+    app.kubernetes.io/name: runtab-support-mcp
+    app.kubernetes.io/component: mcp-server
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: runtab-support-mcp
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: runtab-support-mcp
+        app.kubernetes.io/component: mcp-server
+    spec:
+      serviceAccountName: runtab-support-mcp
+      imagePullSecrets:
+        - name: quay-pull-secret
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: mcp-server
+          # Built in-cluster from mcp-servers/runtab-support-mcp (build/ next to this file).
+          image: quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/runtab-support-mcp:v0.1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: mcp
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - { name: PORT, value: "8080" }
+            - { name: RUNTAB_BACKEND_URL, value: http://ccs-backend.claude-code-agent.svc.cluster.local:8080 }
+            - name: CCS_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: runtab-support-backend
+                  key: CCS_API_KEY
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          readinessProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 10m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
