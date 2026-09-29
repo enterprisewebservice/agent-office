@@ -1,0 +1,36 @@
+# API product for the Claude Sonnet 5 endpoint served by Models-as-a-Service.
+# Lists the route in the Connectivity Link API catalog (OpenShift console
+# "API Products" page and the Developer Hub plugin), where consumers can
+# request an API key and an owner approves it. Technology Preview in RHCL 1.4.
+apiVersion: devportal.kuadrant.io/v1alpha1
+kind: APIProduct
+metadata:
+  name: claude-sonnet-5
+  namespace: models-as-a-service
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  displayName: Claude Sonnet 5 (Models-as-a-Service)
+  description: >-
+    OpenAI-compatible chat completions for Claude Sonnet 5, served through the
+    Models-as-a-Service gateway. Per-caller authentication, request and token
+    rate limits, and usage metering are enforced at the gateway by Red Hat
+    Connectivity Link policies. Base path /v1; use the chat/completions and
+    models endpoints with your API key as a Bearer token.
+  version: v1
+  approvalMode: manual
+  publishStatus: Published
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: claude-sonnet-5
+  contact:
+    team: Platform engineering (agent-office)
+    url: https://v1-developer-hub-rhdh-test.apps.salamander.aimlworkbench.com/kuadrant/api-products
+  documentation:
+    docsURL: https://docs.redhat.com/en/documentation/red_hat_openshift_ai_self-managed/3.4/html/govern_llm_access_with_models-as-a-service
+    openAPISpecURL: https://raw.githubusercontent.com/openai/openai-openapi/master/openapi.yaml
+  tags:
+    - llm
+    - models-as-a-service
+    - openai-compatible

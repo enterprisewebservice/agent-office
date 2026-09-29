@@ -1,0 +1,13 @@
+# The Kuadrant instance for Connectivity Link. Applied by hand on 2026-03-03,
+# adopted into git 2026-09-29 to switch on observability: with enable=true the
+# operator creates the ServiceMonitors/PodMonitors for its components
+# (Authorino, Limitador, DNS operator, itself) and the gateway data plane, and
+# user workload monitoring scrapes them (RHCL 1.4 Observability guide, ch. 1.3).
+apiVersion: kuadrant.io/v1beta1
+kind: Kuadrant
+metadata:
+  name: kuadrant
+  namespace: kuadrant-system
+spec:
+  observability:
+    enable: true

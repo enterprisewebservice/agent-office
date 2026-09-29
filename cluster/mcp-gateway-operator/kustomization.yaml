@@ -22,3 +22,4 @@ kind: Kustomization
 resources:
   - subscription.yaml
   - rhcl-operator-subscription.yaml
+  - kuadrant.yaml
