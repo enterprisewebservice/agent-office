@@ -9,6 +9,9 @@ metadata:
   namespace: models-as-a-service
   labels:
     app.kubernetes.io/managed-by: agent-office-gitops
+  annotations:
+    # the Developer Hub plugin skips products without a catalog owner
+    backstage.io/owner: user:default/deanpeterson
 spec:
   displayName: Claude Sonnet 5 (Models-as-a-Service)
   description: >-
