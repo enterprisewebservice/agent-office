@@ -402,7 +402,7 @@ data:
       pluginConfig:
         dynamicPlugins:
           frontend:
-            kuadrant.kuadrant-backstage-plugin-frontend:
+            internal.plugin-kuadrant:   # scalprum name of the upstream 0.4.0 package (the RHCL doc key belongs to the unpublished downstream build)
               apiFactories:
                 - importName: kuadrantApiFactory
               appIcons:
