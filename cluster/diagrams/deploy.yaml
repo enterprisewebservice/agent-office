@@ -1,0 +1,76 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: diagrams
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: diagrams
+  namespace: diagrams
+  labels:
+    app: diagrams
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: diagrams
+  template:
+    metadata:
+      labels:
+        app: diagrams
+    spec:
+      containers:
+        - name: nginx
+          image: registry.access.redhat.com/ubi9/nginx-124:latest
+          command: ["nginx", "-g", "daemon off;"]
+          ports:
+            - containerPort: 8080
+              name: http
+          volumeMounts:
+            - name: html
+              mountPath: /opt/app-root/src
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          readinessProbe:
+            httpGet:
+              path: /index.html
+              port: 8080
+      volumes:
+        - name: html
+          configMap:
+            name: diagrams-html
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: diagrams
+  namespace: diagrams
+spec:
+  selector:
+    app: diagrams
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: diagrams
+  namespace: diagrams
+spec:
+  host: diagrams.apps.salamander.aimlworkbench.com
+  to:
+    kind: Service
+    name: diagrams
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect

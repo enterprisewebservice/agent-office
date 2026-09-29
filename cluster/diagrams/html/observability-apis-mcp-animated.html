@@ -1,0 +1,424 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>API and MCP Observability</title>
+<meta name="description" content="One monitoring stack for APIs and MCP on OpenShift: the Connectivity Link gateway emits metrics, traces and access logs for every call; Red Hat OpenShift monitoring, Red Hat build of OpenTelemetry with the distributed tracing platform, and OpenShift Logging receive them; the MCP router adds tool, server, session and identity."/>
+<style>
+  :root{
+    color-scheme:dark;
+    --bg:#0a0f1e; --ink:#e8eefc; --muted:#9fb0d0; --line:#26344f;
+    --gold:#fbbf24; --green:#34d399; --violet:#a78bfa; --cyan:#22d3ee; --blue:#60a5fa; --rose:#fb7185; --std:#cbd5e1;
+  }
+  *{box-sizing:border-box}
+  button:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+  html,body{margin:0;height:100%}
+  body{
+    background:radial-gradient(1400px 800px at 50% -8%, #14213f 0%, var(--bg) 60%) fixed;
+    background-color:var(--bg); color:var(--ink);
+    font:16px/1.45 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Inter,Roboto,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; min-height:100%; padding:22px 16px;
+  }
+  .wrap{width:min(1400px,100%)}
+  h1{font-size:25px;font-weight:700;letter-spacing:.2px;margin:0 0 3px}
+  h1 .accent{color:var(--gold)}
+  .sub{color:var(--muted);font-size:14.5px;margin:0 0 12px}
+  .card{
+    background:linear-gradient(180deg,rgba(20,33,63,.65),rgba(10,15,30,.65));
+    border:1px solid var(--line); border-radius:18px; padding:8px 10px 10px;
+    box-shadow:0 30px 80px -40px rgba(0,0,0,.8), inset 0 1px 0 rgba(255,255,255,.03);
+  }
+  svg{width:100%;height:auto;display:block}
+
+  .samples{margin:8px 2px 0;background:rgba(3,7,18,.75);border:1px solid var(--line);border-radius:12px;padding:8px 14px;
+    font:12.5px/1.6 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--muted)}
+  .samples .ln{white-space:pre-wrap;overflow-wrap:anywhere;opacity:.45;transition:opacity .4s}
+  .samples .ln.on{opacity:1}
+  .samples .who{display:inline-block;min-width:96px;font-weight:700}
+  .samples .m .who{color:var(--green)} .samples .t .who{color:var(--violet)} .samples .l .who{color:var(--cyan)} .samples .a .who{color:var(--rose)}
+  .samples .hi{color:var(--ink)}
+  .samples .note{font-style:italic;color:var(--muted);font-size:11.5px}
+
+  .bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:12px 2px 0}
+  .steps{display:flex;flex-wrap:wrap;gap:6px}
+  .step{border:1px solid var(--line);background:rgba(255,255,255,.03);color:var(--muted);border-radius:999px;
+    padding:6px 12px;font-size:13px;cursor:pointer;font-weight:600;transition:all .25s}
+  .step .n{display:inline-block;width:18px;height:18px;border-radius:50%;background:rgba(255,255,255,.08);
+    text-align:center;line-height:18px;font-size:11px;margin-right:6px;color:var(--ink)}
+  .step.on{color:#0a0f1e;background:var(--gold);border-color:var(--gold)}
+  .step.on .n{background:rgba(0,0,0,.18);color:#0a0f1e}
+  .step.done{border-color:rgba(251,191,36,.45);color:var(--ink)}
+  .spacer{flex:1}
+  .btn{border:1px solid var(--line);background:rgba(255,255,255,.04);color:var(--ink);border-radius:10px;
+    padding:6px 11px;font-size:13px;cursor:pointer;font-weight:600}
+  .btn.on{background:rgba(34,211,238,.16);border-color:rgba(34,211,238,.5);color:#bff3fb}
+  .caption{margin:12px 2px 0;font-size:16px;line-height:1.5;color:var(--ink);min-height:3.2em}
+  .caption b{color:var(--gold)}
+  .caption .tag{display:inline-block;font-size:11.5px;font-weight:700;letter-spacing:.6px;color:var(--muted);margin-right:8px;vertical-align:1px}
+
+  .legend{display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin:12px 2px 2px;color:var(--muted);font-size:13px}
+  .legend b{color:var(--ink);font-weight:600}
+  .chip{display:inline-flex;align-items:center;gap:7px}
+  .sw{width:11px;height:11px;border-radius:50%;box-shadow:0 0 9px currentColor;background:currentColor}
+  .key{margin-top:9px;color:var(--muted);font-size:14px}
+  .key b{color:var(--gold);font-weight:700}
+
+  text{font-family:inherit;fill:var(--ink)}
+  .nt{font-weight:700;font-size:14px}
+  .ns{font-size:10.5px;fill:var(--muted)}
+  .wl{font-size:10.5px;fill:var(--muted);font-weight:600}
+  .band{font-size:10.5px;font-weight:700;letter-spacing:.8px;fill:var(--muted)}
+  .badge{font-size:10px;font-weight:800;letter-spacing:.3px}
+  .node{stroke-width:1.5}
+  .n-gold{fill:#161a2c;stroke:rgba(251,191,36,.6)}
+  .n-blue{fill:#0f1c39;stroke:rgba(96,165,250,.7)}
+  .n-cyan{fill:#0e1e34;stroke:rgba(34,211,238,.6)}
+  .n-green{fill:#0e2419;stroke:rgba(52,211,153,.6)}
+  .n-violet{fill:#141d36;stroke:rgba(167,139,250,.6)}
+  .n-dim{fill:#121a2e;stroke:rgba(159,176,208,.4)}
+  .chipr{stroke-width:1.2}
+  .c-cyan{fill:rgba(34,211,238,.08);stroke:rgba(34,211,238,.5)}
+  .c-std{fill:rgba(203,213,225,.07);stroke:rgba(203,213,225,.4)}
+  .zone{fill:rgba(96,165,250,.035);stroke:rgba(96,165,250,.34);stroke-dasharray:5 6}
+  .wire{fill:none;stroke-width:2}
+  .w-req{stroke:rgba(251,191,36,.34)}
+  .w-ask{stroke:rgba(34,211,238,.3);stroke-dasharray:3 6}
+  .w-m{stroke:rgba(52,211,153,.4)}
+  .w-t{stroke:rgba(167,139,250,.42)}
+  .w-l{stroke:rgba(34,211,238,.4)}
+  .w-corr{stroke:rgba(232,238,252,.35);stroke-dasharray:2 6}
+  .lane{transition:opacity .6s ease}
+  .lane.dim{opacity:.38}
+  .focus{fill:none;stroke-width:2.5;opacity:0;transition:opacity .5s}
+  .focus.on{opacity:.9}
+  .L{transition:opacity .6s ease}
+  .L.dim{opacity:.38}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>One monitoring stack for APIs and MCP — <span class="accent">three signals from one gateway</span></h1>
+  <p class="sub">Every API call and every MCP tool call passes the same Envoy, so they produce the same metrics, traces and access logs; the MCP router adds the tool, the server, the session and the caller's identity. Red Hat OpenShift AI adds the view from inside the agent: MLflow traces and EvalHub, on the same OpenTelemetry pipeline.</p>
+
+  <div class="card">
+  <svg viewBox="0 0 1400 830" role="img" aria-label="Animated diagram: API clients and agents call through one Connectivity Link gateway, which emits metrics to OpenShift monitoring and Grafana, traces to Red Hat build of OpenTelemetry and the distributed tracing platform, and access logs with the MCP audit trail to OpenShift Logging">
+    <defs>
+      <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+        <feGaussianBlur stdDeviation="3.2" result="b"/>
+        <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+      <filter id="soft" x="-40%" y="-40%" width="180%" height="180%">
+        <feGaussianBlur stdDeviation="6" result="b"/>
+        <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+    </defs>
+
+    <!-- ===== callers ===== -->
+    <g id="callers" class="L">
+      <path id="rApi" class="wire w-req" d="M 230,188 L 310,188"/>
+      <path id="rMcp" class="wire w-req" d="M 230,368 C 272,368 272,230 310,230"/>
+      <g filter="url(#soft)"><rect class="node n-gold" x="30" y="150" width="200" height="76" rx="12"/></g>
+      <text class="nt" x="130" y="175" text-anchor="middle">API client</text>
+      <text class="ns" x="130" y="193" text-anchor="middle">GET /api/orders/123</text>
+      <text class="ns" x="130" y="209" text-anchor="middle">an app, a partner, a script</text>
+      <g filter="url(#soft)"><rect class="node n-gold" x="30" y="330" width="200" height="76" rx="12"/></g>
+      <text class="nt" x="130" y="355" text-anchor="middle">Agent</text>
+      <text class="ns" x="130" y="373" text-anchor="middle">tools/call inventory_search</text>
+      <text class="ns" x="130" y="389" text-anchor="middle">through the MCP endpoint</text>
+      <g fill="var(--gold)" filter="url(#glow)">
+        <circle r="5"><animateMotion dur="2.2s" begin="0s" repeatCount="indefinite"><mpath href="#rApi"/></animateMotion></circle>
+        <circle r="5"><animateMotion dur="2.2s" begin="1.1s" repeatCount="indefinite"><mpath href="#rApi"/></animateMotion></circle>
+        <circle r="5"><animateMotion dur="2.6s" begin="0.5s" repeatCount="indefinite"><mpath href="#rMcp"/></animateMotion></circle>
+        <circle r="5"><animateMotion dur="2.6s" begin="1.8s" repeatCount="indefinite"><mpath href="#rMcp"/></animateMotion></circle>
+      </g>
+    </g>
+
+    <!-- ===== gateway ===== -->
+    <g id="gateway" class="L">
+      <rect class="zone" x="290" y="110" width="420" height="430" rx="18"/>
+      <text class="band" x="306" y="530" style="fill:#8fb3f6">RED HAT CONNECTIVITY LINK · ONE GATEWAY FOR APIS AND MCP</text>
+
+      <!-- Envoy -->
+      <g filter="url(#soft)"><rect class="node n-blue" x="310" y="140" width="380" height="112" rx="13"/></g>
+      <text class="nt" x="326" y="164">Envoy</text>
+      <text class="ns" x="326" y="181">the proxy · Gateway API listeners https, mcp, mcps</text>
+      <rect class="chipr c-cyan" x="326" y="196" width="120" height="44" rx="8"/>
+      <text class="nt" x="386" y="214" text-anchor="middle" style="font-size:11.5px">wasm-shim</text>
+      <text class="ns" x="386" y="230" text-anchor="middle" style="font-size:9.5px">asks the two below</text>
+      <rect class="chipr c-cyan" x="456" y="196" width="218" height="44" rx="8"/>
+      <text class="nt" x="565" y="214" text-anchor="middle" style="font-size:11.5px">MCP router · ext_proc</text>
+      <text class="ns" x="565" y="230" text-anchor="middle" style="font-size:9.5px">tool, server, session headers · a span per call</text>
+
+      <!-- asks -->
+      <path id="a1" class="wire w-ask" d="M 386,252 L 386,282"/>
+      <path id="a2" class="wire w-ask" d="M 600,252 L 600,282"/>
+      <path id="a3" class="wire w-req" d="M 480,252 C 480,300 480,330 400,366"/>
+      <path id="a4" class="wire w-req" d="M 480,252 C 480,300 480,330 600,366"/>
+
+      <g filter="url(#soft)"><rect class="node n-cyan" x="310" y="282" width="170" height="66" rx="12"/></g>
+      <text class="nt" x="395" y="305" text-anchor="middle" style="font-size:13px">Authorino</text>
+      <text class="ns" x="395" y="322" text-anchor="middle">AuthPolicy · validates the token</text>
+      <text class="ns" x="395" y="337" text-anchor="middle">injects x-auth-identity</text>
+      <g filter="url(#soft)"><rect class="node n-cyan" x="520" y="282" width="170" height="66" rx="12"/></g>
+      <text class="nt" x="605" y="305" text-anchor="middle" style="font-size:13px">Limitador</text>
+      <text class="ns" x="605" y="322" text-anchor="middle">RateLimitPolicy · counts</text>
+      <text class="ns" x="605" y="337" text-anchor="middle">logs limits with trace IDs</text>
+
+      <g filter="url(#soft)"><rect class="node n-cyan" x="310" y="366" width="170" height="56" rx="12"/></g>
+      <text class="nt" x="395" y="389" text-anchor="middle" style="font-size:13px">MCP broker</text>
+      <text class="ns" x="395" y="406" text-anchor="middle">initialize · tools/list · sessions</text>
+      <g filter="url(#soft)"><rect class="node n-gold" x="520" y="366" width="170" height="56" rx="12"/></g>
+      <text class="nt" x="605" y="389" text-anchor="middle" style="font-size:13px">→ the backend</text>
+      <text class="ns" x="605" y="406" text-anchor="middle">API service or MCP server</text>
+
+      <text class="ns" x="310" y="452" style="fill:#8fb3f6">Policies and Gateway API: generally available. MCP router and broker: Technology Preview in 1.4,</text>
+      <text class="ns" x="310" y="467" style="fill:#8fb3f6">GA planned in 1.5. Every request gets an x-request-id from Envoy; the router adds x-mcp-toolname,</text>
+      <text class="ns" x="310" y="482" style="fill:#8fb3f6">x-mcp-servername, mcp-session-id; Authorino adds x-auth-identity from the token's preferred_username.</text>
+
+      <g fill="var(--cyan)" filter="url(#glow)">
+        <circle r="3.5"><animateMotion dur="1.6s" begin="0s" repeatCount="indefinite" keyPoints="0;1;0" keyTimes="0;.5;1" calcMode="linear"><mpath href="#a1"/></animateMotion></circle>
+        <circle r="3.5"><animateMotion dur="1.6s" begin="0.8s" repeatCount="indefinite" keyPoints="0;1;0" keyTimes="0;.5;1" calcMode="linear"><mpath href="#a2"/></animateMotion></circle>
+      </g>
+      <g fill="var(--gold)" filter="url(#glow)">
+        <circle r="4"><animateMotion dur="2s" begin="0.4s" repeatCount="indefinite"><mpath href="#a3"/></animateMotion></circle>
+        <circle r="4"><animateMotion dur="2s" begin="1.2s" repeatCount="indefinite"><mpath href="#a4"/></animateMotion></circle>
+      </g>
+      <!-- pulse: a request passing -->
+      <circle cx="500" cy="196" r="40" fill="none" stroke="var(--gold)" stroke-width="2" opacity="0">
+        <animate attributeName="r" values="40;120" dur="2.2s" repeatCount="indefinite"/>
+        <animate attributeName="opacity" values=".45;0" dur="2.2s" repeatCount="indefinite"/>
+      </circle>
+    </g>
+
+    <!-- ===== fan-out wires ===== -->
+    <path id="fM" class="wire w-m" d="M 690,170 C 800,170 820,176 930,176"/>
+    <path id="fT" class="wire w-t" d="M 690,200 C 790,200 820,352 930,352"/>
+    <path id="fL" class="wire w-l" d="M 690,230 C 780,230 800,528 930,528"/>
+    <text class="wl" x="812" y="160" text-anchor="middle" style="fill:#9ff0d0">metrics</text>
+    <text class="wl" x="838" y="292" text-anchor="middle" style="fill:#cbb8ff">spans</text>
+    <text class="wl" x="812" y="432" text-anchor="middle" style="fill:#8fe6f5">access log line</text>
+
+    <!-- ===== METRICS lane ===== -->
+    <g id="laneM" class="lane">
+      <text class="band" x="930" y="128" style="fill:#9ff0d0">METRICS · Envoy + components + Gateway API state</text>
+      <path id="mW" class="wire w-m" d="M 1130,176 L 1170,176"/>
+      <g filter="url(#soft)"><rect class="node n-green" x="930" y="146" width="200" height="60" rx="12"/></g>
+      <text class="nt" x="1030" y="167" text-anchor="middle" style="font-size:13px">OpenShift monitoring</text>
+      <text class="ns" x="1030" y="184" text-anchor="middle">user workload monitoring</text>
+      <text class="ns" x="1030" y="198" text-anchor="middle">Prometheus · Thanos · Alertmanager</text>
+      <g filter="url(#soft)"><rect class="node n-green" x="1170" y="146" width="200" height="60" rx="12"/></g>
+      <text class="nt" x="1270" y="167" text-anchor="middle" style="font-size:13px">Grafana + alerts</text>
+      <text class="ns" x="1270" y="184" text-anchor="middle">3 Kuadrant dashboards · alert rules</text>
+      <text class="ns" x="1270" y="198" text-anchor="middle">multi-burn + SLO alerts (Sloth)</text>
+      <text class="badge" x="930" y="224" style="fill:var(--green)">GA STACK</text>
+      <text class="ns" x="994" y="224">dashboards and alerts are templates to adapt, not a production setup</text>
+      <text class="ns" x="930" y="244">LLM APIs: TokenRateLimitPolicy meters tokens · MaaS dashboard (Tech Preview)</text>
+      <rect id="focM" class="focus" x="920" y="112" width="460" height="122" rx="14" stroke="var(--green)"/>
+      <g fill="var(--green)" filter="url(#glow)">
+        <circle r="4.5"><animateMotion dur="2.4s" begin="0s" repeatCount="indefinite"><mpath href="#fM"/></animateMotion></circle>
+        <circle r="4.5"><animateMotion dur="2.4s" begin="1.2s" repeatCount="indefinite"><mpath href="#fM"/></animateMotion></circle>
+        <circle r="4"><animateMotion dur="1.4s" begin="0.6s" repeatCount="indefinite"><mpath href="#mW"/></animateMotion></circle>
+      </g>
+    </g>
+
+    <!-- ===== TRACES lane ===== -->
+    <g id="laneT" class="lane">
+      <text class="band" x="930" y="304" style="fill:#cbb8ff">TRACES · data plane, control plane, MCP router spans</text>
+      <path id="tW" class="wire w-t" d="M 1130,352 L 1170,352"/>
+      <g filter="url(#soft)"><rect class="node n-violet" x="930" y="322" width="200" height="60" rx="12"/></g>
+      <text class="nt" x="1030" y="343" text-anchor="middle" style="font-size:13px">Red Hat build of</text>
+      <text class="nt" x="1030" y="359" text-anchor="middle" style="font-size:13px">OpenTelemetry</text>
+      <text class="ns" x="1030" y="374" text-anchor="middle">collector · data and control plane</text>
+      <g filter="url(#soft)"><rect class="node n-violet" x="1170" y="322" width="200" height="60" rx="12"/></g>
+      <text class="nt" x="1270" y="343" text-anchor="middle" style="font-size:13px">Distributed tracing</text>
+      <text class="nt" x="1270" y="359" text-anchor="middle" style="font-size:13px">platform (Tempo)</text>
+      <text class="ns" x="1270" y="374" text-anchor="middle">read in the OpenShift console</text>
+      <text class="badge" x="930" y="400" style="fill:var(--violet)">GA STACK</text>
+      <text class="ns" x="994" y="400">router spans: Tech Preview gateway · x-request-id on each span</text>
+      <rect id="focT" class="focus" x="920" y="288" width="460" height="122" rx="14" stroke="var(--violet)"/>
+      <g fill="var(--violet)" filter="url(#glow)">
+        <circle r="4.5"><animateMotion dur="2.6s" begin="0.3s" repeatCount="indefinite"><mpath href="#fT"/></animateMotion></circle>
+        <circle r="4.5"><animateMotion dur="2.6s" begin="1.6s" repeatCount="indefinite"><mpath href="#fT"/></animateMotion></circle>
+        <circle r="4"><animateMotion dur="1.4s" begin="0.2s" repeatCount="indefinite"><mpath href="#tW"/></animateMotion></circle>
+      </g>
+    </g>
+
+    <!-- ===== LOGS lane ===== -->
+    <g id="laneL" class="lane">
+      <text class="band" x="930" y="480" style="fill:#8fe6f5">LOGS · access log (Istio Telemetry) + MCP audit trail</text>
+      <path id="lW" class="wire w-l" d="M 1130,528 L 1170,528"/>
+      <g filter="url(#soft)"><rect class="node n-cyan" x="930" y="498" width="200" height="60" rx="12"/></g>
+      <text class="nt" x="1030" y="519" text-anchor="middle" style="font-size:13px">Access log + audit trail</text>
+      <text class="ns" x="1030" y="536" text-anchor="middle">request_id · route · status · latency</text>
+      <text class="ns" x="1030" y="550" text-anchor="middle">tool · server · session · identity headers</text>
+      <g filter="url(#soft)"><rect class="node n-cyan" x="1170" y="498" width="200" height="60" rx="12"/></g>
+      <text class="nt" x="1270" y="519" text-anchor="middle" style="font-size:13px">OpenShift Logging (Loki)</text>
+      <text class="ns" x="1270" y="536" text-anchor="middle">S3-backed retention for tool-call logs</text>
+      <text class="ns" x="1270" y="550" text-anchor="middle">Authorino and Limitador logs beside it</text>
+      <text class="badge" x="930" y="576" style="fill:var(--cyan)">GA STACK</text>
+      <text class="ns" x="994" y="576">one line: who called what tool, on which server, in which session, when</text>
+      <rect id="focL" class="focus" x="920" y="464" width="460" height="122" rx="14" stroke="var(--cyan)"/>
+      <g fill="var(--cyan)" filter="url(#glow)">
+        <circle r="4.5"><animateMotion dur="2.8s" begin="0.6s" repeatCount="indefinite"><mpath href="#fL"/></animateMotion></circle>
+        <circle r="4.5"><animateMotion dur="2.8s" begin="2s" repeatCount="indefinite"><mpath href="#fL"/></animateMotion></circle>
+        <circle r="4"><animateMotion dur="1.4s" begin="0.9s" repeatCount="indefinite"><mpath href="#lW"/></animateMotion></circle>
+      </g>
+    </g>
+
+    <!-- ===== correlation ===== -->
+    <g id="corr" class="L">
+      <path id="cW" class="wire w-corr" d="M 1356,384 L 1356,496"/>
+      <rect class="chipr c-std" x="1170" y="428" width="172" height="26" rx="6"/>
+      <text class="wl" x="1256" y="445" text-anchor="middle" style="fill:var(--ink)">same x-request-id · log ↔ trace</text>
+      <g fill="#cbd5e1" filter="url(#glow)">
+        <circle r="3.5"><animateMotion dur="2s" begin="0s" repeatCount="indefinite" keyPoints="0;1;0" keyTimes="0;.5;1" calcMode="linear"><mpath href="#cW"/></animateMotion></circle>
+      </g>
+    </g>
+
+    <!-- ===== inside the agent: OpenShift AI, AgentOps ===== -->
+    <g id="agentBand" class="L">
+      <text class="band" x="30" y="614" style="fill:#f9a8b8">INSIDE THE AGENT · RED HAT OPENSHIFT AI, "AGENTOPS" · the agent's own trace, and its evaluation</text>
+      <path id="agW" class="wire w-t" d="M 130,406 C 130,500 130,570 195,626"/>
+      <path id="agUp" class="wire w-t" d="M 1370,650 L 1386,650 L 1386,352 L 1371,352"/>
+      <g filter="url(#soft)"><rect class="node n-violet" x="30" y="626" width="360" height="66" rx="12"/></g>
+      <text class="nt" x="210" y="647" text-anchor="middle" style="font-size:13px">MLflow tracing</text>
+      <text class="ns" x="210" y="664" text-anchor="middle">call tree: prompt › model › tool › answer, tokens, latency</text>
+      <text class="ns" x="210" y="679" text-anchor="middle">GA since 3.4 · call-tree view in Gen AI Studio: Tech Preview</text>
+      <g filter="url(#soft)"><rect class="node n-violet" x="404" y="626" width="290" height="66" rx="12"/></g>
+      <text class="nt" x="549" y="647" text-anchor="middle" style="font-size:13px">OpenTelemetry-compatible</text>
+      <text class="ns" x="549" y="664" text-anchor="middle">spans export to the same collector and Tempo</text>
+      <text class="ns" x="549" y="679" text-anchor="middle">context propagation: one trace end to end</text>
+      <g filter="url(#soft)"><rect class="node n-violet" x="708" y="626" width="300" height="66" rx="12"/></g>
+      <text class="nt" x="858" y="647" text-anchor="middle" style="font-size:13px">EvalHub · GA in 3.5</text>
+      <text class="ns" x="858" y="664" text-anchor="middle">evaluates agents on their traces · EvalCards</text>
+      <text class="ns" x="858" y="679" text-anchor="middle">OTLP metrics export: Tech Preview</text>
+      <g filter="url(#soft)"><rect class="node n-violet" x="1022" y="626" width="348" height="66" rx="12"/></g>
+      <text class="nt" x="1196" y="647" text-anchor="middle" style="font-size:13px">OpenShift AI platform observability</text>
+      <text class="ns" x="1196" y="664" text-anchor="middle">metrics, traces, alerts for AI workloads · Tech Preview</text>
+      <text class="ns" x="1196" y="679" text-anchor="middle">Cluster Observability Operator + OpenTelemetry + Tempo</text>
+      <text class="ns" x="30" y="712" style="fill:#f9a8b8">AgentOps is Red Hat's name for this layer: operating agents from development to production with integrated tracing, observability, cryptographic identity and lifecycle management (Red Hat AI 3.4, May 2026).</text>
+      <text class="ns" x="30" y="727" style="fill:#f9a8b8">The gateway sees every tool call at the boundary and cannot see why the agent made it; MLflow sees the loop that chose it. Same OpenTelemetry, one trace.</text>
+      <rect id="focA" class="focus" x="20" y="596" width="1372" height="142" rx="14" stroke="var(--rose)"/>
+      <g fill="var(--violet)" filter="url(#glow)">
+        <circle r="4.5"><animateMotion dur="2.6s" begin="0.2s" repeatCount="indefinite"><mpath href="#agW"/></animateMotion></circle>
+        <circle r="4.5"><animateMotion dur="2.6s" begin="1.5s" repeatCount="indefinite"><mpath href="#agW"/></animateMotion></circle>
+        <circle r="4"><animateMotion dur="3s" begin="0.8s" repeatCount="indefinite"><mpath href="#agUp"/></animateMotion></circle>
+      </g>
+    </g>
+
+    <!-- ===== who looks where ===== -->
+    <g id="who" class="L">
+      <text class="band" x="30" y="758">WHO LOOKS WHERE</text>
+      <rect class="chipr c-std" x="30" y="768" width="258" height="58" rx="9"/>
+      <text class="nt" x="42" y="788" style="font-size:12px">Platform engineer</text>
+      <text class="ns" x="42" y="804">Grafana platform dashboard: errors, latency,</text>
+      <text class="ns" x="42" y="818">throughput, policy state · the alerts</text>
+      <rect class="chipr c-std" x="300" y="768" width="258" height="58" rx="9"/>
+      <text class="nt" x="312" y="788" style="font-size:12px">Application developer</text>
+      <text class="ns" x="312" y="804">per-API, per-path, per-tool dashboard ·</text>
+      <text class="ns" x="312" y="818">the trace of one slow or failed call</text>
+      <rect class="chipr c-std" x="570" y="768" width="258" height="58" rx="9"/>
+      <text class="nt" x="582" y="788" style="font-size:12px">AI engineer</text>
+      <text class="ns" x="582" y="804">MLflow call tree of the agent's run ·</text>
+      <text class="ns" x="582" y="818">EvalHub scores and EvalCards</text>
+      <rect class="chipr c-std" x="840" y="768" width="258" height="58" rx="9"/>
+      <text class="nt" x="852" y="788" style="font-size:12px">Business user</text>
+      <text class="ns" x="852" y="804">business dashboard: usage by API,</text>
+      <text class="ns" x="852" y="818">by consumer, by tool</text>
+      <rect class="chipr c-std" x="1110" y="768" width="260" height="58" rx="9"/>
+      <text class="nt" x="1122" y="788" style="font-size:12px">Auditor, security</text>
+      <text class="ns" x="1122" y="804">MCP audit trail in Loki: who called what,</text>
+      <text class="ns" x="1122" y="818">on which server, in which session</text>
+    </g>
+  </svg>
+
+  <div class="samples" id="samples">
+    <div class="ln m" id="sm"><span class="who">metric</span><span class="hi">envoy_cluster_upstream_rq_total</span>{route_name="mcp-inventory", response_code="200"}  41   ·   one series per route, per status; Limitador and Authorino add their own counters</div>
+    <div class="ln t" id="st"><span class="who">span</span><span class="hi">mcp-router.tool-call</span>  tool=inventory_search  server=inventory  x-request-id=7f3a…  84 ms   ·   child of mcp-router.process, after mcp-router.route-decision</div>
+    <div class="ln l" id="sl"><span class="who">log line</span>{"request_id":"7f3a…","route_name":"mcp-inventory","<span class="hi">x-auth-identity":"alex"</span>,"<span class="hi">x-mcp-toolname":"inventory_search"</span>,"x-mcp-servername":"inventory","mcp-session-id":"c9d1…","response_code":200,"duration":84}</div>
+    <div class="ln a" id="sa"><span class="who">agent trace</span><span class="hi">mlflow</span>  agent.run › llm.call 2.48 s, 1,204 tokens › <span class="hi">tool.call inventory_search</span> 84 ms (trace 7f3a… continues in the gateway's router span) › llm.call 1.1 s › answer</div>
+    <div class="note">Illustrative samples; field names follow the Connectivity Link 1.4 observability guide (access-log format variables, router span names, audit headers) and MLflow's span model.</div>
+  </div>
+  </div>
+
+  <div class="bar">
+    <div class="steps" id="steps"></div>
+    <span class="spacer"></span>
+    <button class="btn" id="prev" title="←">‹ Prev</button>
+    <button class="btn" id="next" title="→">Next ›</button>
+    <button class="btn on" id="auto" title="space">Auto-play</button>
+  </div>
+  <p class="caption" id="caption"></p>
+
+  <div class="legend">
+    <span class="chip"><span class="sw" style="color:var(--gold)"></span><b>a request</b> — API call or MCP tool call</span>
+    <span class="chip"><span class="sw" style="color:var(--green)"></span><b>metrics</b> — OpenShift monitoring, Grafana, Alertmanager</span>
+    <span class="chip"><span class="sw" style="color:var(--violet)"></span><b>traces</b> — Red Hat build of OpenTelemetry, distributed tracing platform</span>
+    <span class="chip"><span class="sw" style="color:var(--cyan)"></span><b>logs</b> — Istio Telemetry access log, OpenShift Logging</span>
+    <span class="chip"><span class="sw" style="color:var(--rose)"></span><b>inside the agent</b> — MLflow tracing and EvalHub in OpenShift AI (AgentOps)</span>
+  </div>
+  <p class="key"><b>One stack, not two.</b> Because APIs and MCP tools cross the same Envoy, the observability you already run for APIs is the observability you get for agents. The additions are the MCP router's headers and spans, one Loki retention policy for the audit trail, and MLflow in OpenShift AI for the view from inside the agent, on the same OpenTelemetry pipeline.</p>
+</div>
+
+<script>
+(function(){
+  try{ if(matchMedia('(prefers-reduced-motion: reduce)').matches){ document.querySelector('svg').pauseAnimations(); } }catch(e){}
+  const steps = [
+    { name:"One gateway", lanes:[], samples:[], who:true,
+      t:"<b>One gateway, two kinds of traffic.</b> An app calling an API and an agent calling a tool cross the same Envoy, the same wasm-shim, the same Authorino and Limitador. So every request, API or MCP, produces the same three signals, tagged with an x-request-id. The MCP router adds four more facts: the tool, the server, the session, and, through Authorino, the caller's identity. Inside the agent, OpenShift AI adds a second vantage point (step 5)." },
+    { name:"Metrics", lanes:["M"], samples:["sm"],
+      t:"<b>Metrics.</b> Envoy request metrics, the components' own counters (Authorino, Limitador, the DNS operator) and Gateway API state metrics are scraped by OpenShift user workload monitoring. Connectivity Link ships example Grafana dashboards, Kuadrant templates, for the platform engineer, the application developer and the business user, PrometheusRule templates with multi-window multi-burn alerts, and SLO alerts generated with Sloth. For MCP that means tool-call patterns, success and error rates. The stack is GA; the dashboards and alerts are templates to adapt." },
+    { name:"Traces", lanes:["T"], samples:["st"],
+      t:"<b>Traces.</b> Data-plane spans follow a request through Istio, the wasm-shim, Authorino and Limitador; the MCP router adds its own: mcp-router.process, route-decision, then tool-call or broker-passthrough. Control-plane traces show policy reconciliation, so you can line up “policy applied at 15:30:05” with “request at 15:30:10”. Red Hat build of OpenTelemetry collects, the distributed tracing platform (Tempo) stores, the OpenShift console shows." },
+    { name:"Logs and audit trail", lanes:["L"], samples:["sl"],
+      t:"<b>Logs and the audit trail.</b> One Istio Telemetry resource switches on JSON access logs for the gateway pods, with request_id, route_name, status and timing. The MCP gateway's routing headers (x-mcp-method, x-mcp-toolname, x-mcp-servername, mcp-session-id) and the x-auth-identity header Authorino injects from the token go into the same line, on both listeners. OpenShift Logging (Loki) keeps them, with S3 storage for long-term tool-call logs. The line says who called what tool, on which server, in which session, at what time." },
+    { name:"Inside the agent", lanes:[], samples:["sa","st"], agent:true,
+      t:"<b>Inside the agent: MLflow and AgentOps.</b> The gateway sees every tool call at the boundary; it cannot see why the agent made it. That view lives in Red Hat OpenShift AI: MLflow tracing records the agent's run as a call tree, prompt, model call, tool call, answer, with inputs, outputs, tokens and latency. MLflow has been a managed, generally available component since 3.4; the call-tree view inside Gen AI Studio and the OpenCode integration are Technology Preview in 3.5. MLflow tracing is OpenTelemetry-compatible and propagates trace context across services, so the agent's spans, the gateway's router spans and the server's spans can share one trace. EvalHub, GA in 3.5, evaluates agents on those traces. AgentOps is Red Hat's name for the layer: tracing, observability, cryptographic identity and lifecycle management for agents." },
+    { name:"Correlate, then look", lanes:["M","T","L"], samples:["sm","st","sl","sa"], who:true,
+      t:"<b>Correlate, then look.</b> The x-request-id Envoy generates is in the access log and on the span, so a dashboard can jump from a log line to its trace and back; with propagated context the agent's MLflow trace continues into the gateway's router span. Then each role has its place: the platform engineer in the platform dashboard and the alerts, the developer in the per-API and per-tool view and the traces, the AI engineer in MLflow and EvalHub, the business user in the business dashboard, the auditor in the MCP audit trail in Loki." }
+  ];
+  const N = steps.length;
+  const hash = new URLSearchParams(location.hash.replace(/^#/,''));
+  let cur = Math.min(N, Math.max(1, parseInt(hash.get('step')||'1',10))) - 1;
+  let auto = hash.get('auto') !== '0';
+  const DWELL = 8500; let timer = null;
+  const stepsEl = document.getElementById('steps'), cap = document.getElementById('caption');
+  steps.forEach((s,i)=>{ const b=document.createElement('button'); b.className='step'; b.innerHTML='<span class="n">'+(i+1)+'</span>'+s.name; b.onclick=()=>{go(i); stopAuto();}; stepsEl.appendChild(b); });
+
+  function render(){
+    const s = steps[cur];
+    for(let i=0;i<N;i++){ const b=stepsEl.children[i]; b.classList.toggle('on', i===cur); b.classList.toggle('done', i<cur); }
+    const agentFocus = !!s.agent, partial = s.lanes.length>0 && s.lanes.length<3;
+    ['M','T','L'].forEach(k=>{
+      const focused = s.lanes.includes(k);
+      const keep = agentFocus ? (k==='T') : focused;
+      document.getElementById('lane'+k).classList.toggle('dim', (partial || agentFocus) && !keep);
+      document.getElementById('foc'+k).classList.toggle('on', focused && partial);
+    });
+    document.getElementById('agentBand').classList.toggle('dim', partial && !agentFocus);
+    document.getElementById('focA').classList.toggle('on', agentFocus);
+    document.getElementById('corr').classList.toggle('dim', !(cur===0 || cur===4));
+    document.getElementById('callers').classList.toggle('dim', false);
+    document.getElementById('who').classList.toggle('dim', !s.who);
+    ['sm','st','sl','sa'].forEach(id=>document.getElementById(id).classList.toggle('on', s.samples.length===0 || s.samples.includes(id)));
+    cap.innerHTML = '<span class="tag">STEP '+(cur+1)+' OF '+N+'</span>' + s.t;
+    document.getElementById('auto').classList.toggle('on', auto);
+  }
+  function go(i){ cur=(i+N)%N; render(); }
+  function startAuto(){ auto=true; clearInterval(timer); timer=setInterval(()=>go(cur+1), DWELL); render(); }
+  function stopAuto(){ auto=false; clearInterval(timer); timer=null; render(); }
+  document.getElementById('prev').onclick=()=>{go(cur-1); stopAuto();};
+  document.getElementById('next').onclick=()=>{go(cur+1); stopAuto();};
+  document.getElementById('auto').onclick=()=>{ auto?stopAuto():startAuto(); };
+  document.addEventListener('keydown', e=>{
+    if(e.key==='ArrowRight'){go(cur+1); stopAuto();}
+    else if(e.key==='ArrowLeft'){go(cur-1); stopAuto();}
+    else if(e.key===' '){ e.preventDefault(); auto?stopAuto():startAuto(); }
+  });
+  render(); if(auto) startAuto();
+})();
+</script>
+</body>
+</html>

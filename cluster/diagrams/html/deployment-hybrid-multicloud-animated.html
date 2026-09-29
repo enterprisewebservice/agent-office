@@ -1,0 +1,438 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Hybrid Multicloud Deployment</title>
+<meta name="description" content="Connectivity Link deployment patterns for APIs and MCP across hybrid and multi-cloud: one Gateway definition from Git applied to every cluster, DNSPolicy load-balancing one hostname across ROSA, Azure Red Hat OpenShift and on-premises OpenShift with geo, weight and health checks, CoreDNS for the on-premises zone, shared Redis-compatible rate-limit counters."/>
+<style>
+  :root{
+    color-scheme:dark;
+    --bg:#0a0f1e; --ink:#e8eefc; --muted:#9fb0d0; --line:#26344f;
+    --gold:#fbbf24; --green:#34d399; --violet:#a78bfa; --cyan:#22d3ee; --blue:#60a5fa; --rose:#fb7185; --std:#cbd5e1;
+  }
+  *{box-sizing:border-box}
+  button:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+  html,body{margin:0;height:100%}
+  body{
+    background:radial-gradient(1400px 800px at 50% -8%, #14213f 0%, var(--bg) 60%) fixed;
+    background-color:var(--bg); color:var(--ink);
+    font:16px/1.45 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Inter,Roboto,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; min-height:100%; padding:22px 16px;
+  }
+  .wrap{width:min(1400px,100%)}
+  h1{font-size:25px;font-weight:700;letter-spacing:.2px;margin:0 0 3px}
+  h1 .accent{color:var(--gold)}
+  .sub{color:var(--muted);font-size:14.5px;margin:0 0 12px}
+  .card{
+    background:linear-gradient(180deg,rgba(20,33,63,.65),rgba(10,15,30,.65));
+    border:1px solid var(--line); border-radius:18px; padding:8px 10px 4px;
+    box-shadow:0 30px 80px -40px rgba(0,0,0,.8), inset 0 1px 0 rgba(255,255,255,.03);
+  }
+  svg{width:100%;height:auto;display:block}
+  .bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:12px 2px 0}
+  .steps{display:flex;flex-wrap:wrap;gap:6px}
+  .step{border:1px solid var(--line);background:rgba(255,255,255,.03);color:var(--muted);border-radius:999px;
+    padding:6px 12px;font-size:13px;cursor:pointer;font-weight:600;transition:all .25s}
+  .step .n{display:inline-block;width:18px;height:18px;border-radius:50%;background:rgba(255,255,255,.08);
+    text-align:center;line-height:18px;font-size:11px;margin-right:6px;color:var(--ink)}
+  .step.on{color:#0a0f1e;background:var(--gold);border-color:var(--gold)}
+  .step.on .n{background:rgba(0,0,0,.18);color:#0a0f1e}
+  .step.done{border-color:rgba(251,191,36,.45);color:var(--ink)}
+  .spacer{flex:1}
+  .btn{border:1px solid var(--line);background:rgba(255,255,255,.04);color:var(--ink);border-radius:10px;
+    padding:6px 11px;font-size:13px;cursor:pointer;font-weight:600}
+  .btn.on{background:rgba(34,211,238,.16);border-color:rgba(34,211,238,.5);color:#bff3fb}
+  .caption{margin:12px 2px 0;font-size:16px;line-height:1.5;color:var(--ink);min-height:3.2em}
+  .caption b{color:var(--gold)}
+  .caption .tag{display:inline-block;font-size:11.5px;font-weight:700;letter-spacing:.6px;color:var(--muted);margin-right:8px;vertical-align:1px}
+  .legend{display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin:12px 2px 2px;color:var(--muted);font-size:13px}
+  .legend b{color:var(--ink);font-weight:600}
+  .chip{display:inline-flex;align-items:center;gap:7px}
+  .sw{width:11px;height:11px;border-radius:50%;box-shadow:0 0 9px currentColor;background:currentColor}
+  .key{margin-top:9px;color:var(--muted);font-size:14px}
+  .key b{color:var(--gold);font-weight:700}
+
+  text{font-family:inherit;fill:var(--ink)}
+  .nt{font-weight:700;font-size:13.5px}
+  .ns{font-size:10.5px;fill:var(--muted)}
+  .wl{font-size:10.5px;fill:var(--muted);font-weight:600}
+  .band{font-size:10.5px;font-weight:700;letter-spacing:.8px;fill:var(--muted)}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:10px;fill:#bfeaf5}
+  .node{stroke-width:1.5;transition:stroke .4s,opacity .4s}
+  .n-gold{fill:#161a2c;stroke:rgba(251,191,36,.6)}
+  .n-blue{fill:#0f1c39;stroke:rgba(96,165,250,.7)}
+  .n-cyan{fill:#0e1e34;stroke:rgba(34,211,238,.6)}
+  .n-violet{fill:#141d36;stroke:rgba(167,139,250,.6)}
+  .n-std{fill:#131b2e;stroke:rgba(203,213,225,.45)}
+  .n-dim{fill:#121a2e;stroke:rgba(159,176,208,.4)}
+  .chipr{stroke-width:1.2;transition:stroke .4s,fill .4s}
+  .c-cyan{fill:rgba(34,211,238,.08);stroke:rgba(34,211,238,.5)}
+  .c-std{fill:rgba(203,213,225,.07);stroke:rgba(203,213,225,.4)}
+  .c-violet{fill:rgba(167,139,250,.12);stroke:rgba(167,139,250,.5)}
+  .c-green{fill:rgba(52,211,153,.10);stroke:rgba(52,211,153,.5)}
+  .c-rose{fill:rgba(251,113,133,.14);stroke:rgba(251,113,133,.7)}
+  .zone{fill:rgba(96,165,250,.035);stroke:rgba(96,165,250,.34);stroke-dasharray:5 6;transition:stroke .4s}
+  .wire{fill:none;stroke-width:2;transition:opacity .4s}
+  .w-req{stroke:rgba(251,191,36,.34)}
+  .w-dns{stroke:rgba(34,211,238,.36)}
+  .w-cfg{stroke:rgba(203,213,225,.3);stroke-dasharray:2 6}
+  .w-red{stroke:rgba(251,113,133,.36);stroke-dasharray:3 6}
+  .w-ask{stroke:rgba(34,211,238,.3);stroke-dasharray:3 6}
+  .L{opacity:0;transition:opacity .7s ease}
+  .L.on{opacity:1}
+  .fade{transition:opacity .5s}
+  .fade.off{opacity:0}
+  .dimmable{transition:opacity .5s}
+  .dimmable.dim{opacity:.35}
+  /* failure state (step 3) */
+  .down .zone{stroke:rgba(251,113,133,.7)}
+  .down .gw{stroke:rgba(251,113,133,.85)}
+  .health{transition:fill .4s}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Deployment patterns for hybrid and multi-cloud — <span class="accent">one definition, many clusters, DNS in front</span></h1>
+  <p class="sub">Connectivity Link has no central management server. Every cluster runs the same Gateway, routes and policies from Git; a DNSPolicy in each cluster publishes one shared hostname with geo, weight and health checks; counters and identity are shared services. The MCP gateway rides the same pattern.</p>
+
+  <div class="card">
+  <svg viewBox="0 0 1400 822" role="img" aria-label="Animated diagram of Connectivity Link deployment patterns: one Git definition applied to ROSA, Azure Red Hat OpenShift and on-premises OpenShift clusters, one hostname load-balanced by DNSPolicy, cluster failure handled at DNS, CoreDNS for on-premises, shared Redis counters, MCP gateway per cluster">
+    <defs>
+      <marker id="arrDns" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0,0 L 10,5 L 0,10 z" fill="rgba(34,211,238,.9)"/></marker>
+      <marker id="arrReq" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0,0 L 10,5 L 0,10 z" fill="rgba(251,191,36,.9)"/></marker>
+      <filter id="glow" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="3.2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+      <filter id="soft" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="6" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    </defs>
+
+    <!-- ===== Git + GitOps (left, top) ===== -->
+    <g id="git" class="L">
+      <g filter="url(#soft)"><rect class="node n-std" x="30" y="120" width="230" height="96" rx="12"/></g>
+      <text class="nt" x="145" y="143" text-anchor="middle">Git · one definition</text>
+      <text class="ns" x="145" y="160" text-anchor="middle">Gateway · HTTPRoutes · AuthPolicy</text>
+      <text class="ns" x="145" y="174" text-anchor="middle">RateLimitPolicy · TLSPolicy · DNSPolicy</text>
+      <text class="ns" x="145" y="190" text-anchor="middle" style="fill:#cbd5e1">OpenShift GitOps applies it to every cluster</text>
+      <text class="ns" x="145" y="205" text-anchor="middle">(Advanced Cluster Management optional)</text>
+      <!-- config bus above the panels -->
+      <path id="bus1" class="wire w-cfg" d="M 145,216 L 145,228 L 815,228"/>
+      <path id="d2" class="wire w-cfg" d="M 815,228 L 815,246"/>
+      <g id="d1g" class="fade"><path id="d1" class="wire w-cfg" d="M 465,228 L 465,246"/></g>
+      <g id="bus2g" class="fade">
+        <path id="bus2" class="wire w-cfg" d="M 815,228 L 1165,228"/>
+        <path id="d3" class="wire w-cfg" d="M 1165,228 L 1165,246"/>
+        <g fill="#cbd5e1" filter="url(#glow)"><circle r="3.5"><animateMotion dur="2.6s" begin="1.6s" repeatCount="indefinite"><mpath href="#bus2"/></animateMotion></circle></g>
+      </g>
+      <g fill="#cbd5e1" filter="url(#glow)">
+        <circle r="3.5"><animateMotion dur="4s" begin="0s" repeatCount="indefinite"><mpath href="#bus1"/></animateMotion></circle>
+        <circle r="3.5"><animateMotion dur="4s" begin="2s" repeatCount="indefinite"><mpath href="#bus1"/></animateMotion></circle>
+      </g>
+    </g>
+
+    <!-- ===== top row: internal zone (on prem), public zone (cloud provider), clients ===== -->
+    <g id="izone" class="L">
+      <g filter="url(#soft)"><rect class="node n-gold" x="30" y="22" width="230" height="60" rx="12"/></g>
+      <text class="nt" x="145" y="46" text-anchor="middle">Store and data-centre systems</text>
+      <text class="ns" x="145" y="64" text-anchor="middle">ask the corporate DNS, which delegates</text>
+      <path id="sq" class="wire w-dns" d="M 260,52 L 290,52"/>
+      <g filter="url(#soft)"><rect class="node n-cyan" x="290" y="14" width="300" height="118" rx="12"/></g>
+      <text class="nt" x="306" y="38">Internal zone · api.example.com</text>
+      <text class="ns" x="306" y="55">CoreDNS on premises, delegated by corporate DNS</text>
+      <g id="recA" class="fade">
+        <rect class="chipr c-cyan" x="306" y="66" width="268" height="26" rx="6"/>
+        <circle class="health" cx="320" cy="79" r="4.5" fill="var(--green)"/>
+        <text class="wl" x="330" y="83" style="fill:var(--ink)">on-prem gateway · GEO-CA</text>
+      </g>
+      <text class="ns" x="306" y="112" style="fill:#8fe6f5">written by the on-prem DNS Operator · GeoIP</text>
+      <path id="stA" class="wire w-req" marker-end="url(#arrReq)" d="M 260,70 L 276,70 L 276,306 L 316,306"/>
+      <path id="wA" class="wire w-dns" marker-end="url(#arrDns)" d="M 573,246 L 573,132"/>
+      <g fill="var(--cyan)" filter="url(#glow)"><circle r="3.5"><animateMotion dur="1.6s" begin="0s" repeatCount="indefinite" keyPoints="0;1;0" keyTimes="0;.5;1" calcMode="linear"><mpath href="#sq"/></animateMotion></circle></g>
+      <g fill="var(--gold)" filter="url(#glow)">
+        <circle r="4.5"><animateMotion dur="2.6s" begin="0.4s" repeatCount="indefinite"><mpath href="#stA"/></animateMotion></circle>
+        <circle r="4.5"><animateMotion dur="2.6s" begin="1.7s" repeatCount="indefinite"><mpath href="#stA"/></animateMotion></circle>
+      </g>
+      <g fill="var(--cyan)" filter="url(#glow)"><circle r="3.5"><animateMotion dur="2s" begin="0.5s" repeatCount="indefinite"><mpath href="#wA"/></animateMotion></circle></g>
+    </g>
+
+    <g id="dns" class="L">
+      <g filter="url(#soft)"><rect class="node n-cyan" x="620" y="14" width="750" height="118" rx="12"/></g>
+      <text class="nt" x="636" y="38">Public zone · api.example.com</text>
+      <text class="ns" x="636" y="55">Route 53, Azure DNS or Google Cloud DNS · each cluster's DNS Operator writes and re-checks its own records</text>
+      <g id="recB" class="fade">
+        <rect class="chipr c-cyan" x="636" y="66" width="240" height="26" rx="6"/>
+        <circle class="health" cx="650" cy="79" r="4.5" fill="var(--green)"/>
+        <text class="wl" x="660" y="83" style="fill:var(--ink)">ROSA · GEO-NA · weight 120</text>
+      </g>
+      <g id="recC" class="fade">
+        <rect id="recCbox" class="chipr c-cyan" x="886" y="66" width="240" height="26" rx="6"/>
+        <circle id="hC" class="health" cx="900" cy="79" r="4.5" fill="var(--green)"/>
+        <text id="recCtext" class="wl" x="910" y="83" style="fill:var(--ink)">ARO · GEO-NA · weight 120</text>
+      </g>
+      <text class="mono" x="636" y="112">healthCheck: /health · 1m · ×3</text><text class="mono" x="850" y="112">loadBalancing: GEO-NA · weight 120</text><text class="mono" x="1068" y="112">TTL 60 s</text><text class="mono" x="1150" y="112">reconciles 5 s → 15 min</text>
+      <rect class="chipr c-cyan" x="1150" y="66" width="204" height="26" rx="6"/>
+      <text class="wl" x="1252" y="83" text-anchor="middle" style="fill:var(--ink)">+ a TXT owner record per cluster</text>
+      <g filter="url(#soft)"><rect class="node n-gold" x="1000" y="156" width="170" height="62" rx="12"/></g>
+      <text class="nt" x="1085" y="177" text-anchor="middle">Internet clients</text>
+      <text class="ns" x="1085" y="193" text-anchor="middle">web, mobile, partners</text>
+      <text class="ns" x="1085" y="208" text-anchor="middle" style="font-size:9.5px;fill:#f6d488">resolve, then connect direct</text>
+      <path id="cq" class="wire w-dns" d="M 1085,156 L 1085,132"/>
+      <path id="wB" class="wire w-dns" marker-end="url(#arrDns)" d="M 923,246 L 923,132"/>
+      <text class="wl" x="913" y="186" text-anchor="end" style="fill:#8fe6f5">record writes</text>
+      <text class="ns" x="913" y="200" text-anchor="end" style="fill:#8fe6f5">by the DNS Operator · tagged with its ownerID</text>
+      <g fill="var(--cyan)" filter="url(#glow)"><circle r="3.5"><animateMotion dur="1.6s" begin="0.3s" repeatCount="indefinite" keyPoints="0;1;0" keyTimes="0;.5;1" calcMode="linear"><mpath href="#cq"/></animateMotion></circle></g>
+      <g fill="var(--cyan)" filter="url(#glow)"><circle r="3.5"><animateMotion dur="2s" begin="0s" repeatCount="indefinite"><mpath href="#wB"/></animateMotion></circle></g>
+    </g>
+    <g id="wCg" class="fade">
+      <path id="wC" class="wire w-dns" marker-end="url(#arrDns)" d="M 1273,246 L 1273,132"/>
+      <g fill="var(--cyan)" filter="url(#glow)"><circle r="3.5"><animateMotion dur="2s" begin="1s" repeatCount="indefinite"><mpath href="#wC"/></animateMotion></circle></g>
+    </g>
+
+    <!-- ===== clients -> gateways (after the lookup; DNS never carries traffic) ===== -->
+    <path id="toB" class="wire w-req" marker-end="url(#arrReq)" d="M 1000,200 L 950,200 L 950,246"/>
+    <path id="toC" class="wire w-req fade" marker-end="url(#arrReq)" d="M 1085,218 L 1085,246"/>
+    <path id="toC2" class="wire w-req fade off" d="M 1000,200 L 950,200 L 950,246"/>
+
+    <!-- ===== cluster panel: on premises (left) ===== -->
+    <g id="pA" class="L">
+      <rect class="zone" x="300" y="246" width="330" height="300" rx="14"/>
+      <text class="band" x="316" y="268" style="fill:#8fb3f6">ON PREMISES · OPENSHIFT</text>
+      <rect class="node n-blue gw" x="316" y="280" width="298" height="52" rx="10"/>
+      <text class="nt" x="465" y="300" text-anchor="middle" style="font-size:12.5px">Gateway · Envoy</text>
+      <text class="ns" x="465" y="316" text-anchor="middle">api.example.com:443 · TLSPolicy via cert-manager</text>
+      <rect class="chipr c-cyan" x="316" y="342" width="92" height="24" rx="6"/><text class="wl" x="362" y="358" text-anchor="middle" style="fill:var(--ink)">AuthPolicy</text>
+      <rect class="chipr c-cyan" x="416" y="342" width="108" height="24" rx="6"/><text class="wl" x="470" y="358" text-anchor="middle" style="fill:var(--ink)">RateLimitPolicy</text>
+      <rect class="chipr c-cyan" x="532" y="342" width="82" height="24" rx="6"/><text class="wl" x="573" y="358" text-anchor="middle" style="fill:var(--ink)">DNSPolicy</text>
+      <rect class="node n-cyan" x="316" y="376" width="92" height="44" rx="8"/><text class="wl" x="362" y="394" text-anchor="middle" style="fill:var(--ink)">Authorino</text><text class="ns" x="362" y="409" text-anchor="middle" style="font-size:9.5px">tokens, keys</text>
+      <rect class="node n-cyan" x="419" y="376" width="92" height="44" rx="8"/><text class="wl" x="465" y="394" text-anchor="middle" style="fill:var(--ink)">Limitador</text><text class="ns" x="465" y="409" text-anchor="middle" style="font-size:9.5px">→ shared counters</text>
+      <rect class="node n-cyan" x="522" y="376" width="92" height="44" rx="8"/><text class="wl" x="568" y="394" text-anchor="middle" style="fill:var(--ink)">DNS Operator</text><text class="ns" x="568" y="409" text-anchor="middle" style="font-size:9.5px">+ CoreDNS</text>
+      <g id="coreA" class="fade">
+        <rect class="chipr c-green" x="316" y="430" width="298" height="30" rx="8"/>
+        <text class="ns" x="465" y="449" text-anchor="middle" style="fill:#9ff0d0">CoreDNS: delegated on-prem zone · GeoIP · 2 clusters</text>
+      </g>
+      <g id="mcpA" class="fade off">
+        <rect class="chipr c-violet" x="316" y="468" width="298" height="26" rx="8"/>
+        <text class="ns" x="465" y="485" text-anchor="middle" style="fill:#d9c9ff">MCP gateway · same MCPServerRegistrations from Git</text>
+      </g>
+      <rect class="node n-gold" x="316" y="502" width="298" height="36" rx="8"/>
+      <text class="ns" x="465" y="524" text-anchor="middle" style="fill:#f6d488">your APIs: here, or outside the cluster via the gateway</text>
+    </g>
+
+    <!-- ===== cluster panel: ROSA (middle) ===== -->
+    <g id="pB" class="L">
+      <rect class="zone" x="650" y="246" width="330" height="300" rx="14"/>
+      <text class="band" x="666" y="268" style="fill:#8fb3f6">ROSA · AWS ca-central-1</text>
+      <rect class="node n-blue gw" x="666" y="280" width="298" height="52" rx="10"/>
+      <text class="nt" x="815" y="300" text-anchor="middle" style="font-size:12.5px">Gateway · Envoy</text>
+      <text class="ns" x="815" y="316" text-anchor="middle">api.example.com:443 · TLSPolicy via cert-manager</text>
+      <rect class="chipr c-cyan" x="666" y="342" width="92" height="24" rx="6"/><text class="wl" x="712" y="358" text-anchor="middle" style="fill:var(--ink)">AuthPolicy</text>
+      <rect class="chipr c-cyan" x="766" y="342" width="108" height="24" rx="6"/><text class="wl" x="820" y="358" text-anchor="middle" style="fill:var(--ink)">RateLimitPolicy</text>
+      <rect class="chipr c-cyan" x="882" y="342" width="82" height="24" rx="6"/><text class="wl" x="923" y="358" text-anchor="middle" style="fill:var(--ink)">DNSPolicy</text>
+      <rect class="node n-cyan" x="666" y="376" width="92" height="44" rx="8"/><text class="wl" x="712" y="394" text-anchor="middle" style="fill:var(--ink)">Authorino</text><text class="ns" x="712" y="409" text-anchor="middle" style="font-size:9.5px">tokens, keys</text>
+      <rect class="node n-cyan" x="769" y="376" width="92" height="44" rx="8"/><text class="wl" x="815" y="394" text-anchor="middle" style="fill:var(--ink)">Limitador</text><text class="ns" x="815" y="409" text-anchor="middle" style="font-size:9.5px">→ shared counters</text>
+      <rect class="node n-cyan" x="872" y="376" width="92" height="44" rx="8"/><text class="wl" x="918" y="394" text-anchor="middle" style="fill:var(--ink)">DNS Operator</text><text class="ns" x="918" y="409" text-anchor="middle" style="font-size:9.5px">→ Route 53</text>
+      <rect class="chipr c-std" x="666" y="430" width="298" height="30" rx="8"/>
+      <text class="ns" x="815" y="449" text-anchor="middle">same manifests as every cluster · applied by GitOps</text>
+      <g id="mcpB" class="fade off">
+        <rect class="chipr c-violet" x="666" y="468" width="298" height="26" rx="8"/>
+        <text class="ns" x="815" y="485" text-anchor="middle" style="fill:#d9c9ff">MCP gateway · same MCPServerRegistrations from Git</text>
+      </g>
+      <rect class="node n-gold" x="666" y="502" width="298" height="36" rx="8"/>
+      <text class="ns" x="815" y="524" text-anchor="middle" style="fill:#f6d488">your APIs: here, or outside the cluster via the gateway</text>
+    </g>
+
+    <!-- ===== cluster panel: ARO (right) ===== -->
+    <g id="pC" class="L">
+      <rect class="zone" x="1000" y="246" width="330" height="300" rx="14"/>
+      <text class="band" x="1016" y="268" style="fill:#8fb3f6">AZURE RED HAT OPENSHIFT · CANADA CENTRAL</text>
+      <rect class="node n-blue gw" x="1016" y="280" width="298" height="52" rx="10"/>
+      <text class="nt" x="1165" y="300" text-anchor="middle" style="font-size:12.5px">Gateway · Envoy</text>
+      <text class="ns" x="1165" y="316" text-anchor="middle">api.example.com:443 · TLSPolicy via cert-manager</text>
+      <rect class="chipr c-cyan" x="1016" y="342" width="92" height="24" rx="6"/><text class="wl" x="1062" y="358" text-anchor="middle" style="fill:var(--ink)">AuthPolicy</text>
+      <rect class="chipr c-cyan" x="1116" y="342" width="108" height="24" rx="6"/><text class="wl" x="1170" y="358" text-anchor="middle" style="fill:var(--ink)">RateLimitPolicy</text>
+      <rect class="chipr c-cyan" x="1232" y="342" width="82" height="24" rx="6"/><text class="wl" x="1273" y="358" text-anchor="middle" style="fill:var(--ink)">DNSPolicy</text>
+      <rect class="node n-cyan" x="1016" y="376" width="92" height="44" rx="8"/><text class="wl" x="1062" y="394" text-anchor="middle" style="fill:var(--ink)">Authorino</text><text class="ns" x="1062" y="409" text-anchor="middle" style="font-size:9.5px">tokens, keys</text>
+      <rect class="node n-cyan" x="1119" y="376" width="92" height="44" rx="8"/><text class="wl" x="1165" y="394" text-anchor="middle" style="fill:var(--ink)">Limitador</text><text class="ns" x="1165" y="409" text-anchor="middle" style="font-size:9.5px">→ shared counters</text>
+      <rect class="node n-cyan" x="1222" y="376" width="92" height="44" rx="8"/><text class="wl" x="1268" y="394" text-anchor="middle" style="fill:var(--ink)">DNS Operator</text><text class="ns" x="1268" y="409" text-anchor="middle" style="font-size:9.5px">→ Azure DNS</text>
+      <g id="downNote" class="fade off">
+        <rect class="chipr c-rose" x="1016" y="430" width="298" height="30" rx="8"/>
+        <text class="ns" x="1165" y="449" text-anchor="middle" style="fill:#fecdd3">probes failing · status unhealthy · ROSA removes its records</text>
+      </g>
+      <g id="upNote" class="fade">
+        <rect class="chipr c-std" x="1016" y="430" width="298" height="30" rx="8"/>
+        <text class="ns" x="1165" y="449" text-anchor="middle">same manifests · a second cloud, not a second product</text>
+      </g>
+      <g id="mcpC" class="fade off">
+        <rect class="chipr c-violet" x="1016" y="468" width="298" height="26" rx="8"/>
+        <text class="ns" x="1165" y="485" text-anchor="middle" style="fill:#d9c9ff">MCP gateway · same MCPServerRegistrations from Git</text>
+      </g>
+      <rect class="node n-gold" x="1016" y="502" width="298" height="36" rx="8"/>
+      <text class="ns" x="1165" y="524" text-anchor="middle" style="fill:#f6d488">your APIs: here, or outside the cluster via the gateway</text>
+    </g>
+
+    <!-- ===== traffic dots DNS -> gateways ===== -->
+    <g id="dotsB" fill="var(--gold)" filter="url(#glow)">
+      <circle r="4.5"><animateMotion dur="2.4s" begin="0.2s" repeatCount="indefinite"><mpath href="#toB"/></animateMotion></circle>
+      <circle r="4.5"><animateMotion dur="2.4s" begin="1.4s" repeatCount="indefinite"><mpath href="#toB"/></animateMotion></circle>
+    </g>
+    <g id="dotsC" class="fade" fill="var(--gold)" filter="url(#glow)">
+      <circle r="4.5"><animateMotion dur="2.4s" begin="0.8s" repeatCount="indefinite"><mpath href="#toC"/></animateMotion></circle>
+      <circle r="4.5"><animateMotion dur="2.4s" begin="2s" repeatCount="indefinite"><mpath href="#toC"/></animateMotion></circle>
+    </g>
+    <g id="dotsC2" class="fade off" fill="var(--gold)" filter="url(#glow)">
+      <circle r="4.5"><animateMotion dur="2.4s" begin="0.8s" repeatCount="indefinite"><mpath href="#toC2"/></animateMotion></circle>
+      <circle r="4.5"><animateMotion dur="2.4s" begin="2s" repeatCount="indefinite"><mpath href="#toC2"/></animateMotion></circle>
+    </g>
+
+    <!-- ===== shared services row ===== -->
+    <g id="shared" class="L">
+      <!-- shared redis -->
+      <g id="redis" class="fade">
+        <g id="rAg" class="fade"><path id="rA" class="wire w-ask" d="M 465,546 C 465,575 560,575 590,600"/></g>
+        <path id="rB" class="wire w-ask" d="M 815,546 L 815,580"/>
+        <g id="rCg" class="fade"><path id="rC" class="wire w-ask" d="M 1165,546 C 1165,575 1070,575 1040,600"/></g>
+        <g filter="url(#soft)"><rect class="node n-violet" x="590" y="580" width="450" height="64" rx="12"/></g>
+        <text class="nt" x="815" y="600" text-anchor="middle">Shared counter store · Redis-compatible</text>
+        <text class="ns" x="815" y="617" text-anchor="middle">Redis Enterprise, Amazon ElastiCache, Dragonfly, Valkey</text>
+        <text class="ns" x="815" y="633" text-anchor="middle">one rate limit that means the same on every cluster</text>
+        <g id="rAdot" class="fade" fill="var(--violet)" filter="url(#glow)"><circle r="3.5"><animateMotion dur="1.8s" begin="0s" repeatCount="indefinite" keyPoints="0;1;0" keyTimes="0;.5;1" calcMode="linear"><mpath href="#rA"/></animateMotion></circle></g>
+        <g fill="var(--violet)" filter="url(#glow)"><circle r="3.5"><animateMotion dur="1.8s" begin="0.6s" repeatCount="indefinite" keyPoints="0;1;0" keyTimes="0;.5;1" calcMode="linear"><mpath href="#rB"/></animateMotion></circle></g>
+        <g id="rCdot" class="fade" fill="var(--violet)" filter="url(#glow)"><circle r="3.5"><animateMotion dur="1.8s" begin="1.2s" repeatCount="indefinite" keyPoints="0;1;0" keyTimes="0;.5;1" calcMode="linear"><mpath href="#rC"/></animateMotion></circle></g>
+      </g>
+      <!-- keycloak + issuer -->
+      <g filter="url(#soft)"><rect class="node n-violet" x="1070" y="580" width="300" height="64" rx="12"/></g>
+      <text class="nt" x="1220" y="600" text-anchor="middle">Shared identity and certificates</text>
+      <text class="ns" x="1220" y="617" text-anchor="middle">Red Hat build of Keycloak, one identity provider</text>
+      <text class="ns" x="1220" y="633" text-anchor="middle">one ACME issuer · cert-manager in each cluster</text>
+    </g>
+
+    <!-- ===== failover timeline (step 3) ===== -->
+    <g id="timeline" class="L">
+      <text class="band" x="30" y="672" style="fill:#fecdd3">WHAT ACTUALLY HAPPENS WHEN A CLUSTER DIES · with the guide's example settings</text>
+      <path class="wire w-red" d="M 60,712 L 1340,712"/>
+      <g fill="var(--rose)" filter="url(#glow)"><circle r="4"><animateMotion dur="6s" begin="0s" repeatCount="indefinite" path="M 60,712 L 1340,712"/></animateMotion></circle></g>
+      <circle cx="60" cy="712" r="6" fill="var(--rose)"/><text class="wl" x="60" y="736" text-anchor="middle" style="fill:var(--ink)">t = 0</text><text class="ns" x="60" y="751" text-anchor="middle">gateway down</text>
+      <circle cx="330" cy="712" r="6" fill="var(--rose)"/><text class="wl" x="330" y="736" text-anchor="middle" style="fill:var(--ink)">≈ 3 min: probes fail</text><text class="ns" x="330" y="751" text-anchor="middle">1 m × 3 · status unhealthy · alert</text>
+      <circle cx="660" cy="712" r="6" fill="var(--gold)"/><text class="wl" x="660" y="736" text-anchor="middle" style="fill:var(--ink)">withdraw the record</text><text class="ns" x="660" y="751" text-anchor="middle">a survivor deletes it by the dead cluster's ownerID</text>
+      <circle cx="1030" cy="712" r="6" fill="var(--cyan)"/><text class="wl" x="1030" y="736" text-anchor="middle" style="fill:var(--ink)">provider + caches</text><text class="ns" x="1030" y="751" text-anchor="middle">Route 53 ≈ 60 s · resolvers keep the old answer up to TTL 60 s</text>
+      <circle cx="1340" cy="712" r="6" fill="var(--green)"/><text class="wl" x="1340" y="736" text-anchor="end" style="fill:var(--ink)">≈ 5 min: all on ROSA</text><text class="ns" x="1340" y="751" text-anchor="end">minutes, not seconds</text>
+      <text class="ns" x="30" y="774" style="fill:#fecdd3">Geo and weighted records are never removed by a failing probe (no NXDOMAIN, by design), and a dead cluster cannot clean up its own records: a surviving cluster removes them by ownerID (the Kuadrant orphan-record procedure).</text>
+      <text class="ns" x="30" y="790" style="fill:#fecdd3">Tuning: shorter interval and threshold, lower TTL, clients that retry across the returned addresses; seconds need an anycast or global load balancer in front. Workload failure inside a cluster is instant at Envoy.</text>
+      <text class="ns" x="30" y="806" style="fill:#fecdd3">Upstream Kuadrant DNS groups (an active-groups TXT record) switch a whole cluster set with one command; not in the 1.4 guides. Automated cluster failover: Red Hat roadmap after 1.5.</text>
+    </g>
+
+    <!-- ===== what lives where ===== -->
+    <g id="strip" class="L">
+      <text class="band" x="30" y="672">WHAT LIVES WHERE</text>
+      <rect class="chipr c-std" x="30" y="682" width="430" height="98" rx="9"/>
+      <text class="nt" x="44" y="702" style="font-size:12px;fill:#8fb3f6">PER CLUSTER · identical, from Git</text>
+      <text class="ns" x="44" y="720">Gateway (Envoy from Service Mesh 3 or the built-in Gateway API),</text>
+      <text class="ns" x="44" y="735">Authorino, Limitador, DNS Operator, cert-manager, every route</text>
+      <text class="ns" x="44" y="750">and policy. The deploy guide: repeat the steps in each cluster.</text>
+      <text class="ns" x="44" y="768">Inside: one shared gateway or dedicated ones per team or tier.</text>
+      <rect class="chipr c-std" x="480" y="682" width="430" height="98" rx="9"/>
+      <text class="nt" x="494" y="702" style="font-size:12px;fill:#d9c9ff">SHARED · a few services</text>
+      <text class="ns" x="494" y="720">The DNS zone and provider, the Redis-compatible counter store,</text>
+      <text class="ns" x="494" y="735">Red Hat build of Keycloak, the certificate issuer,</text>
+      <text class="ns" x="494" y="750">the Git repository and OpenShift GitOps.</text>
+      <text class="ns" x="494" y="768">Policies attach at the Gateway (defaults, overrides) or per route.</text>
+      <rect class="chipr c-std" x="930" y="682" width="440" height="98" rx="9"/>
+      <text class="nt" x="944" y="702" style="font-size:12px;fill:#f6d488">PLATFORMS · one policy model</text>
+      <text class="ns" x="944" y="720">OpenShift 4.19 to 4.22 on premises or any cloud, ROSA, Azure Red Hat</text>
+      <text class="ns" x="944" y="735">OpenShift, OpenShift Dedicated. Any managed Kubernetes: planned</text>
+      <text class="ns" x="944" y="750">for 1.5 (October 2026). All patterns above are generally available;</text>
+      <text class="ns" x="944" y="768">air-gapped install of the operators: Tech Preview in 1.4, GA planned 1.5.</text>
+    </g>
+  </svg>
+  </div>
+
+  <div class="bar">
+    <div class="steps" id="steps"></div>
+    <span class="spacer"></span>
+    <button class="btn" id="prev" title="←">‹ Prev</button>
+    <button class="btn" id="next" title="→">Next ›</button>
+    <button class="btn on" id="auto" title="space">Auto-play</button>
+  </div>
+  <p class="caption" id="caption"></p>
+
+  <div class="legend">
+    <span class="chip"><span class="sw" style="color:var(--gold)"></span><b>API traffic</b> — clients to whichever gateway DNS names</span>
+    <span class="chip"><span class="sw" style="color:var(--cyan)"></span><b>DNS</b> — one hostname, a record per cluster, geo + weight + health</span>
+    <span class="chip"><span class="sw" style="color:var(--std)"></span><b>configuration</b> — Git, applied by OpenShift GitOps to every cluster</span>
+    <span class="chip"><span class="sw" style="color:var(--violet)"></span><b>shared services</b> — counters, identity, certificates</span>
+    <span class="chip"><span class="sw" style="color:var(--cyan)"></span><b>DNSPolicy</b> — a Connectivity Link policy (kuadrant.io) attached to the Gateway; not part of Gateway API</span>
+  </div>
+  <p class="key"><b>The control plane is Git, not a management server.</b> Add a cluster by pointing GitOps at it; it converges to the same gateway and policies, publishes its own DNS record, and starts taking traffic. Lose a cluster and DNS stops naming it. Everything on this page is generally available in Connectivity Link 1.4.</p>
+</div>
+
+<script>
+(function(){
+  try{ if(matchMedia('(prefers-reduced-motion: reduce)').matches){ document.querySelector('svg').pauseAnimations(); } }catch(e){}
+  const $=id=>document.getElementById(id);
+  const steps = [
+    { name:"One cluster", layers:["git","dns","pB"], recs:["recB"], fail:false, onprem:false, mcp:false, shared:false, strip:false,
+      t:"<b>One cluster, one definition.</b> The deploy guide's platform workflow: a Gateway with an HTTPS listener, TLSPolicy issuing its certificate through cert-manager, DNSPolicy publishing the hostname to Route 53, Google Cloud DNS or Azure DNS, and a default AuthPolicy and RateLimitPolicy at the gateway. The DNS Operator in the cluster writes the record into the zone through the provider's API, with credentials from a Secret. Every object comes from Git and OpenShift GitOps applies it. A first production tenant, or a single region. All generally available. DNSPolicy is a Connectivity Link policy attached to the Gateway, not part of Gateway API; the product's DNS Operator turns it into records at the provider." },
+    { name:"Active-active across clouds", layers:["git","dns","pB","pC","shared"], recs:["recB","recC"], fail:false, onprem:false, mcp:false, shared:true, strip:false,
+      t:"<b>Active-active across clusters and clouds.</b> A second cluster on another cloud gets the same manifests. Its Gateway carries the same hostname; its own DNSPolicy adds a record to the shared zone with a geo label, a weight and a health check, so DNS spreads clients across both. The docs say plainly that you perform the steps in each cluster: there is no central controller, the fleet is a set of independently converging clusters fed from one repository. What is shared is small: the DNS zone, a Redis-compatible counter store so a rate limit means the same thing on every cluster, one Keycloak, one certificate issuer." },
+    { name:"A cluster fails", layers:["git","dns","pB","pC","shared"], recs:["recB","recC"], fail:true, onprem:false, mcp:false, shared:true, strip:false,
+      t:"<b>A cluster fails, honestly timed.</b> The probes (here /health every minute, three failures) mark the gateway unhealthy in the DNSPolicy status within about three minutes: that is your alert. With geo and weighted records a failing probe never removes a record, by design, so the zone never answers NXDOMAIN; only an A record with several addresses drops the bad one. The dead cluster cannot clean up after itself either. Withdrawal is a documented step from a surviving cluster: apply a throwaway DNSRecord carrying the dead cluster's ownerID, delete it, and the survivor's DNS Operator removes those records at the provider (or delete them in the provider console). Route 53 applies the change within about a minute and resolvers keep the old answer up to the 60-second TTL. Budget five minutes plus the human; DNS failover is minutes, not seconds. Workload failure inside a cluster is instant at Envoy. A planned drain is easy: weight 0 or delete the policy on the live cluster. Upstream Kuadrant now has DNS groups, one active-groups TXT record that switches a cluster set; it is not in the 1.4 guides, and automated cluster failover is Red Hat's roadmap after 1.5." },
+    { name:"On premises joins", layers:["git","dns","pA","pB","pC","shared"], recs:["recA","recB","recC"], fail:false, onprem:true, mcp:false, shared:true, strip:false,
+      t:"<b>Hybrid: on premises joins with its own DNS.</b> Chapter 3 of the deploy guide pairs the DNS Operator with CoreDNS: the authoritative on-premises DNS delegates a zone to the cluster, CoreDNS serves it, with GeoIP (MaxMind in production) for geo answers and a primary-plus-secondary layout across on-premises clusters. The on-premises DNS Operator writes the on-prem gateway's record into that internal zone, while the cloud clusters write theirs into the public zone through the provider API. Store and data-centre systems resolve the hostname internally and land on the on-premises gateway; internet clients keep using the cloud zone. Backends outside any cluster are still reached through the gateway, so they inherit its policies. This CoreDNS is a zone server that Connectivity Link populates; it is unrelated to the CoreDNS OpenShift already runs for in-cluster service discovery, which has its own, differently named DNS Operator." },
+    { name:"MCP rides along", layers:["git","dns","pA","pB","pC","shared"], recs:["recA","recB","recC"], fail:false, onprem:true, mcp:true, shared:true, strip:false,
+      t:"<b>The MCP gateway rides the same pattern.</b> Each cluster runs its own MCP gateway with the same MCPServerRegistrations from Git, and DNSPolicy sends agents to the nearest healthy one. Sessions: the 2025 protocol keeps them in Redis for multi-replica gateways; the stateless 2026 protocol, in upstream MCP Gateway 1.0, removes that dependency. External MCP servers, SaaS, another cluster or on premises, join through a ServiceEntry and DestinationRule (Service Mesh resources), then the same route, Secret, AuthPolicy and registration. The MCP gateway itself is Technology Preview in 1.4, GA planned in 1.5." },
+    { name:"What lives where", layers:["git","dns","pA","pB","pC","shared","strip"], recs:["recA","recB","recC"], fail:false, onprem:true, mcp:true, shared:true, strip:true,
+      t:"<b>What lives where.</b> Per cluster, identical and from Git: the Gateway, Authorino, Limitador, the DNS Operator, cert-manager, every route and policy. Shared: the DNS zone, the counter store, Keycloak, the certificate issuer, the repository and GitOps. One policy model on OpenShift 4.19 to 4.22 anywhere it runs, ROSA, Azure Red Hat OpenShift and OpenShift Dedicated; any managed Kubernetes is planned for 1.5. Inside a cluster the choice is one shared gateway with allowedRoutes selectors, or dedicated gateways per team or tier; policies attach at the Gateway as defaults and overrides, or on individual HTTPRoutes. Air-gapped installation of the operators is Technology Preview in 1.4, GA planned in 1.5. Adding a cluster is pointing GitOps at it." }
+  ];
+  const N = steps.length;
+  const hash = new URLSearchParams(location.hash.replace(/^#/,''));
+  let cur = Math.min(N, Math.max(1, parseInt(hash.get('step')||'1',10))) - 1;
+  let auto = hash.get('auto') !== '0';
+  const DWELL = 9000; let timer = null;
+  const stepsEl = $('steps'), cap = $('caption');
+  steps.forEach((s,i)=>{ const b=document.createElement('button'); b.className='step'; b.innerHTML='<span class="n">'+(i+1)+'</span>'+s.name; b.onclick=()=>{go(i); stopAuto();}; stepsEl.appendChild(b); });
+
+  function render(){
+    const s = steps[cur];
+    for(let i=0;i<N;i++){ const b=stepsEl.children[i]; b.classList.toggle('on', i===cur); b.classList.toggle('done', i<cur); }
+    ["git","dns","pA","pB","pC","shared","strip"].forEach(id=>$(id).classList.toggle('on', s.layers.includes(id)));
+    ["recA","recB","recC"].forEach(id=>$(id).classList.toggle('off', !s.recs.includes(id)));
+    // ARO traffic: normal vs failed
+    const hasC = s.layers.includes("pC");
+    $('toC').classList.toggle('off', !hasC || s.fail);
+    $('dotsC').classList.toggle('off', !hasC || s.fail);
+    $('toC2').classList.toggle('off', !(hasC && s.fail));
+    $('dotsC2').classList.toggle('off', !(hasC && s.fail));
+    $('pC').classList.toggle('down', s.fail);
+    $('downNote').classList.toggle('off', !s.fail);
+    $('upNote').classList.toggle('off', s.fail);
+    $('hC').setAttribute('fill', s.fail ? 'var(--rose)' : 'var(--green)');
+    $('recCbox').setAttribute('class', 'chipr ' + (s.fail ? 'c-rose' : 'c-cyan'));
+    $('recCtext').textContent = s.fail ? 'ARO · unhealthy · withdrawn by ownerID' : 'ARO · GEO-NA · weight 120';
+    // on-prem specifics
+    $('coreA').classList.toggle('off', !s.onprem);
+    $('redis').classList.toggle('off', !s.shared);
+    const hasA = s.layers.includes("pA");
+    ['d1g','rAg','rAdot'].forEach(id=>$(id).classList.toggle('off', !hasA));
+    $('izone').classList.toggle('on', hasA);
+    $('wCg').classList.toggle('off', !hasC);
+    $('timeline').classList.toggle('on', !!s.fail);
+    ['bus2g','rCg','rCdot'].forEach(id=>$(id).classList.toggle('off', !hasC));
+    ["mcpA","mcpB","mcpC"].forEach(id=>$(id).classList.toggle('off', !s.mcp));
+    cap.innerHTML = '<span class="tag">STEP '+(cur+1)+' OF '+N+'</span>' + s.t;
+    $('auto').classList.toggle('on', auto);
+  }
+  function go(i){ cur=(i+N)%N; render(); }
+  function startAuto(){ auto=true; clearInterval(timer); timer=setInterval(()=>go(cur+1), DWELL); render(); }
+  function stopAuto(){ auto=false; clearInterval(timer); timer=null; render(); }
+  $('prev').onclick=()=>{go(cur-1); stopAuto();};
+  $('next').onclick=()=>{go(cur+1); stopAuto();};
+  $('auto').onclick=()=>{ auto?stopAuto():startAuto(); };
+  document.addEventListener('keydown', e=>{
+    if(e.key==='ArrowRight'){go(cur+1); stopAuto();}
+    else if(e.key==='ArrowLeft'){go(cur-1); stopAuto();}
+    else if(e.key===' '){ e.preventDefault(); auto?stopAuto():startAuto(); }
+  });
+  render(); if(auto) startAuto();
+})();
+</script>
+</body>
+</html>

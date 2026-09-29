@@ -1,0 +1,16 @@
+# Public, stable URLs for the Best Buy Canada briefing's animated diagrams:
+# https://diagrams.apps.salamander.aimlworkbench.com/ (nginx serving four HTML
+# files from a ConfigMap). Pages are self-contained; no external assets.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: diagrams
+resources:
+  - deploy.yaml
+configMapGenerator:
+  - name: diagrams-html
+    files:
+      - html/index.html
+      - html/mcp-gateway-layers-animated.html
+      - html/mcp-one-call-animated.html
+      - html/observability-apis-mcp-animated.html
+      - html/deployment-hybrid-multicloud-animated.html

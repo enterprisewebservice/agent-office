@@ -1,0 +1,395 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>MCP Gateway Anatomy</title>
+<meta name="description" content="What the MCP gateway is, one layer at a time: Envoy, Gateway API, Connectivity Link policies with Authorino and Limitador, the MCP router, broker and controller, MCP servers and their registrations."/>
+<style>
+  :root{
+    color-scheme:dark;
+    --bg:#0a0f1e; --bg2:#0e1730; --ink:#e8eefc; --muted:#9fb0d0; --line:#26344f;
+    --std:#cbd5e1; --blue:#60a5fa; --cyan:#22d3ee; --rose:#fb7185; --violet:#a78bfa; --gold:#fbbf24; --green:#34d399;
+  }
+  *{box-sizing:border-box}
+  button:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+  html,body{margin:0;height:100%}
+  body{
+    background:radial-gradient(1400px 800px at 50% -8%, #14213f 0%, var(--bg) 60%) fixed;
+    background-color:var(--bg); color:var(--ink);
+    font:16px/1.45 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Inter,Roboto,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; min-height:100%; padding:22px 16px;
+  }
+  .wrap{width:min(1400px,100%)}
+  h1{font-size:25px;font-weight:700;letter-spacing:.2px;margin:0 0 3px}
+  h1 .accent{color:var(--gold)}
+  .sub{color:var(--muted);font-size:14.5px;margin:0 0 12px}
+  .card{
+    background:linear-gradient(180deg,rgba(20,33,63,.65),rgba(10,15,30,.65));
+    border:1px solid var(--line); border-radius:18px; padding:8px 10px 2px;
+    box-shadow:0 30px 80px -40px rgba(0,0,0,.8), inset 0 1px 0 rgba(255,255,255,.03);
+  }
+  svg{width:100%;height:auto;display:block}
+
+  /* controls */
+  .bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:12px 2px 0}
+  .steps{display:flex;flex-wrap:wrap;gap:6px}
+  .step{border:1px solid var(--line);background:rgba(255,255,255,.03);color:var(--muted);border-radius:999px;
+    padding:6px 12px;font-size:13px;cursor:pointer;font-weight:600;transition:all .25s}
+  .step .n{display:inline-block;width:18px;height:18px;border-radius:50%;background:rgba(255,255,255,.08);
+    text-align:center;line-height:18px;font-size:11px;margin-right:6px;color:var(--ink)}
+  .step.on{color:#0a0f1e;background:var(--gold);border-color:var(--gold)}
+  .step.on .n{background:rgba(0,0,0,.18);color:#0a0f1e}
+  .step.done{border-color:rgba(251,191,36,.45);color:var(--ink)}
+  .spacer{flex:1}
+  .btn{border:1px solid var(--line);background:rgba(255,255,255,.04);color:var(--ink);border-radius:10px;
+    padding:6px 11px;font-size:13px;cursor:pointer;font-weight:600}
+  .btn.on{background:rgba(34,211,238,.16);border-color:rgba(34,211,238,.5);color:#bff3fb}
+  .caption{margin:12px 2px 0;font-size:16px;line-height:1.5;color:var(--ink);min-height:3.2em}
+  .caption b{color:var(--gold)}
+  .caption .tag{display:inline-block;font-size:11.5px;font-weight:700;letter-spacing:.6px;color:var(--muted);margin-right:8px;vertical-align:1px}
+
+  .legend{display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin:12px 2px 2px;color:var(--muted);font-size:13px}
+  .legend b{color:var(--ink);font-weight:600}
+  .chip{display:inline-flex;align-items:center;gap:7px}
+  .sw{width:11px;height:11px;border-radius:50%;box-shadow:0 0 9px currentColor;background:currentColor}
+  .key{margin-top:9px;color:var(--muted);font-size:14px}
+  .key b{color:var(--gold);font-weight:700}
+
+  /* SVG text + shapes */
+  text{font-family:inherit;fill:var(--ink)}
+  .nt{font-weight:700;font-size:14.5px}
+  .ns{font-size:11px;fill:var(--muted)}
+  .wl{font-size:11px;fill:var(--muted);font-weight:600}
+  .band{font-size:11px;font-weight:700;letter-spacing:.8px;fill:var(--muted)}
+  .badge{font-size:11px;font-weight:700}
+  .node{stroke-width:1.5}
+  .n-gold{fill:#161a2c;stroke:rgba(251,191,36,.6)}
+  .n-blue{fill:#0f1c39;stroke:rgba(96,165,250,.7)}
+  .n-cyan{fill:#0e1e34;stroke:rgba(34,211,238,.6)}
+  .n-std{fill:#131b2e;stroke:rgba(203,213,225,.45)}
+  .n-rose{fill:#1c1428;stroke:rgba(251,113,133,.6)}
+  .n-violet{fill:#141d36;stroke:rgba(167,139,250,.6)}
+  .chipr{stroke-width:1.2}
+  .c-std{fill:rgba(203,213,225,.07);stroke:rgba(203,213,225,.45)}
+  .c-cyan{fill:rgba(34,211,238,.08);stroke:rgba(34,211,238,.5)}
+  .zone{fill:rgba(34,211,238,.035);stroke:rgba(34,211,238,.34);stroke-dasharray:5 6}
+  .wire{fill:none;stroke-width:2}
+  .w-traffic{stroke:rgba(251,191,36,.34)}
+  .w-cfg{stroke:rgba(203,213,225,.28);stroke-dasharray:2 6}
+  .w-ask{stroke:rgba(34,211,238,.34);stroke-dasharray:3 6}
+  .w-rose{stroke:rgba(251,113,133,.36);stroke-dasharray:3 6}
+  .w-violet{stroke:rgba(167,139,250,.4)}
+  .w-reg{stroke:rgba(34,211,238,.34)}
+
+  /* layers */
+  .L{opacity:0;transition:opacity .7s ease}
+  .L.on{opacity:1}
+  .hideable{transition:opacity .5s ease}
+  .hideable.off{opacity:0}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>What the MCP gateway is — <span class="accent">one layer at a time</span></h1>
+  <p class="sub">One proxy. Everything else either configures it or answers its questions. Colours show who ships each piece.</p>
+
+  <div class="card">
+  <svg viewBox="0 0 1400 660" role="img" aria-label="Animated build-up of the MCP gateway: Envoy, Gateway API objects, Connectivity Link policies with Authorino and Limitador, the MCP router, broker and controller, MCP servers and registrations">
+    <defs>
+      <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+        <feGaussianBlur stdDeviation="3.2" result="b"/>
+        <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+      <filter id="soft" x="-40%" y="-40%" width="180%" height="180%">
+        <feGaussianBlur stdDeviation="6" result="b"/>
+        <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+    </defs>
+
+    <!-- ============ LAYER 1: the proxy ============ -->
+    <g id="L1" class="L">
+      <text class="band" x="380" y="228" style="fill:#8fb3f6">THE PROXY · carries every call</text>
+
+      <path id="wIn"  class="wire w-traffic" d="M 260,339 L 380,339"/>
+      <g id="genericOut" class="hideable">
+        <path id="wOut" class="wire w-traffic" d="M 740,339 L 1090,339"/>
+      </g>
+
+      <!-- Agent -->
+      <g filter="url(#soft)"><rect class="node n-gold" x="30" y="297" width="230" height="84" rx="13"/></g>
+      <text class="nt" x="145" y="323" text-anchor="middle" data-t="Agent" data-a="A visitor">Agent</text>
+      <text class="ns" x="145" y="342" text-anchor="middle" data-t="any MCP client, yours or a vendor's" data-a="an agent, or any MCP client">any MCP client, yours or a vendor's</text>
+      <text class="badge L" id="agentBadge" x="145" y="365" text-anchor="middle" style="fill:var(--gold)">Keycloak token · no server secrets</text>
+
+      <!-- Envoy -->
+      <g filter="url(#soft)"><rect class="node n-blue" x="380" y="240" width="360" height="136" rx="13"/></g>
+      <text class="nt" x="396" y="264" data-t="Envoy" data-a="The front desk">Envoy</text>
+      <text class="ns" x="396" y="282" data-t="the proxy · carries every call, decides nothing" data-a="Envoy · every visitor passes it">the proxy · carries every call, decides nothing</text>
+      <text class="ns" x="396" y="298" data-t="OpenShift Service Mesh 3 / OpenShift Gateway API (4.19+)" data-a="the desk itself decides nothing">OpenShift Service Mesh 3 / OpenShift Gateway API (4.19+)</text>
+
+      <!-- generic backend (steps 1-4) -->
+      <g id="genericBackend" class="hideable">
+        <g filter="url(#soft)"><rect class="node n-gold" x="1090" y="307" width="280" height="64" rx="13"/></g>
+        <text class="nt" x="1230" y="333" text-anchor="middle" data-t="An API or MCP server" data-a="A tenant">An API or MCP server</text>
+        <text class="ns" x="1230" y="352" text-anchor="middle" data-t="the thing the caller actually wants" data-a="the office the visitor came to see">the thing the caller actually wants</text>
+      </g>
+
+      <g fill="var(--gold)" filter="url(#glow)">
+        <circle r="5.5"><animateMotion dur="2.4s" begin="0s"   repeatCount="indefinite"><mpath href="#wIn"/></animateMotion></circle>
+        <circle r="5.5"><animateMotion dur="2.4s" begin="1.2s" repeatCount="indefinite"><mpath href="#wIn"/></animateMotion></circle>
+      </g>
+      <g id="genericDots" class="hideable" fill="var(--gold)" filter="url(#glow)">
+        <circle r="5.5"><animateMotion dur="2.4s" begin="0.6s" repeatCount="indefinite"><mpath href="#wOut"/></animateMotion></circle>
+        <circle r="5.5"><animateMotion dur="2.4s" begin="1.8s" repeatCount="indefinite"><mpath href="#wOut"/></animateMotion></circle>
+      </g>
+    </g>
+
+    <!-- ============ LAYER 2: Gateway API ============ -->
+    <g id="L2" class="L">
+      <text class="band" x="380" y="124" style="fill:#cbd5e1">GATEWAY API · Kubernetes standard · tells Envoy what to do</text>
+      <path id="cfg1" class="wire w-cfg" d="M 455,178 L 455,240"/>
+      <path id="cfg2" class="wire w-cfg" d="M 625,178 L 625,240"/>
+      <text class="wl" x="540" y="214" text-anchor="middle" style="fill:#cbd5e1">programs Envoy</text>
+
+      <rect class="chipr c-std" x="380" y="136" width="150" height="42" rx="9"/>
+      <text class="nt" x="455" y="153" text-anchor="middle" style="font-size:12.5px" data-t="Gateway" data-a="The entrance">Gateway</text>
+      <text class="ns" x="455" y="169" text-anchor="middle" data-t="listen on mcp.&lt;domain&gt;:443" data-a="Gateway">listen on mcp.&lt;domain&gt;:443</text>
+
+      <rect class="chipr c-std" x="550" y="136" width="150" height="42" rx="9"/>
+      <text class="nt" x="625" y="153" text-anchor="middle" style="font-size:12.5px" data-t="HTTPRoute" data-a="The corridors">HTTPRoute</text>
+      <text class="ns" x="625" y="169" text-anchor="middle" data-t="/mcp → gateway · one per server" data-a="HTTPRoute">/mcp → gateway · one per server</text>
+
+      <g fill="#cbd5e1" filter="url(#glow)">
+        <circle r="3.5"><animateMotion dur="3s" begin="0s"   repeatCount="indefinite"><mpath href="#cfg1"/></animateMotion></circle>
+        <circle r="3.5"><animateMotion dur="3s" begin="1.5s" repeatCount="indefinite"><mpath href="#cfg2"/></animateMotion></circle>
+      </g>
+    </g>
+
+    <!-- ============ LAYER 3: Connectivity Link policies, Authorino, Limitador, Keycloak ============ -->
+    <g id="L3" class="L">
+      <text class="band" x="380" y="52" style="fill:#7fd9ec">RED HAT CONNECTIVITY LINK POLICIES · attach to the Gateway API objects below (targetRef)</text>
+
+      <rect class="chipr c-cyan" x="380" y="64" width="98" height="42" rx="9"/>
+      <text class="nt" x="429" y="81" text-anchor="middle" style="font-size:12.5px" data-t="TLSPolicy" data-a="Locks">TLSPolicy</text>
+      <text class="ns" x="429" y="97" text-anchor="middle" data-t="certificates" data-a="TLSPolicy">certificates</text>
+
+      <rect class="chipr c-cyan" x="488" y="64" width="98" height="42" rx="9"/>
+      <text class="nt" x="537" y="81" text-anchor="middle" style="font-size:12.5px" data-t="DNSPolicy" data-a="Signage">DNSPolicy</text>
+      <text class="ns" x="537" y="97" text-anchor="middle" data-t="DNS records" data-a="DNSPolicy">DNS records</text>
+
+      <rect class="chipr c-cyan" x="596" y="64" width="112" height="42" rx="9"/>
+      <text class="nt" x="652" y="81" text-anchor="middle" style="font-size:12.5px" data-t="AuthPolicy" data-a="Who gets in">AuthPolicy</text>
+      <text class="ns" x="652" y="97" text-anchor="middle" data-t="who may call what" data-a="AuthPolicy">who may call what</text>
+
+      <rect class="chipr c-cyan" x="718" y="64" width="136" height="42" rx="9"/>
+      <text class="nt" x="786" y="81" text-anchor="middle" style="font-size:12.5px" data-t="RateLimitPolicy" data-a="How often">RateLimitPolicy</text>
+      <text class="ns" x="786" y="97" text-anchor="middle" data-t="how often" data-a="RateLimitPolicy">how often</text>
+
+      <!-- helpers -->
+      <text class="band" x="380" y="398" style="fill:#7fd9ec">ASKED ON EVERY CALL · never carry traffic</text>
+      <path id="ask1" class="wire w-ask" d="M 470,376 L 470,408"/>
+      <path id="ask2" class="wire w-ask" d="M 700,376 L 700,408"/>
+
+      <g filter="url(#soft)"><rect class="node n-cyan" x="380" y="408" width="230" height="74" rx="12"/></g>
+      <text class="nt" x="495" y="432" text-anchor="middle" data-t="Authorino" data-a="The guard">Authorino</text>
+      <text class="ns" x="495" y="450" text-anchor="middle" data-t="evaluates AuthPolicy: token valid?" data-a="Authorino · checks every badge">evaluates AuthPolicy: token valid?</text>
+      <text class="ns" x="495" y="467" text-anchor="middle" data-t="this caller, this tool? headers to add" data-a="and which doors it opens">this caller, this tool? headers to add</text>
+
+      <g filter="url(#soft)"><rect class="node n-cyan" x="626" y="408" width="210" height="74" rx="12"/></g>
+      <text class="nt" x="731" y="432" text-anchor="middle" data-t="Limitador" data-a="The counter">Limitador</text>
+      <text class="ns" x="731" y="450" text-anchor="middle" data-t="evaluates RateLimitPolicy" data-a="Limitador · counts visits">evaluates RateLimitPolicy</text>
+      <text class="ns" x="731" y="467" text-anchor="middle" data-t="under the limit?" data-a="turns away the 101st">under the limit?</text>
+
+      <!-- Keycloak -->
+      <path id="kc1" class="wire w-rose" d="M 145,408 L 145,381"/>
+      <path id="kc2" class="wire w-rose" d="M 260,445 L 380,445"/>
+      <g filter="url(#soft)"><rect class="node n-rose" x="30" y="408" width="230" height="74" rx="12"/></g>
+      <text class="nt" x="145" y="432" text-anchor="middle" data-t="Keycloak" data-a="The badge office">Keycloak</text>
+      <text class="ns" x="145" y="450" text-anchor="middle" data-t="Red Hat build of Keycloak" data-a="Keycloak · issues the badges">Red Hat build of Keycloak</text>
+      <text class="ns" x="145" y="467" text-anchor="middle" data-t="issues the tokens Authorino checks" data-a="the guard knows its stamp">issues the tokens Authorino checks</text>
+      <text class="wl" x="320" y="436" text-anchor="middle" style="fill:#f9a8b8">signing keys</text>
+
+      <g fill="var(--cyan)" filter="url(#glow)">
+        <circle r="4"><animateMotion dur="1.6s" begin="0s"   repeatCount="indefinite" keyPoints="0;1;0" keyTimes="0;.5;1" calcMode="linear"><mpath href="#ask1"/></animateMotion></circle>
+        <circle r="4"><animateMotion dur="1.6s" begin="0.8s" repeatCount="indefinite" keyPoints="0;1;0" keyTimes="0;.5;1" calcMode="linear"><mpath href="#ask2"/></animateMotion></circle>
+      </g>
+      <g fill="var(--rose)" filter="url(#glow)">
+        <circle r="4"><animateMotion dur="2.8s" begin="0s" repeatCount="indefinite"><mpath href="#kc1"/></animateMotion></circle>
+        <circle r="3.5"><animateMotion dur="3.4s" begin="1s" repeatCount="indefinite"><mpath href="#kc2"/></animateMotion></circle>
+      </g>
+    </g>
+
+    <!-- ============ LAYER 4: taught to read MCP ============ -->
+    <g id="L4" class="L">
+      <rect class="zone" x="364" y="206" width="666" height="294" rx="18"/>
+      <text class="band" x="380" y="494" style="fill:#7fd9ec">RED HAT CONNECTIVITY LINK · MCP GATEWAY = Envoy + router + broker + controller</text>
+
+      <!-- router chip inside Envoy -->
+      <rect class="chipr c-cyan" x="396" y="310" width="328" height="58" rx="9"/>
+      <text class="nt" x="410" y="329" style="font-size:12.5px" data-t="MCP router · an Envoy filter" data-a="The receptionist">MCP router · an Envoy filter</text>
+      <text class="ns" x="410" y="345" data-t="opens each tools/call and writes two headers:" data-a="MCP router · hears which office and why,">opens each tools/call and writes two headers:</text>
+      <text class="ns" x="410" y="360" data-t="x-mcp-toolname · x-mcp-servername" data-a="and tells the guard exactly which door">x-mcp-toolname · x-mcp-servername</text>
+
+      <!-- broker -->
+      <path id="brk" class="wire w-ask" d="M 740,262 L 776,262"/>
+      <g filter="url(#soft)"><rect class="node n-cyan" x="776" y="232" width="238" height="66" rx="12"/></g>
+      <text class="nt" x="895" y="255" text-anchor="middle" data-t="MCP broker" data-a="The lobby directory">MCP broker</text>
+      <text class="ns" x="895" y="272" text-anchor="middle" data-t="one endpoint · combined tools/list" data-a="MCP broker · every tenant, one list">one endpoint · combined tools/list</text>
+      <text class="ns" x="895" y="288" text-anchor="middle" data-t="sessions · OAuth discovery → Keycloak" data-a="and where the badge office is">sessions · OAuth discovery → Keycloak</text>
+
+      <!-- controller -->
+      <g filter="url(#soft)"><rect class="node n-cyan" x="852" y="408" width="162" height="74" rx="12"/></g>
+      <text class="nt" x="933" y="432" text-anchor="middle" data-t="MCP controller" data-a="The leasing office">MCP controller</text>
+      <text class="ns" x="933" y="450" text-anchor="middle" data-t="watches registrations" data-a="MCP controller">watches registrations</text>
+      <text class="ns" x="933" y="467" text-anchor="middle" data-t="programs router + broker" data-a="updates desk + directory">programs router + broker</text>
+
+      <text class="wl" x="320" y="327" text-anchor="middle" style="fill:var(--gold)">tools/call</text>
+      <text class="wl" x="758" y="224" text-anchor="middle" style="fill:#7fd9ec">tools/list</text>
+
+      <g fill="var(--cyan)" filter="url(#glow)">
+        <circle r="4"><animateMotion dur="1.8s" begin="0.3s" repeatCount="indefinite" keyPoints="0;1;0" keyTimes="0;.5;1" calcMode="linear"><mpath href="#brk"/></animateMotion></circle>
+      </g>
+    </g>
+
+    <!-- ============ LAYER 5: servers, registrations, MCPServer ============ -->
+    <g id="L5" class="L">
+      <path id="s1" class="wire w-traffic" d="M 740,339 L 1000,339 C 1050,339 1050,270 1090,270"/>
+      <path id="s2" class="wire w-traffic" d="M 740,339 L 1090,339"/>
+      <path id="s3" class="wire w-traffic" d="M 740,339 L 1000,339 C 1050,339 1050,408 1090,408"/>
+
+      <g filter="url(#soft)"><rect class="node n-gold" x="1090" y="243" width="280" height="54" rx="12"/></g>
+      <text class="nt" x="1230" y="265" text-anchor="middle" style="font-size:13.5px" data-t="inventory · your MCP server" data-a="Tenant: inventory">inventory · your MCP server</text>
+      <text class="ns" x="1230" y="283" text-anchor="middle" data-t="exposed as inventory_search, inventory_stock" data-a="its services: search, stock">exposed as inventory_search, inventory_stock</text>
+
+      <g filter="url(#soft)"><rect class="node n-gold" x="1090" y="312" width="280" height="54" rx="12"/></g>
+      <text class="nt" x="1230" y="334" text-anchor="middle" style="font-size:13.5px" data-t="orders · your MCP server" data-a="Tenant: orders">orders · your MCP server</text>
+      <text class="ns" x="1230" y="352" text-anchor="middle" data-t="exposed as orders_lookup, orders_status" data-a="its services: lookup, status">exposed as orders_lookup, orders_status</text>
+
+      <g filter="url(#soft)"><rect class="node n-gold" x="1090" y="381" width="280" height="54" rx="12"/></g>
+      <text class="nt" x="1230" y="403" text-anchor="middle" style="font-size:13.5px" data-t="github · a vendor's MCP server" data-a="Tenant: GitHub">github · a vendor's MCP server</text>
+      <text class="ns" x="1230" y="421" text-anchor="middle" data-t="external, reached through the same gateway" data-a="a tenant from outside the building">external, reached through the same gateway</text>
+
+      <!-- MCPServer (OpenShift AI) -->
+      <path id="files" class="wire w-violet" d="M 1230,520 L 1230,544"/>
+      <g filter="url(#soft)"><rect class="node n-violet" x="1090" y="456" width="280" height="64" rx="12"/></g>
+      <text class="nt" x="1230" y="478" text-anchor="middle" data-t="MCPServer" data-a="The moving company">MCPServer</text>
+      <text class="ns" x="1230" y="496" text-anchor="middle" data-t="Red Hat OpenShift AI · MCP Lifecycle Operator" data-a="MCPServer · OpenShift AI lifecycle operator">Red Hat OpenShift AI · MCP Lifecycle Operator</text>
+      <text class="ns" x="1230" y="512" text-anchor="middle" data-t="runs a server for you · files its registration" data-a="installs a tenant · files the lease for it">runs a server for you · files its registration</text>
+      <text class="wl" x="1242" y="537" style="fill:#c4b3fb">files it</text>
+
+      <!-- registration -->
+      <path id="reg" class="wire w-reg" d="M 1090,576 C 1040,576 1040,445 1014,445"/>
+      <g filter="url(#soft)"><rect class="node n-cyan" x="1090" y="544" width="280" height="64" rx="12"/></g>
+      <text class="nt" x="1230" y="566" text-anchor="middle" data-t="MCPServerRegistration" data-a="A lease">MCPServerRegistration</text>
+      <text class="ns" x="1230" y="584" text-anchor="middle" data-t="prefix inventory_ · targetRef: its HTTPRoute" data-a="MCPServerRegistration · one per tenant">prefix inventory_ · targetRef: its HTTPRoute</text>
+      <text class="ns" x="1230" y="600" text-anchor="middle" data-t="credentialRef: Secret · the agent never sees it" data-a="name, corridor, and the key the desk holds">credentialRef: Secret · the agent never sees it</text>
+      <text class="wl" x="1230" y="628" text-anchor="middle" style="fill:#7fd9ec">read by the controller → listed by the broker</text>
+
+      <g fill="var(--gold)" filter="url(#glow)">
+        <circle r="5"><animateMotion dur="2.8s" begin="0.2s" repeatCount="indefinite"><mpath href="#s1"/></animateMotion></circle>
+        <circle r="5"><animateMotion dur="2.8s" begin="1.1s" repeatCount="indefinite"><mpath href="#s2"/></animateMotion></circle>
+        <circle r="5"><animateMotion dur="2.8s" begin="1.9s" repeatCount="indefinite"><mpath href="#s3"/></animateMotion></circle>
+      </g>
+      <g fill="var(--cyan)" filter="url(#glow)">
+        <circle r="4"><animateMotion dur="3.2s" begin="0s" repeatCount="indefinite"><mpath href="#reg"/></animateMotion></circle>
+      </g>
+      <g fill="var(--violet)" filter="url(#glow)">
+        <circle r="3.5"><animateMotion dur="2s" begin="0.5s" repeatCount="indefinite"><mpath href="#files"/></animateMotion></circle>
+      </g>
+    </g>
+  </svg>
+  </div>
+
+  <div class="bar">
+    <div class="steps" id="steps"></div>
+    <span class="spacer"></span>
+    <button class="btn" id="prev" title="←">‹ Prev</button>
+    <button class="btn" id="next" title="→">Next ›</button>
+    <button class="btn on" id="auto" title="space">Auto-play</button>
+    <button class="btn" id="analogy" title="A">Building analogy</button>
+  </div>
+  <p class="caption" id="caption"></p>
+
+  <div class="legend">
+    <span class="chip"><span class="sw" style="color:var(--blue)"></span><b>Envoy</b> — from OpenShift</span>
+    <span class="chip"><span class="sw" style="color:var(--std)"></span><b>Gateway API</b> — Kubernetes standard</span>
+    <span class="chip"><span class="sw" style="color:var(--cyan)"></span><b>Red Hat Connectivity Link</b> — policies, Authorino, Limitador, MCP router/broker/controller, registrations</span>
+    <span class="chip"><span class="sw" style="color:var(--rose)"></span><b>Red Hat build of Keycloak</b></span>
+    <span class="chip"><span class="sw" style="color:var(--violet)"></span><b>Red Hat OpenShift AI</b> — MCPServer</span>
+    <span class="chip"><span class="sw" style="color:var(--gold)"></span><b>Yours</b> — agents and MCP servers</span>
+  </div>
+  <p class="key"><b>One proxy.</b> Envoy carries every call. Gateway API and Connectivity Link policies configure it; Authorino and Limitador answer its questions; the MCP router, broker and controller teach it MCP. Nothing else moves traffic.</p>
+</div>
+
+<script>
+(function(){
+  try{ if(matchMedia('(prefers-reduced-motion: reduce)').matches){ document.querySelector('svg').pauseAnimations(); } }catch(e){}
+  const steps = [
+    { name:"The proxy",
+      t:"<b>Envoy is the proxy.</b> Every API call and every MCP call physically passes through it. It carries traffic and makes no decisions of its own. OpenShift Service Mesh 3, or OpenShift's built-in Gateway API on 4.19 and later, provides it.",
+      a:"<b>The front desk.</b> Every visitor passes it on the way to any office. The desk itself decides nothing." },
+    { name:"The floor plan",
+      t:"<b>Gateway API tells Envoy what to do.</b> A Gateway says what to listen on; an HTTPRoute says where to send traffic. These are Kubernetes standard objects, not Red Hat's.",
+      a:"<b>The floor plan.</b> Which entrance is open, and which corridor leads to which office." },
+    { name:"Policies, guard, counter",
+      t:"<b>Connectivity Link adds policy.</b> AuthPolicy, RateLimitPolicy, TLSPolicy and DNSPolicy attach to those objects. Envoy enforces them by asking Authorino (is this caller allowed, for this?) and Limitador (is it under the limit?). Neither carries traffic. Keycloak issues the tokens Authorino checks.",
+      a:"<b>House rules, a guard and a counter.</b> The desk phones the guard about every badge and the counter about every visit. Badges come from the badge office, Keycloak." },
+    { name:"Taught to read MCP",
+      t:"<b>The MCP gateway is that same Envoy, taught to read MCP.</b> The router, an Envoy filter, opens each tools/call and writes tool and server as headers, so Authorino can decide about a tool instead of a URL. The broker gives one endpoint with one combined tool list, sessions and OAuth discovery. The controller keeps both configured. Authorization is still Authorino; limits are still Limitador.",
+      a:"<b>A receptionist and a lobby directory.</b> The receptionist understands “I'm here to see inventory about a stock search” and tells the guard exactly which door. The directory lists every tenant's services in one place." },
+    { name:"Servers and registrations",
+      t:"<b>Servers and their registrations.</b> An MCP server is a real program that does something, yours or a vendor's. An MCPServerRegistration tells the gateway about it: tool prefix, its HTTPRoute, the credential Secret. MCPServer (one word) is a different product's object: OpenShift AI's lifecycle operator runs a server for you and can file the registration on your behalf. Connectivity Link only ever sees the registration.",
+      a:"<b>Tenants, leases and the moving company.</b> Tenants do the actual work. A lease puts a tenant in the directory and gives the desk its key. OpenShift AI's MCPServer is the moving company that installs a tenant and files the lease for it." }
+  ];
+  const N = steps.length;
+  const hash = new URLSearchParams(location.hash.replace(/^#/,''));
+  let cur = Math.min(N, Math.max(1, parseInt(hash.get('step')||'1',10))) - 1;
+  let auto = hash.get('auto') !== '0';
+  let analogy = hash.has('analogy');
+  const DWELL = 7500;
+  let timer = null;
+
+  const stepsEl = document.getElementById('steps');
+  steps.forEach((s,i)=>{
+    const b=document.createElement('button'); b.className='step';
+    b.innerHTML='<span class="n">'+(i+1)+'</span>'+s.name; b.onclick=()=>{go(i); stopAuto();};
+    stepsEl.appendChild(b);
+  });
+  const cap = document.getElementById('caption');
+
+  function render(){
+    for(let i=0;i<N;i++){
+      document.getElementById('L'+(i+1)).classList.toggle('on', i<=cur);
+      const b=stepsEl.children[i]; b.classList.toggle('on', i===cur); b.classList.toggle('done', i<cur);
+    }
+    ['genericBackend','genericOut','genericDots'].forEach(id=>document.getElementById(id).classList.toggle('off', cur>=4));
+    document.getElementById('agentBadge').classList.toggle('on', cur>=2);
+    cap.innerHTML = '<span class="tag">STEP '+(cur+1)+' OF '+N+'</span>' + (analogy ? steps[cur].a : steps[cur].t);
+    document.querySelectorAll('text[data-t]').forEach(t=>{ t.textContent = analogy ? t.dataset.a : t.dataset.t; });
+    document.getElementById('analogy').classList.toggle('on', analogy);
+    document.getElementById('auto').classList.toggle('on', auto);
+  }
+  function go(i){ cur=(i+N)%N; render(); }
+  function tick(){ go(cur+1); }
+  function startAuto(){ auto=true; clearInterval(timer); timer=setInterval(tick, DWELL); render(); }
+  function stopAuto(){ auto=false; clearInterval(timer); timer=null; render(); }
+
+  document.getElementById('prev').onclick=()=>{go(cur-1); stopAuto();};
+  document.getElementById('next').onclick=()=>{go(cur+1); stopAuto();};
+  document.getElementById('auto').onclick=()=>{ auto?stopAuto():startAuto(); };
+  document.getElementById('analogy').onclick=()=>{ analogy=!analogy; render(); };
+  document.addEventListener('keydown', e=>{
+    if(e.key==='ArrowRight'){go(cur+1); stopAuto();}
+    else if(e.key==='ArrowLeft'){go(cur-1); stopAuto();}
+    else if(e.key===' '){ e.preventDefault(); auto?stopAuto():startAuto(); }
+    else if(e.key==='a'||e.key==='A'){ analogy=!analogy; render(); }
+  });
+
+  render();
+  if(auto) startAuto();
+})();
+</script>
+</body>
+</html>

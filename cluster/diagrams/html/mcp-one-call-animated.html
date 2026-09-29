@@ -1,0 +1,460 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>One Tool Call</title>
+<meta name="description" content="One MCP tool call through the Connectivity Link MCP gateway, start to finish: token check, router, per-tool rule, rate limit, credential added at the gateway, audit line. Cycles through allowed, no token (401), wrong caller (403) and over the limit (429)."/>
+<style>
+  :root{
+    color-scheme:dark;
+    --bg:#0a0f1e; --ink:#e8eefc; --muted:#9fb0d0; --line:#26344f;
+    --blue:#60a5fa; --cyan:#22d3ee; --rose:#fb7185; --gold:#fbbf24; --green:#34d399; --violet:#a78bfa;
+  }
+  *{box-sizing:border-box}
+  button:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+  html,body{margin:0;height:100%}
+  body{
+    background:radial-gradient(1400px 800px at 50% -8%, #14213f 0%, var(--bg) 60%) fixed;
+    background-color:var(--bg); color:var(--ink);
+    font:16px/1.45 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Inter,Roboto,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; min-height:100%; padding:22px 16px;
+  }
+  .wrap{width:min(1400px,100%)}
+  h1{font-size:25px;font-weight:700;letter-spacing:.2px;margin:0 0 3px}
+  h1 .accent{color:var(--gold)}
+  .sub{color:var(--muted);font-size:14.5px;margin:0 0 12px}
+  .card{
+    background:linear-gradient(180deg,rgba(20,33,63,.65),rgba(10,15,30,.65));
+    border:1px solid var(--line); border-radius:18px; padding:8px 10px 10px;
+    box-shadow:0 30px 80px -40px rgba(0,0,0,.8), inset 0 1px 0 rgba(255,255,255,.03);
+  }
+  svg{width:100%;height:auto;display:block}
+
+  .bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:12px 2px 0}
+  .scs{display:flex;flex-wrap:wrap;gap:6px}
+  .sc{border:1px solid var(--line);background:rgba(255,255,255,.03);color:var(--muted);border-radius:999px;
+    padding:6px 12px;font-size:13px;cursor:pointer;font-weight:600;transition:all .25s}
+  .sc .n{display:inline-block;width:18px;height:18px;border-radius:50%;background:rgba(255,255,255,.08);
+    text-align:center;line-height:18px;font-size:11px;margin-right:6px;color:var(--ink)}
+  .sc.on{color:#0a0f1e;background:var(--gold);border-color:var(--gold)}
+  .sc.on .n{background:rgba(0,0,0,.18);color:#0a0f1e}
+  .spacer{flex:1}
+  .btn{border:1px solid var(--line);background:rgba(255,255,255,.04);color:var(--ink);border-radius:10px;
+    padding:6px 11px;font-size:13px;cursor:pointer;font-weight:600}
+  .btn.on{background:rgba(34,211,238,.16);border-color:rgba(34,211,238,.5);color:#bff3fb}
+  .note{margin:10px 2px 0;font-size:16px;line-height:1.5;min-height:1.6em}
+  .note b{color:var(--gold)}
+
+  /* trace console */
+  .trace{margin:10px 2px 0;background:rgba(3,7,18,.75);border:1px solid var(--line);border-radius:12px;
+    padding:10px 14px;font:12.5px/1.6 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;height:252px;overflow:hidden;color:var(--muted)}
+  .trace .ln{opacity:0;transform:translateY(4px);transition:opacity .35s,transform .35s;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .trace .ln.show{opacity:1;transform:none}
+  .trace .who{display:inline-block;min-width:92px;color:#7fd9ec;font-weight:700}
+  .trace .req .who{color:var(--gold)}
+  .trace .ok{color:#a7f3d0} .trace .ok .who{color:var(--green)}
+  .trace .deny{color:#fecdd3} .trace .deny .who{color:var(--rose)}
+  .trace .audit{color:#fde68a} .trace .audit .who{color:var(--gold)}
+  .trace .kc .who{color:#f9a8b8}
+  .trace .hint{color:var(--muted);font-style:italic}
+
+  .legend{display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin:12px 2px 2px;color:var(--muted);font-size:13px}
+  .legend b{color:var(--ink);font-weight:600}
+  .chip{display:inline-flex;align-items:center;gap:7px}
+  .sw{width:11px;height:11px;border-radius:50%;box-shadow:0 0 9px currentColor;background:currentColor}
+  .key{margin-top:9px;color:var(--muted);font-size:14px}
+  .key b{color:var(--gold);font-weight:700}
+
+  text{font-family:inherit;fill:var(--ink)}
+  .nt{font-weight:700;font-size:14.5px}
+  .ns{font-size:11px;fill:var(--muted)}
+  .wl{font-size:11px;fill:var(--muted);font-weight:600}
+  .band{font-size:11px;font-weight:700;letter-spacing:.8px;fill:var(--muted)}
+  .node{stroke-width:1.5;transition:stroke .3s,stroke-width .3s}
+  .n-gold{fill:#161a2c;stroke:rgba(251,191,36,.6)}
+  .n-blue{fill:#0f1c39;stroke:rgba(96,165,250,.7)}
+  .n-cyan{fill:#0e1e34;stroke:rgba(34,211,238,.6)}
+  .n-rose{fill:#1c1428;stroke:rgba(251,113,133,.6)}
+  .n-dim{fill:#121a2e;stroke:rgba(159,176,208,.4)}
+  .st.lit .node{stroke:#fbbf24;stroke-width:2.5}
+  .hp.lit .node{stroke:#22d3ee;stroke-width:2.5}
+  .hp.deny .node{stroke:#fb7185;stroke-width:2.5}
+  .zone{fill:rgba(34,211,238,.035);stroke:rgba(34,211,238,.34);stroke-dasharray:5 6}
+  .wire{fill:none;stroke-width:2}
+  .w-lane{stroke:rgba(251,191,36,.30)}
+  .w-ask{stroke:rgba(34,211,238,.34);stroke-dasharray:3 6}
+  .w-rose{stroke:rgba(251,113,133,.36);stroke-dasharray:3 6}
+  .w-ret{stroke:rgba(232,238,252,.14);stroke-dasharray:2 8}
+  .w-cred{stroke:rgba(251,191,36,.34);stroke-dasharray:3 6}
+  .pill{opacity:0;transition:opacity .3s}
+  .pill.show{opacity:1}
+  .pill rect{rx:11;ry:11;stroke-width:1.2}
+  .pill text{font-size:11px;font-weight:800;letter-spacing:.4px}
+  .pill.ok rect{fill:rgba(52,211,153,.16);stroke:var(--green)} .pill.ok text{fill:#a7f3d0}
+  .pill.deny rect{fill:rgba(251,113,133,.16);stroke:var(--rose)} .pill.deny text{fill:#fecdd3}
+  #pkt{opacity:0;transition:opacity .25s}
+  #pkt.show{opacity:1}
+  #qdot,#cdot,#kdot{opacity:0}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>One tool call, start to finish — <span class="accent">what the gateway does in 200 ms</span></h1>
+  <p class="sub">An agent calls <code>inventory_search</code> on the MCP endpoint. Watch the questions the gateway asks, and where each answer comes from. Four outcomes, in a loop.</p>
+
+  <div class="card">
+  <svg viewBox="0 0 1400 480" role="img" aria-label="Animated trace of one MCP tool call through the Connectivity Link MCP gateway">
+    <defs>
+      <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+        <feGaussianBlur stdDeviation="3.2" result="b"/>
+        <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+      <filter id="soft" x="-40%" y="-40%" width="180%" height="180%">
+        <feGaussianBlur stdDeviation="6" result="b"/>
+        <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+    </defs>
+
+    <!-- gateway zone -->
+    <rect class="zone" x="290" y="130" width="900" height="336" rx="18"/>
+    <text class="band" x="306" y="460" style="fill:#7fd9ec">RED HAT CONNECTIVITY LINK · MCP GATEWAY (Envoy + router, Authorino, Limitador)</text>
+
+    <!-- wires: lane -->
+    <path id="m1" class="wire w-lane" d="M 230,200 L 310,200"/>
+    <path id="m2" class="wire w-lane" d="M 510,200 L 590,200"/>
+    <path id="m3" class="wire w-lane" d="M 790,200 L 870,200"/>
+    <path id="m4" class="wire w-lane" d="M 1090,200 L 1200,200"/>
+    <!-- questions -->
+    <path id="q1" class="wire w-ask" d="M 410,240 L 410,320"/>
+    <path id="q2" class="wire w-ask" d="M 925,240 L 925,320"/>
+    <path id="q3" class="wire w-ask" d="M 1050,240 L 1050,320"/>
+    <!-- credential -->
+    <path id="cred" class="wire w-cred" d="M 1186,430 C 1235,430 1235,232 1090,232"/>
+    <!-- keycloak prelude -->
+    <path id="k1" class="wire w-rose" d="M 130,104 L 130,160"/>
+    <!-- returns -->
+    <path id="rOK"  class="wire w-ret" d="M 1290,160 C 1290,106 130,106 130,160"/>
+    <path id="r401" class="wire w-ret" d="M 410,160 C 410,118 130,118 130,160"/>
+    <path id="r4xx" class="wire w-ret" d="M 980,160 C 980,110 130,110 130,160"/>
+    <text class="wl" x="700" y="118" text-anchor="middle">response back to the agent</text>
+
+    <!-- Keycloak -->
+    <g class="st" id="stKC">
+      <g filter="url(#soft)"><rect class="node n-rose" x="30" y="40" width="200" height="64" rx="12"/></g>
+      <text class="nt" x="130" y="61" text-anchor="middle">Keycloak</text>
+      <text class="ns" x="130" y="78" text-anchor="middle">Red Hat build of Keycloak</text>
+      <text class="ns" x="130" y="94" text-anchor="middle">issues the agent's token</text>
+    </g>
+
+    <!-- stations -->
+    <g class="st" id="stAgent">
+      <g filter="url(#soft)"><rect class="node n-gold" x="30" y="160" width="200" height="80" rx="13"/></g>
+      <text class="nt" x="130" y="186" text-anchor="middle">Agent</text>
+      <text class="ns" x="130" y="205" text-anchor="middle" id="agentClient">client store-assistant · user alex</text>
+      <text class="ns" x="130" y="222" text-anchor="middle" style="fill:#f6d488">calls inventory_search</text>
+    </g>
+
+    <g class="st" id="stEnvoy">
+      <g filter="url(#soft)"><rect class="node n-blue" x="310" y="160" width="200" height="80" rx="13"/></g>
+      <text class="nt" x="410" y="186" text-anchor="middle">Envoy</text>
+      <text class="ns" x="410" y="205" text-anchor="middle">Gateway listener mcp:443</text>
+      <text class="ns" x="410" y="222" text-anchor="middle">certificate from TLSPolicy</text>
+    </g>
+
+    <g class="st" id="stRouter">
+      <g filter="url(#soft)"><rect class="node n-cyan" x="590" y="160" width="200" height="80" rx="13"/></g>
+      <text class="nt" x="690" y="186" text-anchor="middle">MCP router</text>
+      <text class="ns" x="690" y="205" text-anchor="middle">opens the JSON-RPC call</text>
+      <text class="ns" x="690" y="222" text-anchor="middle">tool + server → two headers</text>
+    </g>
+
+    <g class="st" id="stMcps">
+      <g filter="url(#soft)"><rect class="node n-blue" x="870" y="160" width="220" height="80" rx="13"/></g>
+      <text class="nt" x="980" y="186" text-anchor="middle">Envoy · internal listener</text>
+      <text class="ns" x="980" y="205" text-anchor="middle">mcps · where the per-tool</text>
+      <text class="ns" x="980" y="222" text-anchor="middle">AuthPolicy and RateLimitPolicy attach</text>
+    </g>
+
+    <g class="st" id="stServer">
+      <g filter="url(#soft)"><rect class="node n-gold" x="1200" y="160" width="180" height="80" rx="13"/></g>
+      <text class="nt" x="1290" y="186" text-anchor="middle">inventory · MCP server</text>
+      <text class="ns" x="1290" y="205" text-anchor="middle">your program · tool: search</text>
+      <text class="ns" x="1290" y="222" text-anchor="middle">only badged callers arrive</text>
+    </g>
+
+    <!-- helpers -->
+    <text class="band" x="310" y="306" style="fill:#7fd9ec">ASKED, NEVER ON THE PATH</text>
+    <g class="hp" id="hpAuth1">
+      <g filter="url(#soft)"><rect class="node n-cyan" x="310" y="320" width="200" height="66" rx="12"/></g>
+      <text class="nt" x="410" y="343" text-anchor="middle">Authorino</text>
+      <text class="ns" x="410" y="360" text-anchor="middle">AuthPolicy on the public route</text>
+      <text class="ns" x="410" y="376" text-anchor="middle">is the token real? who is this?</text>
+    </g>
+    <g class="hp" id="hpAuth2">
+      <g filter="url(#soft)"><rect class="node n-cyan" x="850" y="320" width="150" height="66" rx="12"/></g>
+      <text class="nt" x="925" y="343" text-anchor="middle">Authorino</text>
+      <text class="ns" x="925" y="360" text-anchor="middle">per-tool AuthPolicy</text>
+      <text class="ns" x="925" y="376" text-anchor="middle">this caller, this tool?</text>
+    </g>
+    <g class="hp" id="hpLimit">
+      <g filter="url(#soft)"><rect class="node n-cyan" x="1016" y="320" width="170" height="66" rx="12"/></g>
+      <text class="nt" x="1101" y="343" text-anchor="middle">Limitador</text>
+      <text class="ns" x="1101" y="360" text-anchor="middle">RateLimitPolicy</text>
+      <text class="ns" x="1101" y="376" text-anchor="middle">100 per minute per client</text>
+    </g>
+    <g class="hp" id="hpCred">
+      <g filter="url(#soft)"><rect class="node n-dim" x="1016" y="400" width="170" height="52" rx="12"/></g>
+      <text class="nt" x="1101" y="421" text-anchor="middle" style="font-size:12.5px">Server credential</text>
+      <text class="ns" x="1101" y="438" text-anchor="middle">registration Secret, or Vault</text>
+    </g>
+    <g class="hp" id="hpLog">
+      <g filter="url(#soft)"><rect class="node n-dim" x="590" y="320" width="200" height="66" rx="12"/></g>
+      <text class="nt" x="690" y="343" text-anchor="middle" style="font-size:12.5px">Access log</text>
+      <text class="ns" x="690" y="360" text-anchor="middle">one line per call, written by Envoy</text>
+      <text class="ns" x="690" y="376" text-anchor="middle">user · client · tool · server · session</text>
+    </g>
+
+    <!-- verdict pills -->
+    <g class="pill" id="v1" transform="translate(422,268)"><rect width="84" height="22"/><text x="42" y="15" text-anchor="middle">ALLOW</text></g>
+    <g class="pill" id="v2" transform="translate(830,268)"><rect width="84" height="22"/><text x="42" y="15" text-anchor="middle">ALLOW</text></g>
+    <g class="pill" id="v3" transform="translate(1076,268)"><rect width="84" height="22"/><text x="42" y="15" text-anchor="middle">ALLOW</text></g>
+    <g class="pill" id="v4" transform="translate(1248,250)"><rect width="84" height="22"/><text x="42" y="15" text-anchor="middle">200 OK</text></g>
+
+    <!-- moving things -->
+    <circle id="qdot" r="4.5" fill="var(--cyan)" filter="url(#glow)"/>
+    <circle id="cdot" r="4.5" fill="var(--gold)" filter="url(#glow)"/>
+    <circle id="kdot" r="4.5" fill="var(--rose)" filter="url(#glow)"/>
+    <circle id="pkt" r="7" fill="var(--gold)" filter="url(#glow)"/>
+  </svg>
+
+  <div class="trace" id="trace"></div>
+  </div>
+
+  <div class="bar">
+    <div class="scs" id="scs"></div>
+    <span class="spacer"></span>
+    <button class="btn" id="replay">Replay</button>
+    <button class="btn on" id="auto" title="space">Auto-cycle</button>
+  </div>
+  <p class="note" id="note"></p>
+
+  <div class="legend">
+    <span class="chip"><span class="sw" style="color:var(--gold)"></span><b>the call</b> — request, and the server credential added at the gateway</span>
+    <span class="chip"><span class="sw" style="color:var(--cyan)"></span><b>a question</b> — Envoy asks Authorino or Limitador; they never carry traffic</span>
+    <span class="chip"><span class="sw" style="color:var(--rose)"></span><b>Keycloak</b> — where the token comes from</span>
+    <span class="chip"><span class="sw" style="color:var(--green)"></span><b>allowed</b></span>
+    <span class="chip"><span class="sw" style="color:var(--rose)"></span><b>denied</b> — 401 · 403 · 429</span>
+  </div>
+  <p class="key"><b>The agent holds one thing: its own short-lived token.</b> Two questions to the guard, one to the counter, a credential added on the way through, one audit line. A denied call never reaches a server.</p>
+</div>
+
+<script>
+(function(){
+  try{ if(matchMedia('(prefers-reduced-motion: reduce)').matches){ document.querySelector('svg').pauseAnimations(); } }catch(e){}
+  const $ = id => document.getElementById(id);
+  const svg = document.querySelector('svg');
+  const trace = $('trace'), note = $('note');
+  const hash = new URLSearchParams(location.hash.replace(/^#/,''));
+  const snapAt = hash.has('snap') ? parseInt(hash.get('snap'),10) : null;   // QA: freeze after N beats
+  let auto = hash.get('auto') !== '0';
+  let cur = Math.min(4, Math.max(1, parseInt(hash.get('scenario')||'1',10))) - 1;
+  let runId = 0, paused = false, beats = 0;
+
+  const SC = [
+    { name:'Allowed', client:'store-assistant',
+      note:'<b>Allowed.</b> Two questions to the guard, one to the counter, a credential added at the gateway, one audit line. The agent never held the server credential.' },
+    { name:'No token → 401', client:'store-assistant',
+      note:'<b>No token.</b> The gateway answers 401 and tells the client where the authorization server is. Nothing reaches a server, nothing reaches the router.' },
+    { name:'Wrong caller → 403', client:'analytics-bot',
+      note:'<b>Valid token, wrong client for this tool.</b> Authorino passes the token check, then the per-tool rule says no: 403. The server never sees the call, and the audit line still names who tried.' },
+    { name:'Over the limit → 429', client:'store-assistant',
+      note:'<b>Same caller, 101st call this minute.</b> Limitador answers 429. Authorino had already said yes; limits and authorization are separate questions.' }
+  ];
+
+  // ---------- primitives ----------
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  class Cancelled extends Error {}
+  async function wait(ms, id){
+    if(snapAt !== null && beats >= snapAt){ await new Promise(()=>{}); }      // frozen for snapshots
+    let t = 0; const step = 40;
+    while(t < ms){ if(id !== runId) throw new Cancelled(); if(!paused){ t += step; } await sleep(step); }
+  }
+  function ptOn(pathId, f){ const p=$(pathId); const L=p.getTotalLength(); return p.getPointAtLength(L*f); }
+  function place(el, pt){ el.setAttribute('cx', pt.x); el.setAttribute('cy', pt.y); }
+  async function travel(el, pathId, ms, id, back){
+    el.style.opacity = 1;
+    const t0 = performance.now(); let elapsed = 0, last = t0;
+    while(elapsed < ms){
+      if(id !== runId) throw new Cancelled();
+      const now = performance.now(); if(!paused) elapsed += now - last; last = now;
+      let f = Math.min(1, elapsed/ms); if(back) f = 1 - f;
+      place(el, ptOn(pathId, f));
+      await (snapAt !== null ? sleep(16) : new Promise(requestAnimationFrame));
+      if(snapAt !== null && beats >= snapAt){ place(el, ptOn(pathId, back?0:1)); await new Promise(()=>{}); }
+    }
+    place(el, ptOn(pathId, back?0:1));
+  }
+  function lit(id, cls='lit'){ $(id).classList.add(cls); }
+  function pill(id, text, cls){ const g=$(id); g.querySelector('text').textContent=text; g.classList.remove('ok','deny'); g.classList.add(cls,'show'); }
+  function log(cls, who, text){
+    const d=document.createElement('div'); d.className='ln '+cls;
+    d.innerHTML='<span class="who">'+who+'</span>'+text; trace.appendChild(d);
+    requestAnimationFrame(()=>d.classList.add('show'));
+  }
+  async function beat(id, ms=650){ beats++; await wait(ms, id); }
+  async function ask(qPath, helper, pillId, verdict, cls, id){
+    lit(helper, cls==='deny'?'deny':'lit');
+    await travel($('qdot'), qPath, 420, id, false);
+    await wait(180, id);
+    await travel($('qdot'), qPath, 420, id, true);
+    $('qdot').style.opacity = 0;
+    pill(pillId, verdict, cls);
+  }
+  function reset(){
+    trace.innerHTML='';
+    document.querySelectorAll('.st,.hp').forEach(e=>e.classList.remove('lit','deny'));
+    document.querySelectorAll('.pill').forEach(e=>e.classList.remove('show','ok','deny'));
+    ['qdot','cdot','kdot'].forEach(i=>$(i).style.opacity=0);
+    $('pkt').classList.remove('show'); $('pkt').setAttribute('fill','var(--gold)');
+    beats = 0;
+  }
+
+  // ---------- the run ----------
+  async function run(idx){
+    const id = ++runId; const S = SC[idx]; reset();
+    $('agentClient').textContent = 'client '+S.client+' · user alex';
+    note.innerHTML = S.note;
+    document.querySelectorAll('.sc').forEach((b,i)=>b.classList.toggle('on', i===idx));
+    const pkt = $('pkt');
+    try{
+      if(idx !== 1){
+        lit('stKC');
+        log('kc','keycloak','issues an access token to client '+S.client+' for user alex · audience mcp-gateway · OAuth 2.1 + PKCE · expires in 5 min');
+        await travel($('kdot'),'k1',600,id,false); $('kdot').style.opacity=0;
+        await beat(id, 300);
+      } else {
+        log('hint','','the client has no token yet (first contact with the endpoint)');
+        await beat(id, 500);
+      }
+      // 1 request
+      lit('stAgent');
+      log('req','agent','POST https://mcp.&lt;domain&gt;/mcp · tools/call inventory_search {"sku":"6501234"}'+(idx===1?' · <i>no Authorization header</i>':' · Authorization: Bearer eyJ…'));
+      place(pkt, ptOn('m1',0)); pkt.classList.add('show');
+      await travel(pkt,'m1',700,id,false);
+      // 2 envoy
+      lit('stEnvoy');
+      log('info','envoy','Gateway listener mcp:443 · TLS terminated (TLSPolicy) · matched HTTPRoute mcp-public');
+      await beat(id, 400);
+      // 3 authorino #1
+      if(idx === 1){
+        log('deny','authorino','AuthPolicy mcp-public → no credential · DENY 401');
+        await ask('q1','hpAuth1','v1','DENY 401','deny',id);
+        log('deny','envoy','401 Unauthorized · WWW-Authenticate: Bearer resource_metadata="https://mcp.&lt;domain&gt;/.well-known/oauth-protected-resource"');
+        await beat(id, 500);
+        pkt.setAttribute('fill','var(--rose)');
+        await travel(pkt,'r401',1200,id,false);
+        log('kc','agent','reads the metadata → authorization server is Keycloak → signs the user in → retries with a token');
+        lit('stKC');
+        await travel($('kdot'),'k1',600,id,false); $('kdot').style.opacity=0;
+        log('audit','access log','user=- client=- tool=inventory_search server=- status=401 · nothing reached the router or a server');
+        lit('hpLog');
+        await beat(id, 2600);
+        return;
+      }
+      log('ok','authorino','AuthPolicy mcp-public → signature OK (issuer keycloak) · not expired · identity: client='+S.client+' user=alex · ALLOW');
+      await ask('q1','hpAuth1','v1','ALLOW','ok',id);
+      await beat(id, 200);
+      // 4 router
+      await travel(pkt,'m2',700,id,false);
+      lit('stRouter');
+      log('info','mcp router','JSON-RPC parsed → x-mcp-toolname: inventory_search · x-mcp-servername: inventory → forward to internal listener mcps');
+      await beat(id, 500);
+      // 5 mcps + per-tool rule
+      await travel(pkt,'m3',700,id,false);
+      lit('stMcps');
+      if(idx === 2){
+        log('deny','authorino','per-tool AuthPolicy → rule inventory_search: client must be in [store-assistant, store-ops] · analytics-bot is not · DENY 403');
+        await ask('q2','hpAuth2','v2','DENY 403','deny',id);
+        log('deny','envoy','403 Forbidden · the inventory server never saw this call');
+        await beat(id, 400);
+        pkt.setAttribute('fill','var(--rose)');
+        await travel(pkt,'r4xx',1300,id,false);
+        log('audit','access log','user=alex client=analytics-bot tool=inventory_search server=inventory session=7f3a… status=403 latency=6ms');
+        lit('hpLog');
+        await beat(id, 2800);
+        return;
+      }
+      log('ok','authorino','per-tool AuthPolicy → rule inventory_search: client in [store-assistant, store-ops] · user alex · ALLOW');
+      await ask('q2','hpAuth2','v2','ALLOW','ok',id);
+      await beat(id, 150);
+      // 6 limitador
+      if(idx === 3){
+        log('deny','limitador','RateLimitPolicy mcps → store-assistant: 101 of 100 this minute · DENY 429');
+        await ask('q3','hpLimit','v3','DENY 429','deny',id);
+        log('deny','envoy','429 Too Many Requests · Retry-After: 23');
+        await beat(id, 400);
+        pkt.setAttribute('fill','var(--rose)');
+        await travel(pkt,'r4xx',1300,id,false);
+        log('audit','access log','user=alex client=store-assistant tool=inventory_search server=inventory session=7f3a… status=429 latency=4ms');
+        lit('hpLog');
+        await beat(id, 2800);
+        return;
+      }
+      log('ok','limitador','RateLimitPolicy mcps → store-assistant: 41 of 100 this minute · ALLOW');
+      await ask('q3','hpLimit','v3','ALLOW','ok',id);
+      await beat(id, 150);
+      // 7 credential
+      lit('hpCred');
+      log('info','gateway','adds the inventory server\'s credential from the registration\'s Secret (or a per-user one from Vault) · the agent never had it');
+      await travel($('cdot'),'cred',700,id,true); $('cdot').style.opacity=0;
+      await beat(id, 200);
+      // 8 server
+      await travel(pkt,'m4',700,id,false);
+      lit('stServer');
+      log('info','envoy','HTTPRoute inventory → inventory-mcp.svc:8080 · prefix removed: inventory_search → search');
+      await beat(id, 500);
+      log('ok','inventory','tools/call search {"sku":"6501234"} → 200 · 3 stores in stock');
+      await beat(id, 500);
+      // 9 return
+      pkt.setAttribute('fill','var(--green)');
+      pill('v4','200 OK','ok');
+      await travel(pkt,'rOK',1500,id,false);
+      log('audit','access log','user=alex client=store-assistant tool=inventory_search server=inventory session=7f3a… status=200 latency=184ms');
+      lit('hpLog');
+      await beat(id, 3200);
+    }catch(e){ if(!(e instanceof Cancelled)) console.error(e); return; }
+  }
+
+  async function loop(){
+    // run the current scenario; when it ends, advance if auto
+    for(;;){
+      const myRun = runId + 1;
+      await run(cur);
+      if(runId !== myRun) return;            // superseded by a click
+      if(!auto){ const v = await new Promise(r=>{ resumeHook = r; }); if(v==='stop') return; }
+      else { cur = (cur+1) % SC.length; }
+    }
+  }
+  let resumeHook = null;
+
+  // ---------- UI ----------
+  const scs = $('scs');
+  SC.forEach((s,i)=>{ const b=document.createElement('button'); b.className='sc'; b.innerHTML='<span class="n">'+(i+1)+'</span>'+s.name;
+    b.onclick=()=>{ cur=i; auto=false; $('auto').classList.remove('on'); restart(); }; scs.appendChild(b); });
+  function restart(){ runId++; if(resumeHook){ const r=resumeHook; resumeHook=null; r('stop'); } loop(); }
+  $('replay').onclick = ()=>restart();
+  $('auto').onclick = ()=>{ auto=!auto; $('auto').classList.toggle('on',auto); if(auto && resumeHook){ cur=(cur+1)%SC.length; const r=resumeHook; resumeHook=null; r(); } };
+  document.addEventListener('keydown', e=>{
+    if(e.key===' '){ e.preventDefault(); paused=!paused; }
+    else if(e.key>='1' && e.key<='4'){ cur=parseInt(e.key,10)-1; auto=false; $('auto').classList.remove('on'); restart(); }
+    else if(e.key==='ArrowRight'){ cur=(cur+1)%SC.length; restart(); }
+    else if(e.key==='ArrowLeft'){ cur=(cur+SC.length-1)%SC.length; restart(); }
+  });
+  $('auto').classList.toggle('on', auto);
+  loop();
+})();
+</script>
+</body>
+</html>
