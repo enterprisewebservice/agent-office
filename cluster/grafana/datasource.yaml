@@ -17,7 +17,7 @@ spec:
           name: grafana-thanos-token
           key: token
   datasource:
-    name: thanos-query-ds
+    name: Kuadrant-Thanos-Hub   # the dashboards store this datasource name in their ${datasource} variable
     type: prometheus
     access: proxy
     isDefault: true
