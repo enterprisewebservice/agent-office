@@ -44,8 +44,8 @@ spec:
   matchConditions:
     - name: enforced-namespace
       expression: >-
-        namespaceObject.metadata.name == 'openshift-devspaces' ||
-        !namespaceObject.metadata.name.matches('^(openshift-.*|kube-.*|default|openshift|open-cluster-management.*|multicluster-engine|local-cluster|hive|hypershift|assisted-installer|redhat-ods-.*|rhods-.*|rhoai-.*|opendatahub|models-as-a-service|maas-db|model-desk|small-model-router|build-service|integration-service|release-service|enterprise-contract-service|konflux-.*|mintmaker.*|product-kubearchive|namespace-lister|managed-release-tenant|default-tenant|tssc-.*|pipelines-as-code|stackrox|rhacs-operator|cert-manager.*|external-secrets|istio-system|kuadrant-system|knative-.*|metallb-system|nvidia-gpu-operator|leader-worker-set|lws-system|gitea-operator|reloader|haveniq)$')
+        request.namespace == 'openshift-devspaces' ||
+        !request.namespace.matches('^(openshift-.*|kube-.*|default|openshift|open-cluster-management.*|multicluster-engine|local-cluster|hive|hypershift|assisted-installer|redhat-ods-.*|rhods-.*|rhoai-.*|opendatahub|models-as-a-service|maas-db|model-desk|small-model-router|build-service|integration-service|release-service|enterprise-contract-service|konflux-.*|mintmaker.*|product-kubearchive|namespace-lister|managed-release-tenant|default-tenant|tssc-.*|pipelines-as-code|stackrox|rhacs-operator|cert-manager.*|external-secrets|istio-system|kuadrant-system|knative-.*|metallb-system|nvidia-gpu-operator|leader-worker-set|lws-system|gitea-operator|reloader|haveniq)$')
     - name: not-exempt
       expression: >-
         !(has(object.metadata.annotations) &&
@@ -101,8 +101,8 @@ spec:
   matchConditions:
     - name: enforced-namespace
       expression: >-
-        namespaceObject.metadata.name == 'openshift-devspaces' ||
-        !namespaceObject.metadata.name.matches('^(openshift-.*|kube-.*|default|openshift|open-cluster-management.*|multicluster-engine|local-cluster|hive|hypershift|assisted-installer|redhat-ods-.*|rhods-.*|rhoai-.*|opendatahub|models-as-a-service|maas-db|model-desk|small-model-router|build-service|integration-service|release-service|enterprise-contract-service|konflux-.*|mintmaker.*|product-kubearchive|namespace-lister|managed-release-tenant|default-tenant|tssc-.*|pipelines-as-code|stackrox|rhacs-operator|cert-manager.*|external-secrets|istio-system|kuadrant-system|knative-.*|metallb-system|nvidia-gpu-operator|leader-worker-set|lws-system|gitea-operator|reloader|haveniq)$')
+        request.namespace == 'openshift-devspaces' ||
+        !request.namespace.matches('^(openshift-.*|kube-.*|default|openshift|open-cluster-management.*|multicluster-engine|local-cluster|hive|hypershift|assisted-installer|redhat-ods-.*|rhods-.*|rhoai-.*|opendatahub|models-as-a-service|maas-db|model-desk|small-model-router|build-service|integration-service|release-service|enterprise-contract-service|konflux-.*|mintmaker.*|product-kubearchive|namespace-lister|managed-release-tenant|default-tenant|tssc-.*|pipelines-as-code|stackrox|rhacs-operator|cert-manager.*|external-secrets|istio-system|kuadrant-system|knative-.*|metallb-system|nvidia-gpu-operator|leader-worker-set|lws-system|gitea-operator|reloader|haveniq)$')
   validations:
     - expression: >-
         (has(object.metadata.annotations) && 'argocd.argoproj.io/tracking-id' in object.metadata.annotations) ||
