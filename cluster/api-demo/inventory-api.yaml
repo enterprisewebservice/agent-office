@@ -56,6 +56,11 @@ kind: HTTPRoute
 metadata:
   name: inventory-api
   namespace: api-demo
+  labels:
+    # required by the Connectivity Link Grafana dashboards: they join Istio request
+    # metrics to this route through the service and deployment labels (1.4 observability guide)
+    service: inventory-api
+    deployment: inventory-api
 spec:
   parentRefs:
     - name: api-gateway
