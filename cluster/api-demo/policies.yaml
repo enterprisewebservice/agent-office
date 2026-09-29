@@ -22,16 +22,15 @@ spec:
         credentials:
           authorizationHeader:
             prefix: Bearer
+    # Tell the backend who called and on which plan: two headers derived from
+    # the enforcement Secret's labels and annotations (visible in the echo).
     response:
       success:
-        filters:
-          identity:
-            json:
-              properties:
-                consumer:
-                  selector: auth.identity.metadata.labels.devportal\.kuadrant\.io/apikey-namespace
-                plan:
-                  selector: auth.identity.metadata.annotations.secret\.kuadrant\.io/plan-id
+        headers:
+          x-api-consumer:
+            selector: auth.identity.metadata.labels.devportal\.kuadrant\.io/apikey-namespace
+          x-api-plan:
+            selector: auth.identity.metadata.annotations.secret\.kuadrant\.io/plan-id
 ---
 # Plan tiers (Technology Preview in 1.4): the tier a consumer chooses when
 # requesting a key is stamped on the enforcement Secret and drives the limit.
