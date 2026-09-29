@@ -1,0 +1,25 @@
+# Adds the request path as a label on the api-demo gateway's Envoy request
+# metrics; the Connectivity Link business-user dashboard breaks traffic down by
+# request_url_path. Same resource as cluster/gateway-api-state-metrics/
+# telemetry-agent-office.yaml (upstream: kuadrant-operator
+# config/observability/openshift/telemetry.yaml).
+apiVersion: telemetry.istio.io/v1
+kind: Telemetry
+metadata:
+  name: namespace-metrics
+  namespace: api-demo
+spec:
+  metrics:
+    - providers:
+        - name: prometheus
+      overrides:
+        - match:
+            metric: REQUEST_COUNT
+          tagOverrides:
+            request_url_path:
+              value: "request.url_path"
+        - match:
+            metric: REQUEST_DURATION
+          tagOverrides:
+            request_url_path:
+              value: "request.url_path"

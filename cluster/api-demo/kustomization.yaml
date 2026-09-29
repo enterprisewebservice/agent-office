@@ -12,3 +12,4 @@ resources:
   - policies.yaml
   - apiproduct.yaml
   - authorino-tls-envoyfilter.yaml
+  - telemetry.yaml
