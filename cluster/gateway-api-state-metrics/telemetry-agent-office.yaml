@@ -1,0 +1,23 @@
+# Adds the request path as a label on the MCP gateway's Envoy request metrics
+# (the business-user dashboard breaks traffic down by request_url_path).
+# Upstream: kuadrant-operator config/observability/openshift/telemetry.yaml.
+apiVersion: telemetry.istio.io/v1
+kind: Telemetry
+metadata:
+  name: namespace-metrics
+  namespace: agent-office
+spec:
+  metrics:
+    - providers:
+        - name: prometheus
+      overrides:
+        - match:
+            metric: REQUEST_COUNT
+          tagOverrides:
+            request_url_path:
+              value: "request.url_path"
+        - match:
+            metric: REQUEST_DURATION
+          tagOverrides:
+            request_url_path:
+              value: "request.url_path"
