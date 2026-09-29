@@ -1,0 +1,53 @@
+# Make this gateway's auth shim talk TLS to Authorino.
+# Red Hat Connectivity Link runs Authorino's gRPC listener with TLS (Authorino CR
+# spec.listener.tls, cert authorino-server-cert from the OpenShift service CA),
+# while Kuadrant's generated kuadrant-auth-<gateway> EnvoyFilter declares the
+# kuadrant-auth-service cluster in plaintext, so every check fails at the TLS
+# handshake and the shim fails closed with HTTP 500 ("gRPC status code is not
+# OK"). Same filter as cluster/github-mcp/gateway/authorino-tls-envoyfilter.yaml
+# (and as odh-model-controller adds to the OpenShift AI gateways), priority -1
+# so this declaration wins.
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: api-gateway-authn-ssl
+  namespace: api-demo
+  labels:
+    app.kubernetes.io/name: api-gateway
+    app.kubernetes.io/component: authorino-tls
+spec:
+  priority: -1
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: api-gateway
+  configPatches:
+    - applyTo: CLUSTER
+      match:
+        cluster:
+          service: authorino-authorino-authorization.kuadrant-system.svc.cluster.local
+      patch:
+        operation: ADD
+        value:
+          name: kuadrant-auth-service
+          type: STRICT_DNS
+          connect_timeout: 1s
+          lb_policy: ROUND_ROBIN
+          http2_protocol_options: {}
+          load_assignment:
+            cluster_name: kuadrant-auth-service
+            endpoints:
+              - lb_endpoints:
+                  - endpoint:
+                      address:
+                        socket_address:
+                          address: authorino-authorino-authorization.kuadrant-system.svc.cluster.local
+                          port_value: 50051
+          transport_socket:
+            name: envoy.transport_sockets.tls
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
+              common_tls_context:
+                validation_context:
+                  trusted_ca:
+                    filename: /var/run/secrets/kubernetes.io/serviceaccount/service-ca.crt

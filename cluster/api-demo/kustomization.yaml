@@ -11,3 +11,4 @@ resources:
   - inventory-api.yaml
   - policies.yaml
   - apiproduct.yaml
+  - authorino-tls-envoyfilter.yaml
