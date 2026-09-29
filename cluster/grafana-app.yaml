@@ -1,0 +1,35 @@
+# Grafana for the Connectivity Link dashboards (RHCL 1.4 Observability guide,
+# ch. 1.2/1.4): the community Grafana Operator (v5), one Grafana instance with a
+# route, a datasource on Thanos Querier through a service-account token with
+# cluster-monitoring-view, and the Kuadrant example dashboards pulled from the
+# kuadrant-operator repository. Login: admin user/password in the operator-
+# generated Secret grafana/grafana-admin-credentials (never in git).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: grafana
+  namespace: openshift-gitops
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/enterprisewebservice/agent-office.git
+    targetRevision: main
+    path: cluster/grafana
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: grafana
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 10
+      backoff:
+        duration: 20s
+        factor: 2
+        maxDuration: 3m

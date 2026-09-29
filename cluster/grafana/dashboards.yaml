@@ -1,0 +1,87 @@
+# The Kuadrant example dashboards (the three the RHCL guide names plus the
+# DNS operator and controller dashboards), pulled from the kuadrant-operator
+# repository at tag v1.5.3. Templates to adapt, per the guide.
+---
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDashboard
+metadata:
+  name: platform-engineer
+  namespace: grafana
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  instanceSelector:
+    matchLabels:
+      dashboards: grafana
+  resyncPeriod: 24h
+  url: https://raw.githubusercontent.com/Kuadrant/kuadrant-operator/v1.5.3/examples/dashboards/platform_engineer.json
+---
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDashboard
+metadata:
+  name: app-developer
+  namespace: grafana
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  instanceSelector:
+    matchLabels:
+      dashboards: grafana
+  resyncPeriod: 24h
+  url: https://raw.githubusercontent.com/Kuadrant/kuadrant-operator/v1.5.3/examples/dashboards/app_developer.json
+---
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDashboard
+metadata:
+  name: business-user
+  namespace: grafana
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  instanceSelector:
+    matchLabels:
+      dashboards: grafana
+  resyncPeriod: 24h
+  url: https://raw.githubusercontent.com/Kuadrant/kuadrant-operator/v1.5.3/examples/dashboards/business_user.json
+---
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDashboard
+metadata:
+  name: dns-operator
+  namespace: grafana
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  instanceSelector:
+    matchLabels:
+      dashboards: grafana
+  resyncPeriod: 24h
+  url: https://raw.githubusercontent.com/Kuadrant/kuadrant-operator/v1.5.3/examples/dashboards/dns-operator.json
+---
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDashboard
+metadata:
+  name: controller-runtime-metrics
+  namespace: grafana
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  instanceSelector:
+    matchLabels:
+      dashboards: grafana
+  resyncPeriod: 24h
+  url: https://raw.githubusercontent.com/Kuadrant/kuadrant-operator/v1.5.3/examples/dashboards/controller-runtime-metrics.json
+---
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDashboard
+metadata:
+  name: controller-resources-metrics
+  namespace: grafana
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  instanceSelector:
+    matchLabels:
+      dashboards: grafana
+  resyncPeriod: 24h
+  url: https://raw.githubusercontent.com/Kuadrant/kuadrant-operator/v1.5.3/examples/dashboards/controller-resources-metrics.json

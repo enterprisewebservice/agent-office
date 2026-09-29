@@ -1,0 +1,30 @@
+# Read-only access to cluster metrics for the Grafana datasource: a service
+# account with cluster-monitoring-view and a long-lived token the datasource
+# reads (the token is generated in-cluster, nothing secret is in git).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: grafana-thanos
+  namespace: grafana
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: grafana-thanos-cluster-monitoring-view
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-monitoring-view
+subjects:
+  - kind: ServiceAccount
+    name: grafana-thanos
+    namespace: grafana
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: grafana-thanos-token
+  namespace: grafana
+  annotations:
+    kubernetes.io/service-account.name: grafana-thanos
+type: kubernetes.io/service-account-token

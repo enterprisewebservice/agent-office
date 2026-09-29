@@ -1,0 +1,23 @@
+apiVersion: grafana.integreatly.org/v1beta1
+kind: Grafana
+metadata:
+  name: grafana
+  namespace: grafana
+  labels:
+    dashboards: grafana
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  config:
+    log:
+      mode: console
+    auth:
+      disable_login_form: "false"
+    server:
+      root_url: https://grafana-grafana.apps.salamander.aimlworkbench.com
+  route:
+    metadata: {}
+    spec:
+      tls:
+        termination: edge
+        insecureEdgeTerminationPolicy: Redirect
