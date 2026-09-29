@@ -240,15 +240,19 @@ spec:
         - --telemetry-port=8082
         - --custom-resource-state-config-file
         - /custom-resource-state/custom-resource-state.yaml
+        # salamander: only the namespaces collector from core (the dashboards'
+        # namespace variables use kube_namespace_created); every other core
+        # collector on a 1,900-ConfigMap / 1,200-pod cluster blew the 250Mi limit.
+        - --resources=namespaces
         image: registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.10.1
         name: kube-state-metrics
         resources:
           limits:
-            cpu: 100m
-            memory: 250Mi
+            cpu: 200m
+            memory: 768Mi
           requests:
-            cpu: 10m
-            memory: 190Mi
+            cpu: 20m
+            memory: 256Mi
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:
