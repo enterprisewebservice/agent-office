@@ -21,3 +21,25 @@ spec:
       tls:
         termination: edge
         insecureEdgeTerminationPolicy: Redirect
+  # Persist Grafana's database: without it every pod restart empties the
+  # datasource and dashboard list until the operator's next resync.
+  persistentVolumeClaim:
+    spec:
+      accessModes:
+        - ReadWriteOnce
+      resources:
+        requests:
+          storage: 2Gi
+  deployment:
+    spec:
+      template:
+        spec:
+          volumes:
+            - name: grafana-data
+              persistentVolumeClaim:
+                claimName: grafana-pvc
+          containers:
+            - name: grafana
+              volumeMounts:
+                - name: grafana-data
+                  mountPath: /var/lib/grafana
