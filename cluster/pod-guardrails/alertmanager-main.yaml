@@ -1,0 +1,75 @@
+# Alertmanager configuration for core platform monitoring, in git since
+# 2026-09-29. It reproduces the configuration that had been applied by hand
+# (Resend SMTP, email to admin@enterprisewebservice.com for critical alerts
+# and for the claude-code-agent namespace) and adds one route:
+#
+#   PlatformOps: the pod pile-up family (our four AlertingRule alerts plus
+#   the built-in KubeJobNotCompleted, KubeletTooManyPods and KubePodNotReady)
+#   is emailed. Before this route those alerts fell through to "Default",
+#   which has no receiver, which is how 1,301 KubeJobNotCompleted firings
+#   and KubeletTooManyPods on all eight nodes went unseen.
+#
+# No credential lives here: smtp_auth_password_file points at the
+# alertmanager-smtp Secret that cluster-monitoring-config.yaml mounts.
+#
+# Prune=false: deleting this file must not delete the live Secret; the
+# monitoring operator would recreate it with a default config and every
+# email notification would stop.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: alertmanager-main
+  namespace: openshift-monitoring
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false
+    argocd.argoproj.io/sync-wave: "1"
+type: Opaque
+stringData:
+  alertmanager.yaml: |
+    global:
+      http_config:
+        proxy_from_environment: true
+      smtp_smarthost: smtp.resend.com:587
+      smtp_from: hello@runtab.io
+      smtp_auth_username: resend
+      smtp_auth_password_file: /etc/alertmanager/secrets/alertmanager-smtp/password
+      smtp_require_tls: true
+    inhibit_rules:
+      - equal: [namespace, alertname]
+        source_matchers: ["severity = critical"]
+        target_matchers: ["severity =~ warning|info"]
+      - equal: [namespace, alertname]
+        source_matchers: ["severity = warning"]
+        target_matchers: ["severity = info"]
+    receivers:
+      - name: Default
+      - name: Watchdog
+      - name: Critical
+        email_configs:
+          - to: admin@enterprisewebservice.com
+            send_resolved: true
+      - name: RuntabOps
+        email_configs:
+          - to: admin@enterprisewebservice.com
+            send_resolved: true
+      - name: PlatformOps
+        email_configs:
+          - to: admin@enterprisewebservice.com
+            send_resolved: true
+    route:
+      group_by: [namespace]
+      group_interval: 5m
+      group_wait: 30s
+      receiver: Default
+      repeat_interval: 12h
+      routes:
+        - matchers: ["alertname = Watchdog"]
+          receiver: Watchdog
+        - matchers:
+            - 'alertname =~ "NamespacePendingPodPileUp|JobPodsStuckPending|NodePodCapacityHigh|ClusterPodCapacityHigh|KubeJobNotCompleted|KubeletTooManyPods|KubePodNotReady"'
+          receiver: PlatformOps
+          repeat_interval: 4h
+        - matchers: ["namespace = claude-code-agent"]
+          receiver: RuntabOps
+        - matchers: ["severity = critical"]
+          receiver: Critical

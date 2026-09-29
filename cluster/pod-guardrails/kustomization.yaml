@@ -1,0 +1,12 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  # layer 1: alerts that reach a human
+  - cluster-monitoring-config.yaml
+  - alertmanager-main.yaml
+  - alerting-rules.yaml
+  # layer 2: caps
+  - resourcequotas.yaml
+  - project-request.yaml
+  # layer 3: admission policy for CronJobs
+  - cronjob-policy.yaml

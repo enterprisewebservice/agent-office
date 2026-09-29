@@ -1,0 +1,33 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: pod-guardrails
+  namespace: openshift-gitops
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/enterprisewebservice/agent-office.git
+    targetRevision: main
+    # Cluster-wide guardrails against pod pile-ups. On 2026-09-29 a
+    # hand-applied CronJob whose image tag had vanished left 1,442 Jobs of
+    # ImagePullBackOff pods behind; Pending pods count against each node's
+    # 250-pod limit, so every node filled up, OpenShift Pipelines lost its
+    # webhook replica and the agent-office operator could not schedule.
+    # Three layers, see cluster/pod-guardrails/README.md:
+    #   1. alerts that reach a human (AlertingRule + Alertmanager route)
+    #   2. pod-count quotas on the namespaces that run jobs, and a default
+    #      quota for new projects
+    #   3. an admission policy: every CronJob needs a deadline, no
+    #      concurrent runs, no :latest images
+    path: cluster/pod-guardrails
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: openshift-monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true

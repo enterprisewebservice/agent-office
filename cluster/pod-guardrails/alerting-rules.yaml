@@ -1,0 +1,80 @@
+# Platform alerting rules for pod pile-ups. AlertingRule is OpenShift's
+# supported way to add rules on core platform metrics; the monitoring
+# operator turns it into a PrometheusRule in openshift-monitoring.
+#
+# Why these exist: the built-in rules watch only openshift-*, kube-* and
+# default, KubePodNotReady ignores Job-owned and unschedulable pods, and
+# KubeJobNotCompleted waits 12 hours. None of that would have said a word
+# about the agent-office-operator pile of 2026-09-29, and the ones that
+# did fire for openshift-devspaces were dropped by the Alertmanager route.
+# JobPodsStuckPending deliberately watches Pending Job pods, not job age:
+# long-running legitimate jobs (GPU renders in meshforge) are not the problem.
+apiVersion: monitoring.openshift.io/v1
+kind: AlertingRule
+metadata:
+  name: pod-pileup-guardrails
+  namespace: openshift-monitoring
+spec:
+  groups:
+    - name: pod-pileup
+      rules:
+        - alert: NamespacePendingPodPileUp
+          expr: sum by (namespace) (kube_pod_status_phase{job="kube-state-metrics", phase="Pending"}) > 25
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.namespace }} has {{ $value }} Pending pods"
+            description: >-
+              Pods that never start (ImagePullBackOff, unschedulable) still
+              count against each node's pod limit. Something in
+              {{ $labels.namespace }} is piling them up, usually a CronJob
+              whose pods cannot start. Look with:
+              oc get pods -n {{ $labels.namespace }} --field-selector=status.phase=Pending
+              and oc get cronjob,job -n {{ $labels.namespace }}
+        - alert: JobPodsStuckPending
+          expr: >-
+            sum by (namespace) (
+              kube_pod_status_phase{job="kube-state-metrics", phase="Pending"}
+              * on (namespace, pod) group_left() max by (namespace, pod) (kube_pod_owner{job="kube-state-metrics", owner_kind="Job"})
+            ) > 3
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.namespace }} has {{ $value }} Job pods stuck Pending"
+            description: >-
+              More than three Job-owned pods in {{ $labels.namespace }} have
+              been Pending for half an hour: a CronJob whose pods cannot
+              start (image pull, quota, scheduling) is stacking up. This is
+              the early warning; NamespacePendingPodPileUp is the late one.
+              oc get pods -n {{ $labels.namespace }} --field-selector=status.phase=Pending
+        - alert: NodePodCapacityHigh
+          expr: >-
+            (max by (instance) (kubelet_running_pods{job="kubelet", metrics_path="/metrics"} > 1)
+              * on (instance) group_left(node) max by (instance, node) (kubelet_node_name{job="kubelet", metrics_path="/metrics"}))
+            / on (node) group_left() max by (node) (kube_node_status_capacity{job="kube-state-metrics", resource="pods"} != 1) > 0.92
+          for: 20m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Node {{ $labels.node }} is at {{ $value | humanizePercentage }} of its pod limit"
+            description: >-
+              The kubelet's maxPods is 250 by default. Above it the scheduler
+              answers every new pod with "Too many pods". Find out what is
+              filling the node before it gets there:
+              oc get pods -A --field-selector=spec.nodeName={{ $labels.node }}
+        - alert: ClusterPodCapacityHigh
+          expr: >-
+            sum(kubelet_running_pods{job="kubelet", metrics_path="/metrics"})
+            / sum(kube_node_status_capacity{job="kube-state-metrics", resource="pods"}) > 0.8
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Cluster is at {{ $value | humanizePercentage }} of its total pod capacity"
+            description: >-
+              Across all nodes more than 80% of the pod slots are in use.
+              Either a pile-up is under way (see NamespacePendingPodPileUp)
+              or the cluster needs headroom: a KubeletConfig raising maxPods
+              on the large nodes, or another worker.

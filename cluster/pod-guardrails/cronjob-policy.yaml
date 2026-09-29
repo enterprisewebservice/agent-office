@@ -1,0 +1,120 @@
+# Admission policy for CronJobs (Kubernetes ValidatingAdmissionPolicy, CEL).
+#
+# cronjob-hygiene (Deny + Audit): in the namespaces we own, a CronJob must
+#   - set spec.jobTemplate.spec.activeDeadlineSeconds, so a run whose pod
+#     cannot start is failed after the deadline and pruned by the history
+#     limits instead of holding a pod slot forever;
+#   - not use concurrencyPolicy Allow, so runs cannot stack up;
+#   - pin every image to a tag or digest: no :latest, no untagged image.
+#     registry.redhat.io dropping ose-cli:latest is what started the
+#     2026-09-29 pile-up.
+#   Break-glass: annotate the CronJob with
+#   agent-office.io/cronjob-policy: exempt.
+#
+# cronjob-gitops-owned (Warn + Audit only): a CronJob should carry Argo's
+#   tracking annotation or an app.kubernetes.io/managed-by label. A
+#   hand-applied CronJob (kubectl, February 2026, never in git) is what
+#   piled up 1,442 Jobs. Warn, not Deny, so an operator that creates its
+#   own CronJobs is never blocked; the warning shows in kubectl output and
+#   the audit log.
+#
+# Scope: both policies skip platform and operator namespaces by name
+# (openshift-*, kube-*, Konflux, OpenShift AI, ACM, Service Mesh,
+# Connectivity Link, ACS and so on), because those operators create their
+# own CronJobs. openshift-devspaces is deliberately IN scope: that is where
+# the hand-applied cron lived. haveniq is out of scope while its reindex
+# CronJob comes from the upstream Zammad Helm chart, which exposes none of
+# these fields (it does set ttlSecondsAfterFinished: 300); the namespace
+# quota bounds it instead.
+#
+# Existing CronJobs are only checked when they are next created or
+# updated, so nothing running is affected by applying this.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: cronjob-hygiene
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["batch"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["cronjobs"]
+  matchConditions:
+    - name: enforced-namespace
+      expression: >-
+        namespaceObject.metadata.name == 'openshift-devspaces' ||
+        !namespaceObject.metadata.name.matches('^(openshift-.*|kube-.*|default|openshift|open-cluster-management.*|multicluster-engine|local-cluster|hive|hypershift|assisted-installer|redhat-ods-.*|rhods-.*|rhoai-.*|opendatahub|models-as-a-service|maas-db|model-desk|small-model-router|build-service|integration-service|release-service|enterprise-contract-service|konflux-.*|mintmaker.*|product-kubearchive|namespace-lister|managed-release-tenant|default-tenant|tssc-.*|pipelines-as-code|stackrox|rhacs-operator|cert-manager.*|external-secrets|istio-system|kuadrant-system|knative-.*|metallb-system|nvidia-gpu-operator|leader-worker-set|lws-system|gitea-operator|reloader|haveniq)$')
+    - name: not-exempt
+      expression: >-
+        !(has(object.metadata.annotations) &&
+          'agent-office.io/cronjob-policy' in object.metadata.annotations &&
+          object.metadata.annotations['agent-office.io/cronjob-policy'] == 'exempt')
+  variables:
+    - name: podSpec
+      expression: object.spec.jobTemplate.spec.template.spec
+    - name: images
+      expression: >-
+        (variables.podSpec.containers +
+          (has(variables.podSpec.initContainers) ? variables.podSpec.initContainers : [])).map(c, c.image)
+  validations:
+    - expression: >-
+        has(object.spec.jobTemplate.spec.activeDeadlineSeconds) &&
+        object.spec.jobTemplate.spec.activeDeadlineSeconds > 0
+      message: >-
+        CronJob must set spec.jobTemplate.spec.activeDeadlineSeconds (for example 600):
+        a run whose pod cannot start must fail and be pruned, not hold a pod slot forever.
+      reason: Invalid
+    - expression: object.spec.concurrencyPolicy != 'Allow'
+      message: >-
+        CronJob must set spec.concurrencyPolicy to Forbid or Replace; Allow lets runs pile up.
+      reason: Invalid
+    - expression: >-
+        variables.images.all(i, !i.endsWith(':latest') &&
+          (i.contains('@') || i.split('/')[i.split('/').size() - 1].contains(':')))
+      message: >-
+        CronJob images must be pinned to a tag or digest (no :latest, no untagged image);
+        a vanished tag left this cluster with 1,400 stuck pods on 2026-09-29.
+      reason: Invalid
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: cronjob-hygiene
+spec:
+  policyName: cronjob-hygiene
+  validationActions: ["Deny", "Audit"]
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: cronjob-gitops-owned
+spec:
+  failurePolicy: Ignore
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["batch"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["cronjobs"]
+  matchConditions:
+    - name: enforced-namespace
+      expression: >-
+        namespaceObject.metadata.name == 'openshift-devspaces' ||
+        !namespaceObject.metadata.name.matches('^(openshift-.*|kube-.*|default|openshift|open-cluster-management.*|multicluster-engine|local-cluster|hive|hypershift|assisted-installer|redhat-ods-.*|rhods-.*|rhoai-.*|opendatahub|models-as-a-service|maas-db|model-desk|small-model-router|build-service|integration-service|release-service|enterprise-contract-service|konflux-.*|mintmaker.*|product-kubearchive|namespace-lister|managed-release-tenant|default-tenant|tssc-.*|pipelines-as-code|stackrox|rhacs-operator|cert-manager.*|external-secrets|istio-system|kuadrant-system|knative-.*|metallb-system|nvidia-gpu-operator|leader-worker-set|lws-system|gitea-operator|reloader|haveniq)$')
+  validations:
+    - expression: >-
+        (has(object.metadata.annotations) && 'argocd.argoproj.io/tracking-id' in object.metadata.annotations) ||
+        (has(object.metadata.labels) && 'app.kubernetes.io/managed-by' in object.metadata.labels)
+      message: >-
+        CronJob is not managed from git (no Argo tracking annotation, no app.kubernetes.io/managed-by label).
+        Hand-applied CronJobs are how the 2026-09-29 pod pile-up started; put it in the agent-office repo.
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: cronjob-gitops-owned
+spec:
+  policyName: cronjob-gitops-owned
+  validationActions: ["Warn", "Audit"]

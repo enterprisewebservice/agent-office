@@ -1,0 +1,68 @@
+# Default quota for every NEW project.
+#
+# OpenShift creates projects requested through `oc new-project` or the
+# console from the Template named by projects.config.openshift.io/cluster.
+# There was no such template before 2026-09-29, so new projects got no
+# quota at all. This one is the stock bootstrap template
+# (`oc adm create-bootstrap-project-template`) plus a pod-count cap.
+#
+# It does not apply to namespaces created by operators or by GitOps; those
+# get quotas explicitly (resourcequotas.yaml).
+#
+# Changing the Project config makes the openshift-apiserver pods roll once.
+# Prune=false on the Project config: it is a cluster singleton and must
+# never be deleted by a sync.
+apiVersion: template.openshift.io/v1
+kind: Template
+metadata:
+  name: project-request
+  namespace: openshift-config
+objects:
+  - apiVersion: project.openshift.io/v1
+    kind: Project
+    metadata:
+      annotations:
+        openshift.io/description: ${PROJECT_DESCRIPTION}
+        openshift.io/display-name: ${PROJECT_DISPLAYNAME}
+        openshift.io/requester: ${PROJECT_REQUESTING_USER}
+      name: ${PROJECT_NAME}
+    spec: {}
+    status: {}
+  - apiVersion: rbac.authorization.k8s.io/v1
+    kind: RoleBinding
+    metadata:
+      name: admin
+      namespace: ${PROJECT_NAME}
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: admin
+    subjects:
+      - apiGroup: rbac.authorization.k8s.io
+        kind: User
+        name: ${PROJECT_ADMIN_USER}
+  - apiVersion: v1
+    kind: ResourceQuota
+    metadata:
+      name: pod-count-guardrail
+      namespace: ${PROJECT_NAME}
+    spec:
+      hard:
+        pods: "100"
+        count/jobs.batch: "100"
+parameters:
+  - name: PROJECT_NAME
+  - name: PROJECT_DISPLAYNAME
+  - name: PROJECT_DESCRIPTION
+  - name: PROJECT_ADMIN_USER
+  - name: PROJECT_REQUESTING_USER
+---
+apiVersion: config.openshift.io/v1
+kind: Project
+metadata:
+  name: cluster
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false
+spec:
+  projectRequestTemplate:
+    name: project-request

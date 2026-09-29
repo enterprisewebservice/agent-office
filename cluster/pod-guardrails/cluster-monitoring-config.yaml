@@ -1,0 +1,25 @@
+# Cluster Monitoring Operator configuration. Brought into git on
+# 2026-09-29 (it had been created by hand with only enableUserWorkload).
+#
+# alertmanagerMain.secrets mounts the named Secrets into the Alertmanager
+# pods at /etc/alertmanager/secrets/<name>/, which lets alertmanager.yaml
+# (also in git, see alertmanager-main.yaml) reference the Resend SMTP
+# password by file instead of carrying it. The alertmanager-smtp Secret is
+# NOT in git; how to recreate it is in README.md.
+#
+# Prune=false: deleting this file must never delete the live ConfigMap,
+# because that would silently turn user-workload monitoring off.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cluster-monitoring-config
+  namespace: openshift-monitoring
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false
+    argocd.argoproj.io/sync-wave: "0"
+data:
+  config.yaml: |
+    enableUserWorkload: true
+    alertmanagerMain:
+      secrets:
+        - alertmanager-smtp

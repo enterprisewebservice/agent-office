@@ -1,0 +1,65 @@
+# Pod-count caps on the namespaces that run Jobs and CronJobs.
+#
+# A ResourceQuota "pods" limit counts every pod that is not Succeeded or
+# Failed, so Pending pods count. With this in place the 2026-09-29
+# devspaces cron would have stopped at 40 pods: the Job controller gets
+# "exceeded quota", the Jobs sit there without pods, and the
+# NamespacePendingPodPileUp / JobActiveTooLong alerts say so, while the
+# nodes stay clear. count/jobs.batch caps the Job objects themselves.
+#
+# Sizing (2026-09-29, active pods at the time): openshift-devspaces 4,
+# agent-office-operator 2 (bursts during operator upgrades), vault 1,
+# haveniq 10, claude-code-agent 3. A pods-only quota does not force
+# requests/limits on pods; only cpu/memory quotas do that.
+#
+# The same cap lands on every NEW project through project-request.yaml.
+# The agent seats already carry their own quota (pods: 60).
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: pod-count-guardrail
+  namespace: openshift-devspaces
+spec:
+  hard:
+    pods: "40"
+    count/jobs.batch: "100"
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: pod-count-guardrail
+  namespace: agent-office-operator
+spec:
+  hard:
+    pods: "40"
+    count/jobs.batch: "100"
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: pod-count-guardrail
+  namespace: vault
+spec:
+  hard:
+    pods: "40"
+    count/jobs.batch: "100"
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: pod-count-guardrail
+  namespace: haveniq
+spec:
+  hard:
+    pods: "40"
+    count/jobs.batch: "100"
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: pod-count-guardrail
+  namespace: claude-code-agent
+spec:
+  hard:
+    pods: "40"
+    count/jobs.batch: "100"
