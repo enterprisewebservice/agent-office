@@ -28,11 +28,9 @@ spec:
       success:
         headers:
           x-api-consumer:
-            plain:
-              expression: auth.identity.metadata.labels["devportal.kuadrant.io/apikey-namespace"]
+            selector: auth.identity.metadata.labels.devportal\.kuadrant\.io/apikey-namespace
           x-api-plan:
-            plain:
-              expression: auth.identity.metadata.annotations["secret.kuadrant.io/plan-id"]
+            selector: auth.identity.metadata.annotations.secret\.kuadrant\.io/plan-id
 ---
 # Plan tiers (Technology Preview in 1.4): the tier a consumer chooses when
 # requesting a key is stamped on the enforcement Secret and drives the limit.
