@@ -388,3 +388,85 @@ data:
                     if:
                       allOf:
                         - isTektonCIAvailable
+    # Red Hat Connectivity Link API catalog (Kuadrant plugin), Technology Preview.
+    # Upstream npm packages: the downstream OCI image named in the RHCL 1.4 docs
+    # (registry.redhat.io/rhdh/kuadrant-backstage-plugin-*-dynamic-rhel9) is not
+    # published as of 2026-09-29. 0.4.0 is the last release built for Backstage
+    # 1.4x (RHDH 1.9.2 = Backstage 1.45.3); 0.5.0 needs backend-defaults 0.16 / Backstage 1.49.
+    - package: "@kuadrant/kuadrant-backstage-plugin-backend-dynamic@0.4.0"
+      integrity: sha512-OOkfAbnFxuOkBjvQMUqkd/TtP/yrXr15yQ/Xel880kdgZk39CPlQzVdOS3VXmcLa/Y9toI9nTbyCNqtXAD2C/g==
+      disabled: false
+    - package: "@kuadrant/kuadrant-backstage-plugin-frontend@0.4.0"
+      integrity: sha512-ewW/eOoHcK8MqmhyGzFQvnU8yQkvRpQxhb/GLZbAyWwWpmA/zju2qwFWXx49eBcy9RIlfO2rwS8sQC7do3dfGA==
+      disabled: false
+      pluginConfig:
+        dynamicPlugins:
+          frontend:
+            kuadrant.kuadrant-backstage-plugin-frontend:
+              apiFactories:
+                - importName: kuadrantApiFactory
+              appIcons:
+                - name: kuadrantIcon
+                  importName: KuadrantIcon
+                - name: apiIcon
+                  importName: ApiIcon
+                - name: keyIcon
+                  importName: KeyIcon
+                - name: approvalIcon
+                  importName: ApprovalIcon
+              menuItems:
+                kuadrant.api-products:
+                  parent: kuadrant
+                kuadrant.my-api-keys:
+                  parent: kuadrant
+                kuadrant.api-key-approval:
+                  parent: kuadrant
+              dynamicRoutes:
+                - path: /kuadrant
+                  importName: KuadrantPage
+                  menuItem:
+                    icon: kuadrantIcon
+                    text: API catalog
+                - path: /kuadrant/api-products
+                  importName: ApiProductsPage
+                  menuItem:
+                    icon: apiIcon
+                    text: API Products
+                - path: /kuadrant/my-api-keys
+                  importName: MyApiKeysPage
+                  menuItem:
+                    icon: keyIcon
+                    text: My API Keys
+                - path: /kuadrant/api-key-approval
+                  importName: ApiKeyApprovalPage
+                  menuItem:
+                    icon: approvalIcon
+                    text: API Key Approval
+                - path: /kuadrant/api-products/:namespace/:name
+                  importName: ApiProductDetailPage
+                - path: /kuadrant/api-keys/:namespace/:name
+                  importName: ApiKeyDetailPage
+              entityTabs:
+                - mountPoint: entity.page.api-keys
+                  path: /api-keys
+                  title: API Keys
+                - mountPoint: entity.page.api-product-info
+                  path: /api-product-info
+                  title: API Product Info
+              mountPoints:
+                - mountPoint: entity.page.api-keys/cards
+                  importName: EntityKuadrantApiKeyManagementTab
+                  config:
+                    layout:
+                      gridColumn: "1 / -1"
+                    if:
+                      allOf:
+                        - isKind: api
+                - mountPoint: entity.page.api-product-info/cards
+                  importName: EntityKuadrantApiProductInfoContent
+                  config:
+                    layout:
+                      gridColumn: "1 / -1"
+                    if:
+                      allOf:
+                        - isKind: api
