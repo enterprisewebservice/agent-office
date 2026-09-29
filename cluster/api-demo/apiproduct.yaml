@@ -1,0 +1,33 @@
+apiVersion: devportal.kuadrant.io/v1alpha1
+kind: APIProduct
+metadata:
+  name: inventory-api
+  namespace: api-demo
+  annotations:
+    backstage.io/owner: user:default/deanpeterson
+spec:
+  displayName: Store Inventory API
+  description: >-
+    Sample REST API for store inventory lookups behind Red Hat Connectivity
+    Link: API-key authentication issued through this catalog, plan tiers
+    (gold, silver, bronze) with daily limits enforced at the gateway, and
+    gateway metrics, traces and access logs. The backend is a sample echo
+    service, so every response shows the request the gateway let through.
+    Base URL https://inventory-api.apps.salamander.aimlworkbench.com/api
+  version: v1
+  approvalMode: manual
+  publishStatus: Published
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: inventory-api
+  contact:
+    team: Platform engineering (agent-office)
+    url: https://v1-developer-hub-rhdh-test.apps.salamander.aimlworkbench.com/kuadrant/api-products
+  documentation:
+    docsURL: https://docs.redhat.com/en/documentation/red_hat_connectivity_link/1.4/html-single/develop_apis_with_the_web_console/index
+    openAPISpecURL: https://raw.githubusercontent.com/Kuadrant/kuadrantctl/main/examples/oas3/petstore.yaml
+  tags:
+    - rest
+    - retail
+    - sample

@@ -1,0 +1,72 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inventory-api
+  namespace: api-demo
+  labels:
+    app: inventory-api
+    backstage.io/kubernetes-id: inventory-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: inventory-api
+  template:
+    metadata:
+      labels:
+        app: inventory-api
+    spec:
+      containers:
+        - name: inventory-api
+          # Kuadrant's sample echo service: answers every request with a JSON
+          # description of what it received, which makes policy effects visible.
+          image: quay.io/kuadrant/authorino-examples:talker-api
+          ports:
+            - containerPort: 3000
+              name: http
+          env:
+            - name: PORT
+              value: "3000"
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: inventory-api
+  namespace: api-demo
+  labels:
+    app: inventory-api
+    backstage.io/kubernetes-id: inventory-api
+spec:
+  selector:
+    app: inventory-api
+  ports:
+    - name: http
+      port: 80
+      targetPort: 3000
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: inventory-api
+  namespace: api-demo
+spec:
+  parentRefs:
+    - name: api-gateway
+      namespace: api-demo
+  hostnames:
+    - inventory-api.apps.salamander.aimlworkbench.com
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /api
+      backendRefs:
+        - name: inventory-api
+          port: 80

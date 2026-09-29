@@ -1,0 +1,13 @@
+# A traditional REST API behind its own Connectivity Link gateway, for the API
+# catalog demo: API-key authentication, plan tiers, an API product. The backend
+# is Kuadrant's sample echo service (talker-api) standing in for an inventory
+# service. Modelled on developer-portal-controller/utils/demo/gamestore.yaml.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: api-demo
+resources:
+  - namespace.yaml
+  - gateway.yaml
+  - inventory-api.yaml
+  - policies.yaml
+  - apiproduct.yaml

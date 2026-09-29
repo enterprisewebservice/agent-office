@@ -1,0 +1,34 @@
+# The API gateway: an HTTP listener behind an OpenShift Route that terminates
+# TLS with the cluster's Let's Encrypt wildcard, the same way OpenShift AI
+# fronts its gateways on this cluster (their services are ClusterIP too).
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: api-gateway
+  namespace: api-demo
+spec:
+  gatewayClassName: data-science-gateway-class
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 80
+      hostname: inventory-api.apps.salamander.aimlworkbench.com
+      allowedRoutes:
+        namespaces:
+          from: Same
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: inventory-api
+  namespace: api-demo
+spec:
+  host: inventory-api.apps.salamander.aimlworkbench.com
+  to:
+    kind: Service
+    name: api-gateway-data-science-gateway-class
+  port:
+    targetPort: 80
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect

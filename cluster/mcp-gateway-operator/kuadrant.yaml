@@ -11,3 +11,9 @@ metadata:
 spec:
   observability:
     enable: true
+  # Developer portal controller: turns APIKey requests/approvals (console pages,
+  # Developer Hub plugin) into enforcement Secrets that the routes' AuthPolicies
+  # match (labels devportal.kuadrant.io/* + the policy's own selector labels).
+  components:
+    developerPortal:
+      enabled: true
