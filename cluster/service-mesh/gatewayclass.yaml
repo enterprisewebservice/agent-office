@@ -6,4 +6,3 @@ metadata:
     argocd.argoproj.io/sync-wave: "1"
 spec:
   controllerName: istio.io/gateway-controller
-  description: Service Mesh 3.4 control plane owned in Git (cluster/service-mesh); tracing and JSON access logs enabled

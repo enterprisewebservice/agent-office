@@ -1,0 +1,18 @@
+# Service Mesh 3 on OpenShift expects an IstioCNI resource next to the Istio
+# control plane (Sail reports IstioCNINotFound without it; RHCL 1.4 overview:
+# "apply your own Istio CR and IstioCNI CRs"). One per cluster, in istio-cni.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: istio-cni
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+---
+apiVersion: sailoperator.io/v1
+kind: IstioCNI
+metadata:
+  name: default
+spec:
+  namespace: istio-cni
+  version: v1.27.3
+  profile: openshift
