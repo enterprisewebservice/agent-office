@@ -1,0 +1,38 @@
+# A Service Mesh 3.4 control plane we own, used as the Gateway API provider for
+# the API demo gateway. Reason (RHCL 1.4 docs): "If you want to use Connectivity
+# Link with mTLS enabled, or keep control over your Istio configuration, you
+# must deploy OpenShift Service Mesh 3.4 and apply your own Istio CR", and the
+# Observability guide: with the Ingress Operator's Istio "changes are
+# reconciled back to the previous settings". Tracing provider and the JSON
+# access log with the authenticated identity live in this Istio CR. It runs
+# next to the Ingress Operator's control plane (openshift-ingress), which keeps
+# serving OpenShift AI and the MCP gateway; Red Hat documents the two together.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: service-mesh
+  namespace: openshift-gitops
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/enterprisewebservice/agent-office.git
+    targetRevision: main
+    path: cluster/service-mesh
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: istio-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 10
+      backoff:
+        duration: 20s
+        factor: 2
+        maxDuration: 3m

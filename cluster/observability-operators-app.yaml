@@ -1,0 +1,34 @@
+# Operators for the observability stack used by the Connectivity Link demos
+# (RHCL 1.4 Observability guide 1.5 "tracing" and 2.2 "audit logs", and the
+# OpenShift docs for each operator): Cluster Observability Operator (console
+# UI plug-ins, Perses dashboards, correlation), Red Hat build of OpenTelemetry
+# (the collector), Tempo (trace store), Loki Operator + OpenShift Logging
+# (log store and collector). Instances live in cluster/tracing, cluster/logging
+# and cluster/observability-ui so they can wait for these CRDs.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: observability-operators
+  namespace: openshift-gitops
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/enterprisewebservice/agent-office.git
+    targetRevision: main
+    path: cluster/observability-operators
+  destination:
+    server: https://kubernetes.default.svc
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+    retry:
+      limit: 10
+      backoff:
+        duration: 20s
+        factor: 2
+        maxDuration: 3m

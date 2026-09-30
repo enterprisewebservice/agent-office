@@ -1,0 +1,18 @@
+# Mesh-wide defaults for gateways of this control plane (RHCL 1.4 Observability
+# guide 1.5.3 and 2.2.3): every request traced to the collector, every request
+# logged in JSON. Sampling 100% is right for a demo; lower it in production.
+apiVersion: telemetry.istio.io/v1
+kind: Telemetry
+metadata:
+  name: mesh-default
+  namespace: istio-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  tracing:
+    - providers:
+        - name: tempo-otlp
+      randomSamplingPercentage: 100
+  accessLogging:
+    - providers:
+        - name: json-access-log

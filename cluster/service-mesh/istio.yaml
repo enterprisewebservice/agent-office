@@ -1,0 +1,65 @@
+# Sail (Service Mesh 3.4.2) control plane "default" in istio-system, same Istio
+# version the Ingress Operator runs (v1.27.3). Only namespaces labelled
+# istio-discovery=default are watched (api-demo and the template namespaces),
+# so this control plane never sees OpenShift AI's or the MCP gateway's objects.
+# Gateways use the GatewayClass "istio" (controller istio.io/gateway-controller).
+apiVersion: sailoperator.io/v1
+kind: Istio
+metadata:
+  name: default
+spec:
+  namespace: istio-system
+  version: v1.27.3
+  updateStrategy:
+    type: InPlace
+  values:
+    meshConfig:
+      enableTracing: true
+      accessLogFile: /dev/stdout
+      discoverySelectors:
+        - matchLabels:
+            istio-discovery: default
+      defaultConfig:
+        tracing: {}
+      extensionProviders:
+        # RHCL 1.4 Observability guide 1.5.3: OpenTelemetry tracing provider,
+        # gRPC OTLP on 4317, pointed at the collector service (not Tempo's query).
+        - name: tempo-otlp
+          opentelemetry:
+            port: 4317
+            service: otel-collector.observability.svc.cluster.local
+        # RHCL 1.4 Observability guide 2.2.3: JSON access log with the identity
+        # the AuthPolicy injects (x-auth-identity) and the request id / traceparent
+        # that join the log line to metrics and to the trace.
+        - name: json-access-log
+          envoyFileAccessLog:
+            path: /dev/stdout
+            logFormat:
+              labels:
+                timestamp: '%START_TIME%'
+                method: '%REQ(:METHOD)%'
+                authority: '%REQ(:AUTHORITY)%'
+                path: '%REQ(:PATH)%'
+                response_code: '%RESPONSE_CODE%'
+                response_flags: '%RESPONSE_FLAGS%'
+                duration_ms: '%DURATION%'
+                bytes_received: '%BYTES_RECEIVED%'
+                bytes_sent: '%BYTES_SENT%'
+                route_name: '%ROUTE_NAME%'
+                upstream_host: '%UPSTREAM_HOST%'
+                client_ip: '%REQ(X-FORWARDED-FOR)%'
+                user_agent: '%REQ(USER-AGENT)%'
+                request_id: '%REQ(X-REQUEST-ID)%'
+                traceparent: '%REQ(TRACEPARENT)%'
+                user_id: '%REQ(X-AUTH-IDENTITY)%'
+                plan: '%REQ(X-AUTH-PLAN)%'
+                mcp_method: '%REQ(X-MCP-METHOD)%'
+                mcp_server_name: '%REQ(X-MCP-SERVERNAME)%'
+                mcp_tool_name: '%REQ(X-MCP-TOOLNAME)%'
+    pilot:
+      resources:
+        requests:
+          cpu: 200m
+          memory: 512Mi
+        limits:
+          memory: 1Gi
