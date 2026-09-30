@@ -1,0 +1,33 @@
+# OpenShift Logging 6.6 with a LokiStack on the cluster's own object storage
+# (NooBaa), collecting application logs, so the gateway's JSON access log
+# (identity, plan, request id, response code) is a console query under
+# Observe > Logs. The console Logs view comes from the Cluster Observability
+# Operator's UIPlugin in cluster/observability-ui.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: logging
+  namespace: openshift-gitops
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/enterprisewebservice/agent-office.git
+    targetRevision: main
+    path: cluster/logging
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: openshift-logging
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+    retry:
+      limit: 12
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 3m

@@ -1,0 +1,32 @@
+# Red Hat OpenShift distributed tracing platform (Tempo), monolithic instance:
+# traces on a 10 GiB Ceph RBD volume, Jaeger UI behind a route, multitenancy in
+# OpenShift mode so the console Traces plug-in and the collector authenticate
+# with cluster identities. Tenant "dev" holds everything in this demo.
+apiVersion: tempo.grafana.com/v1alpha1
+kind: TempoMonolithic
+metadata:
+  name: tempo
+spec:
+  storage:
+    traces:
+      backend: pv
+      size: 10Gi
+      storageClassName: ocs-storagecluster-ceph-rbd
+  jaegerui:
+    enabled: true
+    route:
+      enabled: true
+  multitenancy:
+    enabled: true
+    mode: openshift
+    authentication:
+      - tenantName: dev
+        tenantId: 1610b0c3-c509-4592-a256-a1871353dbfa
+  resources:
+    total:
+      requests:
+        cpu: 200m
+        memory: 768Mi
+      limits:
+        cpu: "2"
+        memory: 2Gi

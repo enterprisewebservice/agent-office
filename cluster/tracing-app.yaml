@@ -1,0 +1,35 @@
+# Tracing for the Connectivity Link demos (RHCL 1.4 Observability guide 1.5):
+# a Tempo instance (multitenant, OpenShift mode, tenant "dev") and an
+# OpenTelemetry collector that receives OTLP from the gateway's Envoy, Authorino,
+# Limitador and instrumented applications and forwards to Tempo with its
+# service-account token. The console Traces view comes from the Cluster
+# Observability Operator's UIPlugin in cluster/observability-ui.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: tracing
+  namespace: openshift-gitops
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/enterprisewebservice/agent-office.git
+    targetRevision: main
+    path: cluster/tracing
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 10
+      backoff:
+        duration: 20s
+        factor: 2
+        maxDuration: 3m

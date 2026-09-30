@@ -1,0 +1,24 @@
+# Loki, demo size (single replicas), OpenShift tenancy (application,
+# infrastructure, audit tenants with OpenShift RBAC), S3 on NooBaa with the
+# service CA. 1x.demo is not for production; the size is the only knob to turn.
+apiVersion: loki.grafana.com/v1
+kind: LokiStack
+metadata:
+  name: logging-loki
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  size: 1x.demo
+  storage:
+    schemas:
+      - version: v13
+        effectiveDate: "2024-10-01"
+    secret:
+      name: logging-loki-s3
+      type: s3
+    tls:
+      caName: openshift-service-ca.crt
+      caKey: service-ca.crt
+  storageClassName: ocs-storagecluster-ceph-rbd
+  tenants:
+    mode: openshift-logging

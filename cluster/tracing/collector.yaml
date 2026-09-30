@@ -1,0 +1,54 @@
+# Red Hat build of OpenTelemetry: one collector, OTLP in (gRPC 4317, HTTP 4318),
+# OTLP out to Tempo's multitenant gateway with the collector's service-account
+# token (bearertokenauth) and the service CA. The operator creates the Service
+# otel-collector with port otlp-grpc (appProtocol grpc), which is what the
+# Istio extension provider in cluster/service-mesh points at, and what the
+# Kuadrant, Authorino and Limitador resources use as rpc://otel-collector...:4317.
+apiVersion: opentelemetry.io/v1beta1
+kind: OpenTelemetryCollector
+metadata:
+  name: otel
+spec:
+  mode: deployment
+  replicas: 1
+  serviceAccount: otel-collector
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+  config:
+    extensions:
+      bearertokenauth:
+        filename: /var/run/secrets/kubernetes.io/serviceaccount/token
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+    processors:
+      batch: {}
+      memory_limiter:
+        check_interval: 1s
+        limit_percentage: 75
+        spike_limit_percentage: 15
+    exporters:
+      otlp/tempo:
+        endpoint: tempo-tempo-gateway.observability.svc.cluster.local:8090
+        tls:
+          insecure: false
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/service-ca.crt
+        auth:
+          authenticator: bearertokenauth
+        headers:
+          X-Scope-OrgID: dev
+    service:
+      extensions: [bearertokenauth]
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [otlp/tempo]

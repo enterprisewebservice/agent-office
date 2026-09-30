@@ -1,0 +1,30 @@
+# Application logs only (every non-openshift namespace: api-demo, kuadrant-system,
+# istio-system, agent-office...). Infrastructure logs would swamp a demo-size
+# Loki on a cluster with 1,200 pods; add them when the size grows.
+apiVersion: observability.openshift.io/v1
+kind: ClusterLogForwarder
+metadata:
+  name: collector
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  serviceAccount:
+    name: collector
+  outputs:
+    - name: default-lokistack
+      type: lokiStack
+      lokiStack:
+        target:
+          name: logging-loki
+          namespace: openshift-logging
+        authentication:
+          token:
+            from: serviceAccount
+      tls:
+        ca:
+          key: service-ca.crt
+          configMapName: openshift-service-ca.crt
+  pipelines:
+    - name: application-logs
+      inputRefs: [application]
+      outputRefs: [default-lokistack]

@@ -1,0 +1,31 @@
+# Cluster Observability Operator UI plug-ins: the console's Observe menu gains
+# Traces (Tempo), Logs (Loki), the troubleshooting panel with signal correlation,
+# Perses dashboards and incident detection. Dashboards for the API demo live in
+# this directory too, as PersesDashboard resources.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: observability-ui
+  namespace: openshift-gitops
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/enterprisewebservice/agent-office.git
+    targetRevision: main
+    path: cluster/observability-ui
+  destination:
+    server: https://kubernetes.default.svc
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+    retry:
+      limit: 10
+      backoff:
+        duration: 20s
+        factor: 2
+        maxDuration: 3m

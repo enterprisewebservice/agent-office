@@ -1,0 +1,10 @@
+# S3 bucket for Loki on the cluster's NooBaa (OpenShift Data Foundation).
+apiVersion: objectbucket.io/v1alpha1
+kind: ObjectBucketClaim
+metadata:
+  name: loki-bucket
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  generateBucketName: loki-bucket
+  storageClassName: openshift-storage.noobaa.io
