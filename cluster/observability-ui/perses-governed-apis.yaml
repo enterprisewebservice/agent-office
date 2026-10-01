@@ -1,0 +1,614 @@
+# The platform team's view of every API created from the Governed REST API
+# template (namespaces api-*, GitOps project governed-apis, gateway api-demo/api-gateway).
+# Dashboard as code; per-API dashboards live in each API's repository.
+apiVersion: perses.dev/v1alpha2
+kind: PersesDashboard
+metadata:
+  name: governed-apis
+  namespace: openshift-cluster-observability-operator
+spec:
+  config:
+    display:
+      name: 'Governed APIs: the platform view'
+      description: 'Every API created from the Governed REST API template on the shared gateway: traffic, what policy stopped, consumers, latency, GitOps and policy state'
+    duration: 1h
+    refreshInterval: 30s
+    panels:
+      apis:
+        kind: Panel
+        spec:
+          display:
+            name: Governed APIs
+            description: 'Applications in the governed-apis GitOps project: one per API created from the template'
+          plugin:
+            kind: StatChart
+            spec:
+              calculation: last
+              format:
+                unit: decimal
+                decimalPlaces: 0
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: accelerators-thanos-querier-datasource
+                  query: count(argocd_app_info{project="governed-apis"}) or vector(0)
+      synced:
+        kind: Panel
+        spec:
+          display:
+            name: In sync and healthy
+          plugin:
+            kind: StatChart
+            spec:
+              calculation: last
+              format:
+                unit: decimal
+                decimalPlaces: 0
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: accelerators-thanos-querier-datasource
+                  query: count(argocd_app_info{project="governed-apis", sync_status="Synced", health_status="Healthy"}) or vector(0)
+      routes:
+        kind: Panel
+        spec:
+          display:
+            name: Routes on the shared gateway
+          plugin:
+            kind: StatChart
+            spec:
+              calculation: last
+              format:
+                unit: decimal
+                decimalPlaces: 0
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: accelerators-thanos-querier-datasource
+                  query: sum(gatewayapi_gateway_status_listener_attached_routes{exported_namespace="api-demo", name="api-gateway"}) or vector(0)
+      policies:
+        kind: Panel
+        spec:
+          display:
+            name: Policies enforced / total
+            description: AuthPolicy and RateLimitPolicy objects the operator reports as enforced, cluster-wide
+          plugin:
+            kind: StatChart
+            spec:
+              calculation: last
+              format:
+                unit: decimal
+                decimalPlaces: 0
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: accelerators-thanos-querier-datasource
+                  query: sum(kuadrant_policies_enforced{status="true", kind=~"AuthPolicy|RateLimitPolicy"}) or vector(0)
+      requests:
+        kind: Panel
+        spec:
+          display:
+            name: Requests in range, all governed APIs
+          plugin:
+            kind: StatChart
+            spec:
+              calculation: last
+              format:
+                unit: decimal
+                decimalPlaces: 0
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: accelerators-thanos-querier-datasource
+                  query: sum(increase(istio_requests_total{destination_service_namespace=~"api-.*"}[$__range])) or vector(0)
+      stopped:
+        kind: Panel
+        spec:
+          display:
+            name: Stopped by policy (401/403/429)
+          plugin:
+            kind: StatChart
+            spec:
+              calculation: last
+              format:
+                unit: decimal
+                decimalPlaces: 0
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: accelerators-thanos-querier-datasource
+                  query: sum(increase(istio_requests_total{destination_service_namespace=~"api-.*", response_code=~"401|403|429"}[$__range])) or vector(0)
+      consumers:
+        kind: Panel
+        spec:
+          display:
+            name: Consumers seen in range
+            description: Distinct user ids behind keys that made calls, across every API on the gateway
+          plugin:
+            kind: StatChart
+            spec:
+              calculation: last
+              format:
+                unit: decimal
+                decimalPlaces: 0
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: accelerators-thanos-querier-datasource
+                  query: count(count by (user_id) (increase(authorized_calls{user_id!=""}[$__range]) > 0)) or vector(0)
+      p95:
+        kind: Panel
+        spec:
+          display:
+            name: p95 at the gateway, all governed APIs
+          plugin:
+            kind: StatChart
+            spec:
+              calculation: last
+              format:
+                unit: milliseconds
+                decimalPlaces: 1
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: accelerators-thanos-querier-datasource
+                  query: histogram_quantile(0.95, sum by (le) (increase(istio_request_duration_milliseconds_bucket{destination_service_namespace=~"api-.*"}[$__range])))
+      byApi:
+        kind: Panel
+        spec:
+          display:
+            name: Requests per second by API
+          plugin:
+            kind: TimeSeriesChart
+            spec:
+              legend:
+                position: bottom
+              yAxis:
+                format:
+                  unit: requests/sec
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: accelerators-thanos-querier-datasource
+                  query: sum by (destination_service_namespace) (rate(istio_requests_total{destination_service_namespace=~"api-.*"}[5m]))
+                  seriesNameFormat: '{{destination_service_namespace}}'
+      stoppedByApi:
+        kind: Panel
+        spec:
+          display:
+            name: Stopped by policy per second, by API
+          plugin:
+            kind: TimeSeriesChart
+            spec:
+              legend:
+                position: bottom
+              yAxis:
+                format:
+                  unit: requests/sec
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: accelerators-thanos-querier-datasource
+                  query: sum by (destination_service_namespace) (rate(istio_requests_total{destination_service_namespace=~"api-.*", response_code=~"401|403|429"}[5m]))
+                  seriesNameFormat: '{{destination_service_namespace}}'
+      p95ByApi:
+        kind: Panel
+        spec:
+          display:
+            name: p95 by API
+          plugin:
+            kind: TimeSeriesChart
+            spec:
+              legend:
+                position: bottom
+              yAxis:
+                format:
+                  unit: milliseconds
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: accelerators-thanos-querier-datasource
+                  query: histogram_quantile(0.95, sum by (le, destination_service_namespace) (rate(istio_request_duration_milliseconds_bucket{destination_service_namespace=~"api-.*"}[5m])))
+                  seriesNameFormat: '{{destination_service_namespace}}'
+      errByApi:
+        kind: Panel
+        spec:
+          display:
+            name: Application errors (5xx) per second, by API
+          plugin:
+            kind: TimeSeriesChart
+            spec:
+              legend:
+                position: bottom
+              yAxis:
+                format:
+                  unit: requests/sec
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: accelerators-thanos-querier-datasource
+                  query: sum by (destination_service_namespace) (rate(istio_requests_total{destination_service_namespace=~"api-.*", response_code=~"5.."}[5m]))
+                  seriesNameFormat: '{{destination_service_namespace}}'
+      topApis:
+        kind: Panel
+        spec:
+          display:
+            name: Busiest APIs (range)
+          plugin:
+            kind: BarChart
+            spec:
+              calculation: last
+              format:
+                unit: decimal
+              sort: desc
+              mode: value
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: accelerators-thanos-querier-datasource
+                  query: sum by (destination_service_namespace) (increase(istio_requests_total{destination_service_namespace=~"api-.*"}[$__range]))
+                  seriesNameFormat: '{{destination_service_namespace}}'
+      topConsumers:
+        kind: Panel
+        spec:
+          display:
+            name: Busiest consumers across APIs (range)
+            description: From the policy engine's counters, labelled by the gateway's TelemetryPolicy
+          plugin:
+            kind: BarChart
+            spec:
+              calculation: last
+              format:
+                unit: decimal
+              sort: desc
+              mode: value
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: accelerators-thanos-querier-datasource
+                  query: sum by (user_id, limitador_namespace) (increase(authorized_calls{user_id!=""}[$__range]))
+                  seriesNameFormat: '{{user_id}} · {{limitador_namespace}}'
+      auth:
+        kind: Panel
+        spec:
+          display:
+            name: Key checks per second by result (Authorino)
+          plugin:
+            kind: TimeSeriesChart
+            spec:
+              legend:
+                position: bottom
+              yAxis:
+                format:
+                  unit: requests/sec
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: accelerators-thanos-querier-datasource
+                  query: sum by (status) (rate(auth_server_authconfig_response_status{namespace="kuadrant-system"}[5m]))
+                  seriesNameFormat: '{{status}}'
+      limit:
+        kind: Panel
+        spec:
+          display:
+            name: Plan decisions per second by API (Limitador)
+          plugin:
+            kind: TimeSeriesChart
+            spec:
+              legend:
+                position: bottom
+              yAxis:
+                format:
+                  unit: requests/sec
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: accelerators-thanos-querier-datasource
+                  query: sum by (limitador_namespace) (rate(authorized_calls[5m]))
+                  seriesNameFormat: '{{limitador_namespace}} within plan'
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: accelerators-thanos-querier-datasource
+                  query: sum by (limitador_namespace) (rate(limited_calls[5m]))
+                  seriesNameFormat: '{{limitador_namespace}} over plan'
+      gitops:
+        kind: Panel
+        spec:
+          display:
+            name: GitOps applications in governed-apis
+            description: 'One row per API: namespace, sync and health, repository'
+          plugin:
+            kind: Table
+            spec:
+              density: compact
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: accelerators-thanos-querier-datasource
+                  query: max by (name, dest_namespace, sync_status, health_status, repo) (argocd_app_info{project="governed-apis"})
+      enforced:
+        kind: Panel
+        spec:
+          display:
+            name: Policies enforced on the cluster
+          plugin:
+            kind: TimeSeriesChart
+            spec:
+              legend:
+                position: bottom
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: accelerators-thanos-querier-datasource
+                  query: sum by (kind) (kuadrant_policies_enforced{status="true"})
+                  seriesNameFormat: '{{kind}} enforced'
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: accelerators-thanos-querier-datasource
+                  query: sum by (kind) (kuadrant_policies_enforced{status="false"})
+                  seriesNameFormat: '{{kind}} NOT enforced'
+      created:
+        kind: Panel
+        spec:
+          display:
+            name: APIs with a route on the gateway over time
+            description: A step up is a new API; a step down is a retirement
+          plugin:
+            kind: TimeSeriesChart
+            spec:
+              legend:
+                position: bottom
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: accelerators-thanos-querier-datasource
+                  query: count(gatewayapi_httproute_status_parent_info{parent_name="api-gateway", parent_namespace="api-demo", controller_name="kuadrant.io/policy-controller"})
+                  seriesNameFormat: routes
+    layouts:
+    - kind: Grid
+      spec:
+        display:
+          title: The estate
+          collapse:
+            open: true
+        items:
+        - x: 0
+          y: 0
+          width: 6
+          height: 4
+          content:
+            $ref: '#/spec/panels/apis'
+        - x: 6
+          y: 0
+          width: 6
+          height: 4
+          content:
+            $ref: '#/spec/panels/synced'
+        - x: 12
+          y: 0
+          width: 6
+          height: 4
+          content:
+            $ref: '#/spec/panels/routes'
+        - x: 18
+          y: 0
+          width: 6
+          height: 4
+          content:
+            $ref: '#/spec/panels/policies'
+    - kind: Grid
+      spec:
+        display:
+          title: Traffic across the estate
+          collapse:
+            open: true
+        items:
+        - x: 0
+          y: 0
+          width: 6
+          height: 4
+          content:
+            $ref: '#/spec/panels/requests'
+        - x: 6
+          y: 0
+          width: 6
+          height: 4
+          content:
+            $ref: '#/spec/panels/stopped'
+        - x: 12
+          y: 0
+          width: 6
+          height: 4
+          content:
+            $ref: '#/spec/panels/consumers'
+        - x: 18
+          y: 0
+          width: 6
+          height: 4
+          content:
+            $ref: '#/spec/panels/p95'
+        - x: 0
+          y: 4
+          width: 12
+          height: 8
+          content:
+            $ref: '#/spec/panels/byApi'
+        - x: 12
+          y: 4
+          width: 12
+          height: 8
+          content:
+            $ref: '#/spec/panels/stoppedByApi'
+        - x: 0
+          y: 12
+          width: 12
+          height: 8
+          content:
+            $ref: '#/spec/panels/p95ByApi'
+        - x: 12
+          y: 12
+          width: 12
+          height: 8
+          content:
+            $ref: '#/spec/panels/errByApi'
+    - kind: Grid
+      spec:
+        display:
+          title: Who and what
+          collapse:
+            open: true
+        items:
+        - x: 0
+          y: 0
+          width: 12
+          height: 8
+          content:
+            $ref: '#/spec/panels/topApis'
+        - x: 12
+          y: 0
+          width: 12
+          height: 8
+          content:
+            $ref: '#/spec/panels/topConsumers'
+        - x: 0
+          y: 8
+          width: 12
+          height: 8
+          content:
+            $ref: '#/spec/panels/auth'
+        - x: 12
+          y: 8
+          width: 12
+          height: 8
+          content:
+            $ref: '#/spec/panels/limit'
+    - kind: Grid
+      spec:
+        display:
+          title: Governance
+          collapse:
+            open: true
+        items:
+        - x: 0
+          y: 0
+          width: 24
+          height: 7
+          content:
+            $ref: '#/spec/panels/gitops'
+        - x: 0
+          y: 7
+          width: 12
+          height: 8
+          content:
+            $ref: '#/spec/panels/enforced'
+        - x: 12
+          y: 7
+          width: 12
+          height: 8
+          content:
+            $ref: '#/spec/panels/created'

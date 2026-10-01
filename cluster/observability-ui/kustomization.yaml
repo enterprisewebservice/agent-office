@@ -3,3 +3,4 @@ kind: Kustomization
 resources:
   - uiplugins.yaml
   - perses-api-demo.yaml
+  - perses-governed-apis.yaml
