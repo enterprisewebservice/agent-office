@@ -35,3 +35,10 @@ Change any of them in a pull request. The merge is the approval; the commit hist
 ## Removing the API
 
 Delete the GitOps application `${{ values.name }}-api` (project `governed-apis`) and the namespace `api-${{ values.name }}`; unregister the component in Developer Hub; archive this repository.
+
+## Dashboards
+
+Five Perses dashboards in the console (Observe → Dashboards), all as code in `gitops/`: `dashboard.yaml` (traffic, decisions, latency),
+`dashboard-consumers.yaml` (who is calling, on which plan, allowance used today; per-consumer labels come from the gateway's
+TelemetryPolicy), `dashboard-decisions.yaml` (the funnel every request goes through), `dashboard-cost.yaml` (what the key check
+adds next to the end-to-end latency) and `dashboard-posture.yaml` (route attached, policies enforced, GitOps in sync, backend up).

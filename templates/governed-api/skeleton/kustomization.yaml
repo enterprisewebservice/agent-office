@@ -14,6 +14,10 @@ resources:
   - gitops/apiproduct.yaml
   - gitops/instrumentation.yaml
   - gitops/dashboard.yaml
+  - gitops/dashboard-consumers.yaml
+  - gitops/dashboard-decisions.yaml
+  - gitops/dashboard-cost.yaml
+  - gitops/dashboard-posture.yaml
 # The contract, mounted into the backend (the mock serves it; a real backend can
 # validate against it).
 configMapGenerator:

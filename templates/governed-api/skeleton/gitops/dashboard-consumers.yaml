@@ -1,0 +1,405 @@
+# Who is calling: per-consumer counts from Limitador, labelled user_id/plan/consumer by the
+# TelemetryPolicy on the shared gateway (Technology Preview in Connectivity Link 1.4).
+apiVersion: perses.dev/v1alpha2
+kind: PersesDashboard
+metadata:
+  name: ${{ values.name }}-api-consumers
+  namespace: ${{ values.dashboardsNamespace }}
+  labels:
+    governed-api/name: ${{ values.name }}
+spec:
+  config:
+    display:
+      name: '${{ values.displayName }}: consumers and plans'
+      description: Who is calling this API, on which plan, and how much of today's allowance is used; from the policy engine's counters, labelled by the gateway's TelemetryPolicy
+    duration: 1h
+    refreshInterval: 30s
+    panels:
+      consumers:
+        kind: Panel
+        spec:
+          display:
+            name: Consumers seen in range
+            description: Distinct user ids behind the keys that made at least one call within their plan
+          plugin:
+            kind: StatChart
+            spec:
+              calculation: last
+              format:
+                unit: decimal
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: ${{ values.datasourceName }}
+                  query: count(count by (user_id) (increase(authorized_calls{limitador_namespace="api-${{ values.name }}/${{ values.name }}-api", user_id!=""}[$__range]) > 0)) or vector(0)
+      calls:
+        kind: Panel
+        spec:
+          display:
+            name: Calls within plan
+          plugin:
+            kind: StatChart
+            spec:
+              calculation: last
+              format:
+                unit: decimal
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: ${{ values.datasourceName }}
+                  query: sum(increase(authorized_calls{limitador_namespace="api-${{ values.name }}/${{ values.name }}-api"}[$__range])) or vector(0)
+      refused:
+        kind: Panel
+        spec:
+          display:
+            name: Refused over plan (429)
+          plugin:
+            kind: StatChart
+            spec:
+              calculation: last
+              format:
+                unit: decimal
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: ${{ values.datasourceName }}
+                  query: sum(increase(limited_calls{limitador_namespace="api-${{ values.name }}/${{ values.name }}-api"}[$__range])) or vector(0)
+      topPlan:
+        kind: Panel
+        spec:
+          display:
+            name: Busiest plan
+            description: The plan with the most calls in range
+          plugin:
+            kind: StatChart
+            spec:
+              calculation: last
+              format:
+                unit: decimal
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: ${{ values.datasourceName }}
+                  query: topk(1, sum by (plan) (increase(authorized_calls{limitador_namespace="api-${{ values.name }}/${{ values.name }}-api", plan!=""}[$__range])))
+      byConsumer:
+        kind: Panel
+        spec:
+          display:
+            name: Calls per consumer and plan (range)
+            description: 'Counted by the policy engine per consumer: the TelemetryPolicy on the gateway labels every decision with the user id and the plan of the key'
+          plugin:
+            kind: BarChart
+            spec:
+              calculation: last
+              format:
+                unit: decimal
+              sort: desc
+              mode: value
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: ${{ values.datasourceName }}
+                  query: sum by (user_id, plan) (increase(authorized_calls{limitador_namespace="api-${{ values.name }}/${{ values.name }}-api", user_id!=""}[$__range]))
+                  seriesNameFormat: '{{user_id}} · {{plan}}'
+      refusedByConsumer:
+        kind: Panel
+        spec:
+          display:
+            name: Refused over plan, per consumer (range)
+          plugin:
+            kind: BarChart
+            spec:
+              calculation: last
+              format:
+                unit: decimal
+              sort: desc
+              mode: value
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: ${{ values.datasourceName }}
+                  query: sum by (user_id, plan) (increase(limited_calls{limitador_namespace="api-${{ values.name }}/${{ values.name }}-api", user_id!=""}[$__range]))
+                  seriesNameFormat: '{{user_id}} · {{plan}}'
+      rateByConsumer:
+        kind: Panel
+        spec:
+          display:
+            name: Calls per second by consumer
+          plugin:
+            kind: TimeSeriesChart
+            spec:
+              legend:
+                position: bottom
+              yAxis:
+                format:
+                  unit: requests/sec
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: ${{ values.datasourceName }}
+                  query: sum by (user_id, plan) (rate(authorized_calls{limitador_namespace="api-${{ values.name }}/${{ values.name }}-api", user_id!=""}[5m]))
+                  seriesNameFormat: '{{user_id}} · {{plan}}'
+      refusedRate:
+        kind: Panel
+        spec:
+          display:
+            name: Refusals per second by consumer (429)
+          plugin:
+            kind: TimeSeriesChart
+            spec:
+              legend:
+                position: bottom
+              yAxis:
+                format:
+                  unit: requests/sec
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: ${{ values.datasourceName }}
+                  query: sum by (user_id, plan) (rate(limited_calls{limitador_namespace="api-${{ values.name }}/${{ values.name }}-api", user_id!=""}[5m]))
+                  seriesNameFormat: '{{user_id}} · {{plan}}'
+      gold:
+        kind: Panel
+        spec:
+          display:
+            name: 'Gold plan: calls today of ${{ values.goldDaily }}'
+            description: All gold consumers together; the limit applies per consumer
+          plugin:
+            kind: GaugeChart
+            spec:
+              calculation: last
+              format:
+                unit: decimal
+                decimalPlaces: 0
+              max: ${{ values.goldDaily }}
+              thresholds:
+                mode: percent
+                steps:
+                - value: 70
+                  color: '#f0ab00'
+                - value: 90
+                  color: '#c9190b'
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: ${{ values.datasourceName }}
+                  query: sum(increase(authorized_calls{limitador_namespace="api-${{ values.name }}/${{ values.name }}-api", plan="gold"}[24h])) or vector(0)
+      silver:
+        kind: Panel
+        spec:
+          display:
+            name: 'Silver plan: calls today of ${{ values.silverDaily }}'
+          plugin:
+            kind: GaugeChart
+            spec:
+              calculation: last
+              format:
+                unit: decimal
+                decimalPlaces: 0
+              max: ${{ values.silverDaily }}
+              thresholds:
+                mode: percent
+                steps:
+                - value: 70
+                  color: '#f0ab00'
+                - value: 90
+                  color: '#c9190b'
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: ${{ values.datasourceName }}
+                  query: sum(increase(authorized_calls{limitador_namespace="api-${{ values.name }}/${{ values.name }}-api", plan="silver"}[24h])) or vector(0)
+      bronze:
+        kind: Panel
+        spec:
+          display:
+            name: 'Bronze plan: calls today of ${{ values.bronzeDaily }}'
+          plugin:
+            kind: GaugeChart
+            spec:
+              calculation: last
+              format:
+                unit: decimal
+                decimalPlaces: 0
+              max: ${{ values.bronzeDaily }}
+              thresholds:
+                mode: percent
+                steps:
+                - value: 70
+                  color: '#f0ab00'
+                - value: 90
+                  color: '#c9190b'
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: ${{ values.datasourceName }}
+                  query: sum(increase(authorized_calls{limitador_namespace="api-${{ values.name }}/${{ values.name }}-api", plan="bronze"}[24h])) or vector(0)
+      ledger:
+        kind: Panel
+        spec:
+          display:
+            name: Consumer ledger (range)
+            description: user id, plan and the consumer's namespace, with the calls counted within plan
+          plugin:
+            kind: Table
+            spec:
+              density: compact
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: ${{ values.datasourceName }}
+                  query: sum by (user_id, plan, consumer) (increase(authorized_calls{limitador_namespace="api-${{ values.name }}/${{ values.name }}-api", user_id!=""}[$__range]))
+    layouts:
+    - kind: Grid
+      spec:
+        display:
+          title: Who is calling
+          collapse:
+            open: true
+        items:
+        - x: 0
+          y: 0
+          width: 6
+          height: 4
+          content:
+            $ref: '#/spec/panels/consumers'
+        - x: 6
+          y: 0
+          width: 6
+          height: 4
+          content:
+            $ref: '#/spec/panels/calls'
+        - x: 12
+          y: 0
+          width: 6
+          height: 4
+          content:
+            $ref: '#/spec/panels/refused'
+        - x: 18
+          y: 0
+          width: 6
+          height: 4
+          content:
+            $ref: '#/spec/panels/topPlan'
+    - kind: Grid
+      spec:
+        display:
+          title: Per consumer
+          collapse:
+            open: true
+        items:
+        - x: 0
+          y: 0
+          width: 12
+          height: 8
+          content:
+            $ref: '#/spec/panels/byConsumer'
+        - x: 12
+          y: 0
+          width: 12
+          height: 8
+          content:
+            $ref: '#/spec/panels/refusedByConsumer'
+        - x: 0
+          y: 8
+          width: 12
+          height: 8
+          content:
+            $ref: '#/spec/panels/rateByConsumer'
+        - x: 12
+          y: 8
+          width: 12
+          height: 8
+          content:
+            $ref: '#/spec/panels/refusedRate'
+    - kind: Grid
+      spec:
+        display:
+          title: Plan allowances today
+          collapse:
+            open: true
+        items:
+        - x: 0
+          y: 0
+          width: 8
+          height: 6
+          content:
+            $ref: '#/spec/panels/gold'
+        - x: 8
+          y: 0
+          width: 8
+          height: 6
+          content:
+            $ref: '#/spec/panels/silver'
+        - x: 16
+          y: 0
+          width: 8
+          height: 6
+          content:
+            $ref: '#/spec/panels/bronze'
+        - x: 0
+          y: 6
+          width: 24
+          height: 8
+          content:
+            $ref: '#/spec/panels/ledger'

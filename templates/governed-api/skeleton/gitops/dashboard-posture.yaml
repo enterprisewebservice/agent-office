@@ -1,0 +1,372 @@
+# Is the API governed right now: Gateway API status metrics, GitOps application, deployment.
+apiVersion: perses.dev/v1alpha2
+kind: PersesDashboard
+metadata:
+  name: ${{ values.name }}-api-posture
+  namespace: ${{ values.dashboardsNamespace }}
+  labels:
+    governed-api/name: ${{ values.name }}
+spec:
+  config:
+    display:
+      name: '${{ values.displayName }}: governance posture'
+      description: 'Is this API governed right now: route attached, key and plan policies enforced, GitOps in sync, backend up'
+    duration: 1h
+    refreshInterval: 30s
+    panels:
+      route:
+        kind: Panel
+        spec:
+          display:
+            name: Route attached to the gateway
+            description: 1 = the HTTPRoute is accepted by the shared gateway ${{ values.gatewayNamespace }}/${{ values.gatewayName }}
+          plugin:
+            kind: StatChart
+            spec:
+              calculation: last
+              format:
+                unit: decimal
+                decimalPlaces: 0
+              thresholds: &id001
+                steps:
+                - value: 0
+                  color: '#c9190b'
+                - value: 1
+                  color: '#3e8635'
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: ${{ values.datasourceName }}
+                  query: max(gatewayapi_httproute_status_parent_info{exported_namespace="api-${{ values.name }}", name="${{ values.name }}-api", parent_name="${{ values.gatewayName }}"}) or vector(0)
+      auth:
+        kind: Panel
+        spec:
+          display:
+            name: Key policy enforced
+            description: 1 = the AuthPolicy is enforced on the route
+          plugin:
+            kind: StatChart
+            spec:
+              calculation: last
+              format:
+                unit: decimal
+                decimalPlaces: 0
+              thresholds: *id001
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: ${{ values.datasourceName }}
+                  query: max(gatewayapi_authpolicy_status{exported_namespace="api-${{ values.name }}", name="${{ values.name }}-api-auth", type="Enforced"}) or vector(0)
+      plans:
+        kind: Panel
+        spec:
+          display:
+            name: Plan policy enforced
+            description: 1 = the rate limits generated from the PlanPolicy are enforced
+          plugin:
+            kind: StatChart
+            spec:
+              calculation: last
+              format:
+                unit: decimal
+                decimalPlaces: 0
+              thresholds: *id001
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: ${{ values.datasourceName }}
+                  query: max(gatewayapi_ratelimitpolicy_status{exported_namespace="api-${{ values.name }}", name="${{ values.name }}-api-plans", type="Enforced"}) or vector(0)
+      gitops:
+        kind: Panel
+        spec:
+          display:
+            name: GitOps synced and healthy
+            description: 1 = the cluster matches the repository
+          plugin:
+            kind: StatChart
+            spec:
+              calculation: last
+              format:
+                unit: decimal
+                decimalPlaces: 0
+              thresholds: *id001
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: ${{ values.datasourceName }}
+                  query: max(argocd_app_info{name="${{ values.name }}-api", sync_status="Synced", health_status="Healthy"}) or vector(0)
+      backend:
+        kind: Panel
+        spec:
+          display:
+            name: Backend replicas available
+          plugin:
+            kind: StatChart
+            spec:
+              calculation: last
+              format:
+                unit: decimal
+                decimalPlaces: 0
+              thresholds: *id001
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: ${{ values.datasourceName }}
+                  query: max(kube_deployment_status_replicas_available{namespace="api-${{ values.name }}", deployment="${{ values.name }}-api"}) or vector(0)
+      listeners:
+        kind: Panel
+        spec:
+          display:
+            name: Routes on the shared gateway
+            description: All APIs attached to ${{ values.gatewayNamespace }}/${{ values.gatewayName }}
+          plugin:
+            kind: StatChart
+            spec:
+              calculation: last
+              format:
+                unit: decimal
+                decimalPlaces: 0
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: ${{ values.datasourceName }}
+                  query: sum(gatewayapi_gateway_status_listener_attached_routes{exported_namespace="${{ values.gatewayNamespace }}", name="${{ values.gatewayName }}"}) or vector(0)
+      keysActive:
+        kind: Panel
+        spec:
+          display:
+            name: Consumers with a working key (range)
+          plugin:
+            kind: StatChart
+            spec:
+              calculation: last
+              format:
+                unit: decimal
+                decimalPlaces: 0
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: ${{ values.datasourceName }}
+                  query: count(count by (user_id) (increase(authorized_calls{limitador_namespace="api-${{ values.name }}/${{ values.name }}-api", user_id!=""}[$__range]) > 0)) or vector(0)
+      lastCall:
+        kind: Panel
+        spec:
+          display:
+            name: Calls in the last 5 minutes
+          plugin:
+            kind: StatChart
+            spec:
+              calculation: last
+              format:
+                unit: decimal
+                decimalPlaces: 0
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: ${{ values.datasourceName }}
+                  query: sum(increase(istio_requests_total{destination_service_namespace="api-${{ values.name }}"}[5m])) or vector(0)
+      history:
+        kind: Panel
+        spec:
+          display:
+            name: Posture over time
+            description: Any dip is a moment the API was not fully governed or not fully up
+          plugin:
+            kind: TimeSeriesChart
+            spec:
+              legend:
+                position: bottom
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: ${{ values.datasourceName }}
+                  query: max(gatewayapi_authpolicy_status{exported_namespace="api-${{ values.name }}", name="${{ values.name }}-api-auth", type="Enforced"})
+                  seriesNameFormat: key policy enforced
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: ${{ values.datasourceName }}
+                  query: max(gatewayapi_ratelimitpolicy_status{exported_namespace="api-${{ values.name }}", name="${{ values.name }}-api-plans", type="Enforced"})
+                  seriesNameFormat: plan policy enforced
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: ${{ values.datasourceName }}
+                  query: max(argocd_app_info{name="${{ values.name }}-api", sync_status="Synced"})
+                  seriesNameFormat: gitops synced
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: ${{ values.datasourceName }}
+                  query: max(kube_deployment_status_replicas_available{namespace="api-${{ values.name }}", deployment="${{ values.name }}-api"})
+                  seriesNameFormat: backend replicas
+      policiesCluster:
+        kind: Panel
+        spec:
+          display:
+            name: Policies enforced on the cluster (all APIs)
+          plugin:
+            kind: TimeSeriesChart
+            spec:
+              legend:
+                position: bottom
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: ${{ values.datasourceName }}
+                  query: sum by (kind) (kuadrant_policies_enforced{status="true"})
+                  seriesNameFormat: '{{kind}} enforced'
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: ${{ values.datasourceName }}
+                  query: sum by (kind) (kuadrant_policies_enforced{status="false"})
+                  seriesNameFormat: '{{kind}} NOT enforced'
+    layouts:
+    - kind: Grid
+      spec:
+        display:
+          title: Right now
+          collapse:
+            open: true
+        items:
+        - x: 0
+          y: 0
+          width: 6
+          height: 4
+          content:
+            $ref: '#/spec/panels/route'
+        - x: 6
+          y: 0
+          width: 6
+          height: 4
+          content:
+            $ref: '#/spec/panels/auth'
+        - x: 12
+          y: 0
+          width: 6
+          height: 4
+          content:
+            $ref: '#/spec/panels/plans'
+        - x: 18
+          y: 0
+          width: 6
+          height: 4
+          content:
+            $ref: '#/spec/panels/gitops'
+    - kind: Grid
+      spec:
+        display:
+          title: Running
+          collapse:
+            open: true
+        items:
+        - x: 0
+          y: 0
+          width: 6
+          height: 4
+          content:
+            $ref: '#/spec/panels/backend'
+        - x: 6
+          y: 0
+          width: 6
+          height: 4
+          content:
+            $ref: '#/spec/panels/listeners'
+        - x: 12
+          y: 0
+          width: 6
+          height: 4
+          content:
+            $ref: '#/spec/panels/keysActive'
+        - x: 18
+          y: 0
+          width: 6
+          height: 4
+          content:
+            $ref: '#/spec/panels/lastCall'
+    - kind: Grid
+      spec:
+        display:
+          title: Over time
+          collapse:
+            open: true
+        items:
+        - x: 0
+          y: 0
+          width: 12
+          height: 8
+          content:
+            $ref: '#/spec/panels/history'
+        - x: 12
+          y: 0
+          width: 12
+          height: 8
+          content:
+            $ref: '#/spec/panels/policiesCluster'

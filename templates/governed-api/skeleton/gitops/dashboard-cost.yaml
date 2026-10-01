@@ -1,0 +1,327 @@
+# What the key check and the plan check add to a request (Authorino duration, gateway latency).
+apiVersion: perses.dev/v1alpha2
+kind: PersesDashboard
+metadata:
+  name: ${{ values.name }}-api-cost
+  namespace: ${{ values.dashboardsNamespace }}
+  labels:
+    governed-api/name: ${{ values.name }}
+spec:
+  config:
+    display:
+      name: '${{ values.displayName }}: the cost of governance'
+      description: What the key check and the plan check add to a request, next to the end-to-end latency at the gateway
+    duration: 1h
+    refreshInterval: 30s
+    panels:
+      authP95:
+        kind: Panel
+        spec:
+          display:
+            name: Key check p95 (Authorino)
+            description: 'Shared by every API on the gateway: validating the key and resolving the consumer and plan'
+          plugin:
+            kind: StatChart
+            spec:
+              calculation: last
+              format:
+                unit: milliseconds
+                decimalPlaces: 1
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: ${{ values.datasourceName }}
+                  query: histogram_quantile(0.95, sum by (le) (increase(auth_server_authconfig_duration_seconds_bucket{namespace="kuadrant-system"}[$__range]))) * 1000
+      e2eP95:
+        kind: Panel
+        spec:
+          display:
+            name: End to end p95 at the gateway
+            description: 'This API: from the gateway receiving the request to the last byte of the answer'
+          plugin:
+            kind: StatChart
+            spec:
+              calculation: last
+              format:
+                unit: milliseconds
+                decimalPlaces: 1
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: ${{ values.datasourceName }}
+                  query: histogram_quantile(0.95, sum by (le) (increase(istio_request_duration_milliseconds_bucket{destination_service_namespace="api-${{ values.name }}"}[$__range])))
+      e2eP50:
+        kind: Panel
+        spec:
+          display:
+            name: End to end p50
+          plugin:
+            kind: StatChart
+            spec:
+              calculation: last
+              format:
+                unit: milliseconds
+                decimalPlaces: 1
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: ${{ values.datasourceName }}
+                  query: histogram_quantile(0.50, sum by (le) (increase(istio_request_duration_milliseconds_bucket{destination_service_namespace="api-${{ values.name }}"}[$__range])))
+      share:
+        kind: Panel
+        spec:
+          display:
+            name: Key check as a share of p95
+            description: 'Approximate: the auth check''s p95 over this API''s end-to-end p95'
+          plugin:
+            kind: StatChart
+            spec:
+              calculation: last
+              format:
+                unit: percent
+                decimalPlaces: 0
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: ${{ values.datasourceName }}
+                  query: 100 * (histogram_quantile(0.95, sum by (le) (increase(auth_server_authconfig_duration_seconds_bucket{namespace="kuadrant-system"}[$__range]))) * 1000) / clamp_min(histogram_quantile(0.95, sum by (le) (increase(istio_request_duration_milliseconds_bucket{destination_service_namespace="api-${{ values.name }}"}[$__range]))), 0.1)
+      authSeries:
+        kind: Panel
+        spec:
+          display:
+            name: Key check duration (shared gateway)
+          plugin:
+            kind: TimeSeriesChart
+            spec:
+              legend:
+                position: bottom
+              yAxis:
+                format:
+                  unit: milliseconds
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: ${{ values.datasourceName }}
+                  query: histogram_quantile(0.50, sum by (le) (rate(auth_server_authconfig_duration_seconds_bucket{namespace="kuadrant-system"}[5m]))) * 1000
+                  seriesNameFormat: p50
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: ${{ values.datasourceName }}
+                  query: histogram_quantile(0.95, sum by (le) (rate(auth_server_authconfig_duration_seconds_bucket{namespace="kuadrant-system"}[5m]))) * 1000
+                  seriesNameFormat: p95
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: ${{ values.datasourceName }}
+                  query: histogram_quantile(0.99, sum by (le) (rate(auth_server_authconfig_duration_seconds_bucket{namespace="kuadrant-system"}[5m]))) * 1000
+                  seriesNameFormat: p99
+      e2eSeries:
+        kind: Panel
+        spec:
+          display:
+            name: End to end at the gateway (this API)
+          plugin:
+            kind: TimeSeriesChart
+            spec:
+              legend:
+                position: bottom
+              yAxis:
+                format:
+                  unit: milliseconds
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: ${{ values.datasourceName }}
+                  query: histogram_quantile(0.50, sum by (le) (rate(istio_request_duration_milliseconds_bucket{destination_service_namespace="api-${{ values.name }}"}[5m])))
+                  seriesNameFormat: p50
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: ${{ values.datasourceName }}
+                  query: histogram_quantile(0.95, sum by (le) (rate(istio_request_duration_milliseconds_bucket{destination_service_namespace="api-${{ values.name }}"}[5m])))
+                  seriesNameFormat: p95
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: ${{ values.datasourceName }}
+                  query: histogram_quantile(0.99, sum by (le) (rate(istio_request_duration_milliseconds_bucket{destination_service_namespace="api-${{ values.name }}"}[5m])))
+                  seriesNameFormat: p99
+      byOutcome:
+        kind: Panel
+        spec:
+          display:
+            name: p95 by outcome
+            description: A stopped request is answered by the gateway in the time of the check alone
+          plugin:
+            kind: TimeSeriesChart
+            spec:
+              legend:
+                position: bottom
+              yAxis:
+                format:
+                  unit: milliseconds
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: ${{ values.datasourceName }}
+                  query: histogram_quantile(0.95, sum by (le) (rate(istio_request_duration_milliseconds_bucket{destination_service_namespace="api-${{ values.name }}", response_code=~"2.."}[5m])))
+                  seriesNameFormat: served (2xx)
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: ${{ values.datasourceName }}
+                  query: histogram_quantile(0.95, sum by (le) (rate(istio_request_duration_milliseconds_bucket{destination_service_namespace="api-${{ values.name }}", response_code=~"401|403"}[5m])))
+                  seriesNameFormat: 'stopped: key'
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: ${{ values.datasourceName }}
+                  query: histogram_quantile(0.95, sum by (le) (rate(istio_request_duration_milliseconds_bucket{destination_service_namespace="api-${{ values.name }}", response_code="429"}[5m])))
+                  seriesNameFormat: 'stopped: plan'
+      authRate:
+        kind: Panel
+        spec:
+          display:
+            name: Key checks per second by result (shared gateway)
+          plugin:
+            kind: TimeSeriesChart
+            spec:
+              legend:
+                position: bottom
+              yAxis:
+                format:
+                  unit: requests/sec
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: ${{ values.datasourceName }}
+                  query: sum by (status) (rate(auth_server_authconfig_response_status{namespace="kuadrant-system"}[5m]))
+                  seriesNameFormat: '{{status}}'
+    layouts:
+    - kind: Grid
+      spec:
+        display:
+          title: What the checks cost
+          collapse:
+            open: true
+        items:
+        - x: 0
+          y: 0
+          width: 6
+          height: 4
+          content:
+            $ref: '#/spec/panels/authP95'
+        - x: 6
+          y: 0
+          width: 6
+          height: 4
+          content:
+            $ref: '#/spec/panels/e2eP95'
+        - x: 12
+          y: 0
+          width: 6
+          height: 4
+          content:
+            $ref: '#/spec/panels/e2eP50'
+        - x: 18
+          y: 0
+          width: 6
+          height: 4
+          content:
+            $ref: '#/spec/panels/share'
+    - kind: Grid
+      spec:
+        display:
+          title: Over time
+          collapse:
+            open: true
+        items:
+        - x: 0
+          y: 0
+          width: 12
+          height: 8
+          content:
+            $ref: '#/spec/panels/authSeries'
+        - x: 12
+          y: 0
+          width: 12
+          height: 8
+          content:
+            $ref: '#/spec/panels/e2eSeries'
+        - x: 0
+          y: 8
+          width: 12
+          height: 8
+          content:
+            $ref: '#/spec/panels/byOutcome'
+        - x: 12
+          y: 8
+          width: 12
+          height: 8
+          content:
+            $ref: '#/spec/panels/authRate'

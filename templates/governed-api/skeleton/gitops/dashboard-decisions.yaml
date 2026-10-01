@@ -1,0 +1,393 @@
+# The funnel every request goes through, from the gateway's own request metrics.
+apiVersion: perses.dev/v1alpha2
+kind: PersesDashboard
+metadata:
+  name: ${{ values.name }}-api-decisions
+  namespace: ${{ values.dashboardsNamespace }}
+  labels:
+    governed-api/name: ${{ values.name }}
+spec:
+  config:
+    display:
+      name: '${{ values.displayName }}: policy decisions'
+      description: 'Every request as a funnel: received, key checked, plan checked, served; what the gateway stopped and why'
+    duration: 1h
+    refreshInterval: 30s
+    panels:
+      received:
+        kind: Panel
+        spec:
+          display:
+            name: Received at the gateway
+          plugin:
+            kind: StatChart
+            spec:
+              calculation: last
+              format:
+                unit: decimal
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: ${{ values.datasourceName }}
+                  query: sum(increase(istio_requests_total{destination_service_namespace="api-${{ values.name }}"}[$__range])) or vector(0)
+      authenticated:
+        kind: Panel
+        spec:
+          display:
+            name: Passed the key check
+            description: Authorino found a valid key (AuthPolicy)
+          plugin:
+            kind: StatChart
+            spec:
+              calculation: last
+              format:
+                unit: decimal
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: ${{ values.datasourceName }}
+                  query: sum(increase(istio_requests_total{destination_service_namespace="api-${{ values.name }}", response_code!~"401|403"}[$__range])) or vector(0)
+      withinPlan:
+        kind: Panel
+        spec:
+          display:
+            name: Within the plan
+            description: Limitador counted the call inside the consumer's daily allowance (PlanPolicy)
+          plugin:
+            kind: StatChart
+            spec:
+              calculation: last
+              format:
+                unit: decimal
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: ${{ values.datasourceName }}
+                  query: sum(increase(istio_requests_total{destination_service_namespace="api-${{ values.name }}", response_code!~"401|403|429"}[$__range])) or vector(0)
+      served:
+        kind: Panel
+        spec:
+          display:
+            name: Served by the application
+          plugin:
+            kind: StatChart
+            spec:
+              calculation: last
+              format:
+                unit: decimal
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: ${{ values.datasourceName }}
+                  query: sum(increase(istio_requests_total{destination_service_namespace="api-${{ values.name }}", response_code=~"2.."}[$__range])) or vector(0)
+      stoppedAuth:
+        kind: Panel
+        spec:
+          display:
+            name: 'Stopped: no or bad key (401/403)'
+          plugin:
+            kind: StatChart
+            spec:
+              calculation: last
+              format:
+                unit: decimal
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: ${{ values.datasourceName }}
+                  query: sum(increase(istio_requests_total{destination_service_namespace="api-${{ values.name }}", response_code=~"401|403"}[$__range])) or vector(0)
+      stoppedPlan:
+        kind: Panel
+        spec:
+          display:
+            name: 'Stopped: over the plan (429)'
+          plugin:
+            kind: StatChart
+            spec:
+              calculation: last
+              format:
+                unit: decimal
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: ${{ values.datasourceName }}
+                  query: sum(increase(istio_requests_total{destination_service_namespace="api-${{ values.name }}", response_code="429"}[$__range])) or vector(0)
+      appErrors:
+        kind: Panel
+        spec:
+          display:
+            name: Application errors (5xx)
+          plugin:
+            kind: StatChart
+            spec:
+              calculation: last
+              format:
+                unit: decimal
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: ${{ values.datasourceName }}
+                  query: sum(increase(istio_requests_total{destination_service_namespace="api-${{ values.name }}", response_code=~"5.."}[$__range])) or vector(0)
+      enforcedShare:
+        kind: Panel
+        spec:
+          display:
+            name: Share decided by the gateway
+            description: Requests that never reached the application because a policy stopped them
+          plugin:
+            kind: StatChart
+            spec:
+              calculation: last
+              format:
+                unit: percent
+                decimalPlaces: 1
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: ${{ values.datasourceName }}
+                  query: 100 * (sum(increase(istio_requests_total{destination_service_namespace="api-${{ values.name }}", response_code=~"401|403|429"}[$__range])) or vector(0)) / clamp_min(sum(increase(istio_requests_total{destination_service_namespace="api-${{ values.name }}"}[$__range])), 1)
+      outcomes:
+        kind: Panel
+        spec:
+          display:
+            name: Outcomes per second
+            description: 'Stacked: what happened to every request, as the gateway reported it'
+          plugin:
+            kind: TimeSeriesChart
+            spec:
+              legend:
+                position: bottom
+              yAxis:
+                format:
+                  unit: requests/sec
+              visual:
+                stack: all
+                areaOpacity: 0.6
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: ${{ values.datasourceName }}
+                  query: sum(rate(istio_requests_total{destination_service_namespace="api-${{ values.name }}", response_code=~"2.."}[5m]))
+                  seriesNameFormat: served (2xx)
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: ${{ values.datasourceName }}
+                  query: sum(rate(istio_requests_total{destination_service_namespace="api-${{ values.name }}", response_code=~"401|403"}[5m]))
+                  seriesNameFormat: 'stopped: key (401/403)'
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: ${{ values.datasourceName }}
+                  query: sum(rate(istio_requests_total{destination_service_namespace="api-${{ values.name }}", response_code="429"}[5m]))
+                  seriesNameFormat: 'stopped: plan (429)'
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: ${{ values.datasourceName }}
+                  query: sum(rate(istio_requests_total{destination_service_namespace="api-${{ values.name }}", response_code=~"5.."}[5m]))
+                  seriesNameFormat: application error (5xx)
+      engine:
+        kind: Panel
+        spec:
+          display:
+            name: The policy engine's own count
+            description: Limitador's counters for this API; they match the gateway's 429s
+          plugin:
+            kind: TimeSeriesChart
+            spec:
+              legend:
+                position: bottom
+              yAxis:
+                format:
+                  unit: requests/sec
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: ${{ values.datasourceName }}
+                  query: sum(rate(authorized_calls{limitador_namespace="api-${{ values.name }}/${{ values.name }}-api"}[5m])) or vector(0)
+                  seriesNameFormat: within plan
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: ${{ values.datasourceName }}
+                  query: sum(rate(limited_calls{limitador_namespace="api-${{ values.name }}/${{ values.name }}-api"}[5m])) or vector(0)
+                  seriesNameFormat: over plan
+      byPath:
+        kind: Panel
+        spec:
+          display:
+            name: Decisions by path (range)
+          plugin:
+            kind: BarChart
+            spec:
+              calculation: last
+              format:
+                unit: decimal
+              sort: desc
+              mode: value
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: ${{ values.datasourceName }}
+                  query: sum by (request_url_path, response_code) (increase(istio_requests_total{destination_service_namespace="api-${{ values.name }}"}[$__range]))
+                  seriesNameFormat: '{{request_url_path}} → {{response_code}}'
+    layouts:
+    - kind: Grid
+      spec:
+        display:
+          title: The funnel
+          collapse:
+            open: true
+        items:
+        - x: 0
+          y: 0
+          width: 6
+          height: 4
+          content:
+            $ref: '#/spec/panels/received'
+        - x: 6
+          y: 0
+          width: 6
+          height: 4
+          content:
+            $ref: '#/spec/panels/authenticated'
+        - x: 12
+          y: 0
+          width: 6
+          height: 4
+          content:
+            $ref: '#/spec/panels/withinPlan'
+        - x: 18
+          y: 0
+          width: 6
+          height: 4
+          content:
+            $ref: '#/spec/panels/served'
+    - kind: Grid
+      spec:
+        display:
+          title: Stopped at the gateway
+          collapse:
+            open: true
+        items:
+        - x: 0
+          y: 0
+          width: 6
+          height: 4
+          content:
+            $ref: '#/spec/panels/stoppedAuth'
+        - x: 6
+          y: 0
+          width: 6
+          height: 4
+          content:
+            $ref: '#/spec/panels/stoppedPlan'
+        - x: 12
+          y: 0
+          width: 6
+          height: 4
+          content:
+            $ref: '#/spec/panels/appErrors'
+        - x: 18
+          y: 0
+          width: 6
+          height: 4
+          content:
+            $ref: '#/spec/panels/enforcedShare'
+    - kind: Grid
+      spec:
+        display:
+          title: Over time
+          collapse:
+            open: true
+        items:
+        - x: 0
+          y: 0
+          width: 12
+          height: 8
+          content:
+            $ref: '#/spec/panels/outcomes'
+        - x: 12
+          y: 0
+          width: 12
+          height: 8
+          content:
+            $ref: '#/spec/panels/engine'
+        - x: 0
+          y: 8
+          width: 24
+          height: 8
+          content:
+            $ref: '#/spec/panels/byPath'
