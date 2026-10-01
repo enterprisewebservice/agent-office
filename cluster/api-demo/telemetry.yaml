@@ -9,6 +9,15 @@ metadata:
   name: namespace-metrics
   namespace: api-demo
 spec:
+  # JSON access log with identity, plan, request id and traceparent (provider
+  # json-access-log on the Service Mesh 3.4 control plane, cluster/service-mesh)
+  accessLogging:
+    - providers:
+        - name: json-access-log
+  tracing:
+    - providers:
+        - name: tempo-otlp
+      randomSamplingPercentage: 100
   metrics:
     - providers:
         - name: prometheus

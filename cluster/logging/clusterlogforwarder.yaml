@@ -1,6 +1,6 @@
-# Application logs only (every non-openshift namespace: api-demo, kuadrant-system,
-# istio-system, agent-office...). Infrastructure logs would swamp a demo-size
-# Loki on a cluster with 1,200 pods; add them when the size grows.
+# Application logs from the demo namespaces only. The whole cluster's application
+# logs OOM-killed the collectors and swamped a demo-size Loki (1,200 pods); widen
+# the includes list, the collector memory and the LokiStack size together.
 apiVersion: observability.openshift.io/v1
 kind: ClusterLogForwarder
 metadata:
@@ -10,6 +10,26 @@ metadata:
 spec:
   serviceAccount:
     name: collector
+  collector:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+      limits:
+        memory: 2Gi
+  inputs:
+    # only the namespaces the demo reads; the whole cluster's application logs
+    # OOM-killed the collectors and swamped a demo-size Loki
+    - name: demo-namespaces
+      type: application
+      application:
+        includes:
+          - namespace: api-demo
+          - namespace: kuadrant-system
+          - namespace: istio-system
+          - namespace: observability
+          - namespace: agent-office
+          - namespace: bestbuy-demo
   outputs:
     - name: default-lokistack
       type: lokiStack
@@ -26,5 +46,5 @@ spec:
           configMapName: openshift-service-ca.crt
   pipelines:
     - name: application-logs
-      inputRefs: [application]
+      inputRefs: [demo-namespaces]
       outputRefs: [default-lokistack]
