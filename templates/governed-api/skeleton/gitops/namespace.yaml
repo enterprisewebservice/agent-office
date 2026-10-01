@@ -15,6 +15,9 @@ metadata:
     # gateway can discover the backend Service
     istio-discovery: default
   annotations:
+    # sync order: namespace, quota and contract first, then the Instrumentation,
+    # then the backend, so the tracing agent is injected into the first pod
+    argocd.argoproj.io/sync-wave: "-2"
     openshift.io/description: ${{ values.displayName | dump }}
     governed-api/owner: ${{ values.owner }}
     governed-api/created-by: ${{ values.createdBy }}
@@ -24,6 +27,8 @@ kind: ResourceQuota
 metadata:
   name: governed-api
   namespace: api-${{ values.name }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
 spec:
   hard:
     pods: "10"
@@ -36,6 +41,8 @@ kind: LimitRange
 metadata:
   name: governed-api
   namespace: api-${{ values.name }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
 spec:
   limits:
     - type: Container

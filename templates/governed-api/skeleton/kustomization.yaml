@@ -23,3 +23,5 @@ configMapGenerator:
       - openapi.yaml
 generatorOptions:
   disableNameSuffixHash: true
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"

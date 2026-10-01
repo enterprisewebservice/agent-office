@@ -9,6 +9,8 @@ kind: Instrumentation
 metadata:
   name: auto
   namespace: api-${{ values.name }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
 spec:
   exporter:
     endpoint: ${{ values.otlpHttpEndpoint }}

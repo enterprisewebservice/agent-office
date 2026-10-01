@@ -181,11 +181,11 @@ spec:
         backendKind:
           title: Backend
           type: string
-          default: mock
-          enum: [mock, image]
+          default: image
+          enum: [image, mock]
           enumNames:
-            - "Mock generated from the contract (Stoplight Prism, a community project): answers with the examples"
-            - "Container image (the real implementation)"
+            - "Container image: the real implementation, in a namespace of its own"
+            - "Mock generated from the contract (Stoplight Prism, a community project): answers with the examples until the implementation exists"
         image:
           title: Container image
           type: string
