@@ -23,6 +23,7 @@ spec:
           hidden: false
         allowAllValue: true
         allowMultiple: true
+        customAllValue: .*
         defaultValue: $__all
         plugin:
           kind: PrometheusLabelValuesVariable
@@ -32,6 +33,7 @@ spec:
               name: ${{ values.datasourceName }}
             labelName: user_id
             matchers:
+            - istio_requests_total{destination_service_namespace="api-${{ values.name }}", user_id!~"unknown|"}
             - authorized_calls{limitador_namespace="api-${{ values.name }}/${{ values.name }}-api", user_id!=""}
     - kind: ListVariable
       spec:
@@ -41,6 +43,7 @@ spec:
           hidden: false
         allowAllValue: true
         allowMultiple: true
+        customAllValue: .*
         defaultValue: $__all
         plugin:
           kind: PrometheusLabelValuesVariable
@@ -50,6 +53,7 @@ spec:
               name: ${{ values.datasourceName }}
             labelName: plan
             matchers:
+            - istio_requests_total{destination_service_namespace="api-${{ values.name }}", plan!~"unknown|"}
             - authorized_calls{limitador_namespace="api-${{ values.name }}/${{ values.name }}-api", plan!=""}
     panels:
       consumers:
@@ -265,7 +269,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: ${{ values.datasourceName }}
-                  query: sum(increase(authorized_calls{limitador_namespace="api-${{ values.name }}/${{ values.name }}-api", user_id=~"$user_id", plan="gold"}[24h])) or vector(0)
+                  query: sum(increase(authorized_calls{limitador_namespace="api-${{ values.name }}/${{ values.name }}-api", user_id=~"$user_id", plan=~"$plan", plan="gold"}[24h])) or vector(0)
       silver:
         kind: Panel
         spec:
@@ -295,7 +299,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: ${{ values.datasourceName }}
-                  query: sum(increase(authorized_calls{limitador_namespace="api-${{ values.name }}/${{ values.name }}-api", user_id=~"$user_id", plan="silver"}[24h])) or vector(0)
+                  query: sum(increase(authorized_calls{limitador_namespace="api-${{ values.name }}/${{ values.name }}-api", user_id=~"$user_id", plan=~"$plan", plan="silver"}[24h])) or vector(0)
       bronze:
         kind: Panel
         spec:
@@ -325,7 +329,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: ${{ values.datasourceName }}
-                  query: sum(increase(authorized_calls{limitador_namespace="api-${{ values.name }}/${{ values.name }}-api", user_id=~"$user_id", plan="bronze"}[24h])) or vector(0)
+                  query: sum(increase(authorized_calls{limitador_namespace="api-${{ values.name }}/${{ values.name }}-api", user_id=~"$user_id", plan=~"$plan", plan="bronze"}[24h])) or vector(0)
       ledger:
         kind: Panel
         spec:

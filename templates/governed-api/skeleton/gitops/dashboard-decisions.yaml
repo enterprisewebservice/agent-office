@@ -13,6 +13,47 @@ spec:
       description: 'Every request as a funnel: received, key checked, plan checked, served; what the gateway stopped and why'
     duration: 1h
     refreshInterval: 30s
+    variables:
+    - kind: ListVariable
+      spec:
+        name: user_id
+        display:
+          name: Consumer
+          hidden: false
+        allowAllValue: true
+        allowMultiple: true
+        customAllValue: .*
+        defaultValue: $__all
+        plugin:
+          kind: PrometheusLabelValuesVariable
+          spec:
+            datasource:
+              kind: PrometheusDatasource
+              name: ${{ values.datasourceName }}
+            labelName: user_id
+            matchers:
+            - istio_requests_total{destination_service_namespace="api-${{ values.name }}", user_id!~"unknown|"}
+            - authorized_calls{limitador_namespace="api-${{ values.name }}/${{ values.name }}-api", user_id!=""}
+    - kind: ListVariable
+      spec:
+        name: plan
+        display:
+          name: Plan
+          hidden: false
+        allowAllValue: true
+        allowMultiple: true
+        customAllValue: .*
+        defaultValue: $__all
+        plugin:
+          kind: PrometheusLabelValuesVariable
+          spec:
+            datasource:
+              kind: PrometheusDatasource
+              name: ${{ values.datasourceName }}
+            labelName: plan
+            matchers:
+            - istio_requests_total{destination_service_namespace="api-${{ values.name }}", plan!~"unknown|"}
+            - authorized_calls{limitador_namespace="api-${{ values.name }}/${{ values.name }}-api", plan!=""}
     panels:
       received:
         kind: Panel
@@ -34,7 +75,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: ${{ values.datasourceName }}
-                  query: sum(increase(istio_requests_total{destination_service_namespace="api-${{ values.name }}"}[$__range])) or vector(0)
+                  query: sum(increase(istio_requests_total{destination_service_namespace="api-${{ values.name }}", user_id=~"$user_id", plan=~"$plan"}[$__range])) or vector(0)
       authenticated:
         kind: Panel
         spec:
@@ -56,7 +97,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: ${{ values.datasourceName }}
-                  query: sum(increase(istio_requests_total{destination_service_namespace="api-${{ values.name }}", response_code!~"401|403"}[$__range])) or vector(0)
+                  query: sum(increase(istio_requests_total{destination_service_namespace="api-${{ values.name }}", user_id=~"$user_id", plan=~"$plan", response_code!~"401|403"}[$__range])) or vector(0)
       withinPlan:
         kind: Panel
         spec:
@@ -78,7 +119,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: ${{ values.datasourceName }}
-                  query: sum(increase(istio_requests_total{destination_service_namespace="api-${{ values.name }}", response_code!~"401|403|429"}[$__range])) or vector(0)
+                  query: sum(increase(istio_requests_total{destination_service_namespace="api-${{ values.name }}", user_id=~"$user_id", plan=~"$plan", response_code!~"401|403|429"}[$__range])) or vector(0)
       served:
         kind: Panel
         spec:
@@ -99,7 +140,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: ${{ values.datasourceName }}
-                  query: sum(increase(istio_requests_total{destination_service_namespace="api-${{ values.name }}", response_code=~"2.."}[$__range])) or vector(0)
+                  query: sum(increase(istio_requests_total{destination_service_namespace="api-${{ values.name }}", user_id=~"$user_id", plan=~"$plan", response_code=~"2.."}[$__range])) or vector(0)
       stoppedAuth:
         kind: Panel
         spec:
@@ -120,7 +161,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: ${{ values.datasourceName }}
-                  query: sum(increase(istio_requests_total{destination_service_namespace="api-${{ values.name }}", response_code=~"401|403"}[$__range])) or vector(0)
+                  query: sum(increase(istio_requests_total{destination_service_namespace="api-${{ values.name }}", user_id=~"$user_id", plan=~"$plan", response_code=~"401|403"}[$__range])) or vector(0)
       stoppedPlan:
         kind: Panel
         spec:
@@ -141,7 +182,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: ${{ values.datasourceName }}
-                  query: sum(increase(istio_requests_total{destination_service_namespace="api-${{ values.name }}", response_code="429"}[$__range])) or vector(0)
+                  query: sum(increase(istio_requests_total{destination_service_namespace="api-${{ values.name }}", user_id=~"$user_id", plan=~"$plan", response_code="429"}[$__range])) or vector(0)
       appErrors:
         kind: Panel
         spec:
@@ -162,7 +203,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: ${{ values.datasourceName }}
-                  query: sum(increase(istio_requests_total{destination_service_namespace="api-${{ values.name }}", response_code=~"5.."}[$__range])) or vector(0)
+                  query: sum(increase(istio_requests_total{destination_service_namespace="api-${{ values.name }}", user_id=~"$user_id", plan=~"$plan", response_code=~"5.."}[$__range])) or vector(0)
       enforcedShare:
         kind: Panel
         spec:
@@ -185,7 +226,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: ${{ values.datasourceName }}
-                  query: 100 * (sum(increase(istio_requests_total{destination_service_namespace="api-${{ values.name }}", response_code=~"401|403|429"}[$__range])) or vector(0)) / clamp_min(sum(increase(istio_requests_total{destination_service_namespace="api-${{ values.name }}"}[$__range])), 1)
+                  query: 100 * (sum(increase(istio_requests_total{destination_service_namespace="api-${{ values.name }}", user_id=~"$user_id", plan=~"$plan", response_code=~"401|403|429"}[$__range])) or vector(0)) / clamp_min(sum(increase(istio_requests_total{destination_service_namespace="api-${{ values.name }}", user_id=~"$user_id", plan=~"$plan"}[$__range])), 1)
       outcomes:
         kind: Panel
         spec:
@@ -212,7 +253,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: ${{ values.datasourceName }}
-                  query: sum(rate(istio_requests_total{destination_service_namespace="api-${{ values.name }}", response_code=~"2.."}[5m]))
+                  query: sum(rate(istio_requests_total{destination_service_namespace="api-${{ values.name }}", user_id=~"$user_id", plan=~"$plan", response_code=~"2.."}[5m]))
                   seriesNameFormat: served (2xx)
           - kind: TimeSeriesQuery
             spec:
@@ -222,7 +263,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: ${{ values.datasourceName }}
-                  query: sum(rate(istio_requests_total{destination_service_namespace="api-${{ values.name }}", response_code=~"401|403"}[5m]))
+                  query: sum(rate(istio_requests_total{destination_service_namespace="api-${{ values.name }}", user_id=~"$user_id", plan=~"$plan", response_code=~"401|403"}[5m]))
                   seriesNameFormat: 'stopped: key (401/403)'
           - kind: TimeSeriesQuery
             spec:
@@ -232,7 +273,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: ${{ values.datasourceName }}
-                  query: sum(rate(istio_requests_total{destination_service_namespace="api-${{ values.name }}", response_code="429"}[5m]))
+                  query: sum(rate(istio_requests_total{destination_service_namespace="api-${{ values.name }}", user_id=~"$user_id", plan=~"$plan", response_code="429"}[5m]))
                   seriesNameFormat: 'stopped: plan (429)'
           - kind: TimeSeriesQuery
             spec:
@@ -242,7 +283,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: ${{ values.datasourceName }}
-                  query: sum(rate(istio_requests_total{destination_service_namespace="api-${{ values.name }}", response_code=~"5.."}[5m]))
+                  query: sum(rate(istio_requests_total{destination_service_namespace="api-${{ values.name }}", user_id=~"$user_id", plan=~"$plan", response_code=~"5.."}[5m]))
                   seriesNameFormat: application error (5xx)
       engine:
         kind: Panel
@@ -267,7 +308,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: ${{ values.datasourceName }}
-                  query: sum(rate(authorized_calls{limitador_namespace="api-${{ values.name }}/${{ values.name }}-api"}[5m])) or vector(0)
+                  query: sum(rate(authorized_calls{limitador_namespace="api-${{ values.name }}/${{ values.name }}-api", user_id=~"$user_id", plan=~"$plan"}[5m])) or vector(0)
                   seriesNameFormat: within plan
           - kind: TimeSeriesQuery
             spec:
@@ -277,7 +318,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: ${{ values.datasourceName }}
-                  query: sum(rate(limited_calls{limitador_namespace="api-${{ values.name }}/${{ values.name }}-api"}[5m])) or vector(0)
+                  query: sum(rate(limited_calls{limitador_namespace="api-${{ values.name }}/${{ values.name }}-api", user_id=~"$user_id", plan=~"$plan"}[5m])) or vector(0)
                   seriesNameFormat: over plan
       byPath:
         kind: Panel
@@ -301,7 +342,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: ${{ values.datasourceName }}
-                  query: sum by (request_url_path, response_code) (increase(istio_requests_total{destination_service_namespace="api-${{ values.name }}"}[$__range]))
+                  query: sum by (request_url_path, response_code) (increase(istio_requests_total{destination_service_namespace="api-${{ values.name }}", user_id=~"$user_id", plan=~"$plan"}[$__range]))
                   seriesNameFormat: '{{request_url_path}} → {{response_code}}'
     layouts:
     - kind: Grid

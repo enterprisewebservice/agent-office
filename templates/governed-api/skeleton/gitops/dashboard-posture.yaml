@@ -13,12 +13,53 @@ spec:
       description: 'Is this API governed right now: route attached, key and plan policies enforced, GitOps in sync, backend up'
     duration: 1h
     refreshInterval: 30s
+    variables:
+    - kind: ListVariable
+      spec:
+        name: user_id
+        display:
+          name: Consumer
+          hidden: false
+        allowAllValue: true
+        allowMultiple: true
+        customAllValue: .*
+        defaultValue: $__all
+        plugin:
+          kind: PrometheusLabelValuesVariable
+          spec:
+            datasource:
+              kind: PrometheusDatasource
+              name: ${{ values.datasourceName }}
+            labelName: user_id
+            matchers:
+            - istio_requests_total{destination_service_namespace="api-${{ values.name }}", user_id!~"unknown|"}
+            - authorized_calls{limitador_namespace="api-${{ values.name }}/${{ values.name }}-api", user_id!=""}
+    - kind: ListVariable
+      spec:
+        name: plan
+        display:
+          name: Plan
+          hidden: false
+        allowAllValue: true
+        allowMultiple: true
+        customAllValue: .*
+        defaultValue: $__all
+        plugin:
+          kind: PrometheusLabelValuesVariable
+          spec:
+            datasource:
+              kind: PrometheusDatasource
+              name: ${{ values.datasourceName }}
+            labelName: plan
+            matchers:
+            - istio_requests_total{destination_service_namespace="api-${{ values.name }}", plan!~"unknown|"}
+            - authorized_calls{limitador_namespace="api-${{ values.name }}/${{ values.name }}-api", plan!=""}
     panels:
       route:
         kind: Panel
         spec:
           display:
-            name: Route attached to the gateway
+            name: Route attached to the gateway (API-wide)
             description: 1 = the HTTPRoute is accepted by the shared gateway ${{ values.gatewayNamespace }}/${{ values.gatewayName }}
           plugin:
             kind: StatChart
@@ -182,7 +223,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: ${{ values.datasourceName }}
-                  query: count(count by (user_id) (increase(authorized_calls{limitador_namespace="api-${{ values.name }}/${{ values.name }}-api", user_id!=""}[$__range]) > 0)) or vector(0)
+                  query: count(count by (user_id) (increase(authorized_calls{limitador_namespace="api-${{ values.name }}/${{ values.name }}-api", user_id=~"$user_id", plan=~"$plan", user_id!=""}[$__range]) > 0)) or vector(0)
       lastCall:
         kind: Panel
         spec:
@@ -204,7 +245,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: ${{ values.datasourceName }}
-                  query: sum(increase(istio_requests_total{destination_service_namespace="api-${{ values.name }}"}[5m])) or vector(0)
+                  query: sum(increase(istio_requests_total{destination_service_namespace="api-${{ values.name }}", user_id=~"$user_id", plan=~"$plan"}[5m])) or vector(0)
       history:
         kind: Panel
         spec:
