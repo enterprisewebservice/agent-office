@@ -1,6 +1,11 @@
 # Lets the Developer Hub service account read Connectivity Link policies and
 # manage API products / API keys for the API catalog plugin (RHCL 1.4 console
-# guide, chapter 3). Developer Hub runs as the default SA in rhdh-test.
+# guide, chapter 3; upstream kuadrant-backstage-plugin
+# kuadrant-dev-setup/rbac/rhdh-cluster-role.yaml). The plugin's backend talks
+# to the cluster with the Kubernetes plugin's cluster locator credentials
+# (secret rhdh-k8s-credentials -> SA rhdh-kubernetes-plugin), not with the pod's
+# default SA, so both are bound: a key request from the portal creates the
+# consumer namespace kuadrant-<user>-<hash>, the key Secret and the APIKey.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -15,6 +20,9 @@ rules:
   - apiGroups: ["devportal.kuadrant.io"]
     resources: [apiproducts, apikeys]
     verbs: [get, list, watch, create, delete, patch, update]
+  - apiGroups: ["devportal.kuadrant.io"]
+    resources: [apikeys/status]
+    verbs: [get, patch, update]
   - apiGroups: ["devportal.kuadrant.io"]
     resources: [apikeyrequests]
     verbs: [get, list, watch]
@@ -42,4 +50,7 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: default
+    namespace: rhdh-test
+  - kind: ServiceAccount
+    name: rhdh-kubernetes-plugin
     namespace: rhdh-test
