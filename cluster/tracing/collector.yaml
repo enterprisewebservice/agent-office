@@ -37,7 +37,7 @@ spec:
         spike_limit_percentage: 15
     exporters:
       otlp/tempo:
-        endpoint: tempo-tempo-gateway.observability.svc.cluster.local:8090
+        endpoint: tempo-tempo-gateway.observability.svc.cluster.local:4317
         tls:
           insecure: false
           ca_file: /var/run/secrets/kubernetes.io/serviceaccount/service-ca.crt
