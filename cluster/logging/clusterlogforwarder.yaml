@@ -16,7 +16,10 @@ spec:
         cpu: 100m
         memory: 512Mi
       limits:
-        memory: 2Gi
+        # four of eight collectors were OOM-killed 19 s after start at 2Gi with
+        # 1.2 MB of logs to read (1 Oct 02:09, after the rhdh-test input was
+        # added); the spike is at startup, steady state is a few hundred MiB
+        memory: 4Gi
   inputs:
     # only the namespaces the demo reads; the whole cluster's application logs
     # OOM-killed the collectors and swamped a demo-size Loki
