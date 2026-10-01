@@ -11,6 +11,11 @@ metadata:
 spec:
   observability:
     enable: true
+    # RHCL 1.4 Observability guide 1.5.3: data-plane tracing (wasm shim, and the
+    # Authorino/Limitador endpoints) to the OpenTelemetry collector in cluster/tracing.
+    tracing:
+      defaultEndpoint: rpc://otel-collector.observability.svc.cluster.local:4317
+      insecure: true
   # Developer portal controller: turns APIKey requests/approvals (console pages,
   # Developer Hub plugin) into enforcement Secrets that the routes' AuthPolicies
   # match (labels devportal.kuadrant.io/* + the policy's own selector labels).

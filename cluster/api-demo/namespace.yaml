@@ -4,3 +4,5 @@ metadata:
   name: api-demo
   labels:
     app.kubernetes.io/part-of: connectivity-link-api-demo
+    # watched by the Service Mesh 3.4 control plane in cluster/service-mesh
+    istio-discovery: default

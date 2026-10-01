@@ -10,7 +10,9 @@ metadata:
     # same as mcp-gateway: no LoadBalancer address is needed, the Route fronts it
     networking.istio.io/service-type: ClusterIP
 spec:
-  gatewayClassName: data-science-gateway-class
+  # Service Mesh 3.4 control plane owned in Git (cluster/service-mesh): tracing
+  # and the JSON access log with the consumer identity need our own Istio CR.
+  gatewayClassName: istio
   listeners:
     - name: http
       protocol: HTTP
@@ -29,7 +31,7 @@ spec:
   host: inventory-api.apps.salamander.aimlworkbench.com
   to:
     kind: Service
-    name: api-gateway-data-science-gateway-class
+    name: api-gateway-istio
   port:
     targetPort: 80
   tls:
