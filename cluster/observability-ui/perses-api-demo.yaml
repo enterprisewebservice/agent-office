@@ -1,0 +1,279 @@
+# Red Hat build of Perses dashboard for the API demo, in the console under
+# Observe > Dashboards (Perses), project openshift-cluster-observability-operator
+# (where the operator's default Thanos datasource lives). Dashboards as code:
+# this is the "custom dashboards without Grafana" answer. Per-consumer detail is
+# in the access log (Observe > Logs); Prometheus holds the aggregate.
+apiVersion: perses.dev/v1alpha2
+kind: PersesDashboard
+metadata:
+  name: store-inventory-api
+  namespace: openshift-cluster-observability-operator
+spec:
+  config:
+    display:
+      name: "Store Inventory API: traffic, decisions, latency"
+      description: "Connectivity Link gateway api-demo: requests by response code and API, Authorino and Limitador decisions, latency"
+    duration: 1h
+    refreshInterval: 30s
+    variables:
+      - kind: ListVariable
+        spec:
+          name: api
+          display:
+            name: API
+            hidden: false
+          allowAllValue: true
+          allowMultiple: true
+          defaultValue: $__all
+          plugin:
+            kind: PrometheusLabelValuesVariable
+            spec:
+              datasource:
+                kind: PrometheusDatasource
+                name: accelerators-thanos-querier-datasource
+              labelName: destination_service_name
+              matchers:
+                - istio_requests_total{destination_service_namespace="api-demo"}
+    panels:
+      total:
+        kind: Panel
+        spec:
+          display:
+            name: Requests in range
+          plugin:
+            kind: StatChart
+            spec:
+              calculation: last
+              format:
+                unit: decimal
+          queries:
+            - kind: TimeSeriesQuery
+              spec:
+                plugin:
+                  kind: PrometheusTimeSeriesQuery
+                  spec:
+                    datasource:
+                      kind: PrometheusDatasource
+                      name: accelerators-thanos-querier-datasource
+                    query: sum(increase(istio_requests_total{destination_service_namespace="api-demo", destination_service_name=~"$api"}[$__range])) or vector(0)
+      denied:
+        kind: Panel
+        spec:
+          display:
+            name: Denied by Authorino (401, 403)
+          plugin:
+            kind: StatChart
+            spec:
+              calculation: last
+              format:
+                unit: decimal
+          queries:
+            - kind: TimeSeriesQuery
+              spec:
+                plugin:
+                  kind: PrometheusTimeSeriesQuery
+                  spec:
+                    datasource:
+                      kind: PrometheusDatasource
+                      name: accelerators-thanos-querier-datasource
+                    query: sum(increase(istio_requests_total{destination_service_namespace="api-demo", destination_service_name=~"$api", response_code=~"401|403"}[$__range])) or vector(0)
+      limited:
+        kind: Panel
+        spec:
+          display:
+            name: Rate limited by Limitador (429)
+          plugin:
+            kind: StatChart
+            spec:
+              calculation: last
+              format:
+                unit: decimal
+          queries:
+            - kind: TimeSeriesQuery
+              spec:
+                plugin:
+                  kind: PrometheusTimeSeriesQuery
+                  spec:
+                    datasource:
+                      kind: PrometheusDatasource
+                      name: accelerators-thanos-querier-datasource
+                    query: sum(increase(istio_requests_total{destination_service_namespace="api-demo", destination_service_name=~"$api", response_code="429"}[$__range])) or vector(0)
+      p95:
+        kind: Panel
+        spec:
+          display:
+            name: p95 latency at the gateway
+          plugin:
+            kind: StatChart
+            spec:
+              calculation: last
+              format:
+                unit: milliseconds
+          queries:
+            - kind: TimeSeriesQuery
+              spec:
+                plugin:
+                  kind: PrometheusTimeSeriesQuery
+                  spec:
+                    datasource:
+                      kind: PrometheusDatasource
+                      name: accelerators-thanos-querier-datasource
+                    query: histogram_quantile(0.95, sum by (le) (rate(istio_request_duration_milliseconds_bucket{destination_service_namespace="api-demo", destination_service_name=~"$api"}[5m])))
+      byCode:
+        kind: Panel
+        spec:
+          display:
+            name: Requests per second by response code
+            description: "200 served, 401 no or bad key (Authorino), 429 over the plan or the per-address limit (Limitador)"
+          plugin:
+            kind: TimeSeriesChart
+            spec:
+              legend:
+                position: bottom
+              yAxis:
+                format:
+                  unit: requests/sec
+          queries:
+            - kind: TimeSeriesQuery
+              spec:
+                plugin:
+                  kind: PrometheusTimeSeriesQuery
+                  spec:
+                    datasource:
+                      kind: PrometheusDatasource
+                      name: accelerators-thanos-querier-datasource
+                    query: sum by (response_code) (rate(istio_requests_total{destination_service_namespace="api-demo", destination_service_name=~"$api"}[5m]))
+                    seriesNameFormat: "{{response_code}}"
+      byApi:
+        kind: Panel
+        spec:
+          display:
+            name: Requests per second by API
+          plugin:
+            kind: TimeSeriesChart
+            spec:
+              legend:
+                position: bottom
+              yAxis:
+                format:
+                  unit: requests/sec
+          queries:
+            - kind: TimeSeriesQuery
+              spec:
+                plugin:
+                  kind: PrometheusTimeSeriesQuery
+                  spec:
+                    datasource:
+                      kind: PrometheusDatasource
+                      name: accelerators-thanos-querier-datasource
+                    query: sum by (destination_service_name) (rate(istio_requests_total{destination_service_namespace="api-demo", destination_service_name=~"$api"}[5m]))
+                    seriesNameFormat: "{{destination_service_name}}"
+      decisions:
+        kind: Panel
+        spec:
+          display:
+            name: Policy decisions per second
+            description: "Limitador counts (authorized vs limited) and Authorino responses; these come from the policy components, not from Envoy"
+          plugin:
+            kind: TimeSeriesChart
+            spec:
+              legend:
+                position: bottom
+          queries:
+            - kind: TimeSeriesQuery
+              spec:
+                plugin:
+                  kind: PrometheusTimeSeriesQuery
+                  spec:
+                    datasource:
+                      kind: PrometheusDatasource
+                      name: accelerators-thanos-querier-datasource
+                    query: sum(rate(authorized_calls{limitador_namespace=~"api-demo/.*"}[5m]))
+                    seriesNameFormat: "limitador: authorized"
+            - kind: TimeSeriesQuery
+              spec:
+                plugin:
+                  kind: PrometheusTimeSeriesQuery
+                  spec:
+                    datasource:
+                      kind: PrometheusDatasource
+                      name: accelerators-thanos-querier-datasource
+                    query: sum(rate(limited_calls{limitador_namespace=~"api-demo/.*"}[5m])) or vector(0)
+                    seriesNameFormat: "limitador: limited"
+            - kind: TimeSeriesQuery
+              spec:
+                plugin:
+                  kind: PrometheusTimeSeriesQuery
+                  spec:
+                    datasource:
+                      kind: PrometheusDatasource
+                      name: accelerators-thanos-querier-datasource
+                    query: sum by (status) (rate(auth_server_response_status[5m]))
+                    seriesNameFormat: "authorino: {{status}}"
+      latency:
+        kind: Panel
+        spec:
+          display:
+            name: Latency at the gateway (p50, p95, p99)
+          plugin:
+            kind: TimeSeriesChart
+            spec:
+              legend:
+                position: bottom
+              yAxis:
+                format:
+                  unit: milliseconds
+          queries:
+            - kind: TimeSeriesQuery
+              spec:
+                plugin:
+                  kind: PrometheusTimeSeriesQuery
+                  spec:
+                    datasource:
+                      kind: PrometheusDatasource
+                      name: accelerators-thanos-querier-datasource
+                    query: histogram_quantile(0.50, sum by (le) (rate(istio_request_duration_milliseconds_bucket{destination_service_namespace="api-demo", destination_service_name=~"$api"}[5m])))
+                    seriesNameFormat: p50
+            - kind: TimeSeriesQuery
+              spec:
+                plugin:
+                  kind: PrometheusTimeSeriesQuery
+                  spec:
+                    datasource:
+                      kind: PrometheusDatasource
+                      name: accelerators-thanos-querier-datasource
+                    query: histogram_quantile(0.95, sum by (le) (rate(istio_request_duration_milliseconds_bucket{destination_service_namespace="api-demo", destination_service_name=~"$api"}[5m])))
+                    seriesNameFormat: p95
+            - kind: TimeSeriesQuery
+              spec:
+                plugin:
+                  kind: PrometheusTimeSeriesQuery
+                  spec:
+                    datasource:
+                      kind: PrometheusDatasource
+                      name: accelerators-thanos-querier-datasource
+                    query: histogram_quantile(0.99, sum by (le) (rate(istio_request_duration_milliseconds_bucket{destination_service_namespace="api-demo", destination_service_name=~"$api"}[5m])))
+                    seriesNameFormat: p99
+    layouts:
+      - kind: Grid
+        spec:
+          display:
+            title: Overview
+            collapse:
+              open: true
+          items:
+            - { x: 0, y: 0, width: 6, height: 4, content: { $ref: "#/spec/panels/total" } }
+            - { x: 6, y: 0, width: 6, height: 4, content: { $ref: "#/spec/panels/denied" } }
+            - { x: 12, y: 0, width: 6, height: 4, content: { $ref: "#/spec/panels/limited" } }
+            - { x: 18, y: 0, width: 6, height: 4, content: { $ref: "#/spec/panels/p95" } }
+      - kind: Grid
+        spec:
+          display:
+            title: Traffic and decisions
+            collapse:
+              open: true
+          items:
+            - { x: 0, y: 0, width: 12, height: 8, content: { $ref: "#/spec/panels/byCode" } }
+            - { x: 12, y: 0, width: 12, height: 8, content: { $ref: "#/spec/panels/byApi" } }
+            - { x: 0, y: 8, width: 12, height: 8, content: { $ref: "#/spec/panels/decisions" } }
+            - { x: 12, y: 8, width: 12, height: 8, content: { $ref: "#/spec/panels/latency" } }
