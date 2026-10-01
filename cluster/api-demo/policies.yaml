@@ -24,6 +24,15 @@ spec:
             prefix: Bearer
     response:
       success:
+        # headers injected into the request to the backend: the gateway's JSON access
+        # log prints them as user_id and plan (RHCL 1.4 Observability guide 2.2)
+        headers:
+          x-auth-identity:
+            plain:
+              expression: auth.identity.metadata.annotations["secret.kuadrant.io/user-id"]
+          x-auth-plan:
+            plain:
+              expression: auth.identity.metadata.annotations["secret.kuadrant.io/plan-id"]
         filters:
           identity:
             json:
