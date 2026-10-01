@@ -32,19 +32,34 @@ curl -sk -H "Authorization: Bearer $TOK" -H 'content-type: application/json' \
 oc apply -f cluster/governed-apis-app.yaml
 ```
 
-## Teardown of one API
+## Retiring one API
 
-The ApplicationSet never deletes an Application and an Application never
-deletes its resources (the same safety settings as the agent ApplicationSet,
-after the 2026-09-04 incident). Removing an API is therefore explicit, in this
-order (`templates/governed-api/teardown.sh <name>` does all of it):
+Since 1 Oct 2026 the generated Application carries the resources finalizer, so
+a *deliberate* delete of the Application cascades. The generator itself never
+deletes Applications (`applicationsSync: create-update`) and would strip the
+finalizer first if it ever did (`preserveResourcesOnDeletion: true`), so a
+generator blip (the 2026-09-04 incident) cannot cascade; only a human can.
+Retiring an API is therefore, in this order (`templates/governed-api/teardown.sh <name>`
+does all of it):
 
-1. `oc delete application <name>-api -n openshift-gitops` (resources stay).
-2. `oc delete namespace api-<name>` (backend, policies, product, key requests and approvals).
-3. `oc delete route api-<name> -n api-demo`; `oc delete persesdashboard <name>-api -n openshift-cluster-observability-operator`.
-4. Enforcement Secrets of approved keys: `oc delete secret -n kuadrant-system -l app=<name>-api`.
-5. Developer Hub: delete the catalog Location whose target is the repository's `catalog-info.yaml` (otherwise re-creating the API answers 409 at "Register in the catalog").
-6. Archive or delete the GitHub repository `enterprisewebservice/<name>-api-gitops`.
+1. Remove `argocd/applicationset-managed` from the repository: the generator
+   stops matching and, with create-update, leaves the running Application alone.
+   `main` is protected in the org, so this is a one-line pull request; the
+   script opens it and stops until it is merged. Skip this and the generator
+   re-creates the Application about 60 s after step 3. Archiving alone does not
+   help: the GitHub SCM provider lists archived repositories too.
+2. Developer Hub: the component's `⋮` menu → **Unregister entity** (removes the
+   Component, the API and their Location; audited as `location-mutate`). The
+   script deletes the Location through the catalog API instead. Either way the
+   Location must go, or re-creating the API answers 409 at "Register in the catalog".
+3. OpenShift GitOps: delete the Application `<name>-api` (console **Delete**,
+   Foreground, or `oc delete applications.argoproj.io <name>-api -n openshift-gitops`;
+   plain `application` is ambiguous on this cluster). The finalizer takes the
+   namespace `api-<name>` (backend, policies, product, key requests, approvals),
+   the Route next to the gateway and the dashboard with it.
+4. Enforcement Secrets of approved keys live in `kuadrant-system`, outside the
+   cascade (inert once the AuthPolicy is gone): `oc delete secret -n kuadrant-system -l app=<name>-api`.
+5. Archive the repository: it stays as the record.
 
 ## Why the backend is a mock by default
 
