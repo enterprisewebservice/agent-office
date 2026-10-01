@@ -18,6 +18,8 @@ spec:
   metrics:
     default:
       labels:
-        user_id: 'has(auth.identity.userid) ? auth.identity.userid : ""'
-        plan: 'has(auth.identity.plan) ? auth.identity.plan : ""'
-        consumer: 'has(auth.identity.consumer) ? auth.identity.consumer : ""'
+        # has(auth.identity) first: on an unauthenticated request there is no
+        # identity at all and Authorino logs an error per expression otherwise
+        user_id: 'has(auth.identity) && has(auth.identity.userid) ? auth.identity.userid : ""'
+        plan: 'has(auth.identity) && has(auth.identity.plan) ? auth.identity.plan : ""'
+        consumer: 'has(auth.identity) && has(auth.identity.consumer) ? auth.identity.consumer : ""'
