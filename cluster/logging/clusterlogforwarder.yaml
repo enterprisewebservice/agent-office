@@ -1,6 +1,12 @@
-# Application logs from the demo namespaces only. The whole cluster's application
-# logs OOM-killed the collectors and swamped a demo-size Loki (1,200 pods); widen
-# the includes list, the collector memory and the LokiStack size together.
+# Application logs for the demo, scoped to the containers the demo reads. A
+# collector that starts without a checkpoint replays the whole history of
+# whatever it includes; with entire namespaces included that was 190,000 lines
+# of agent chatter on one node, which Loki rejected (too old, then rate limited)
+# while the unacknowledged backlog sat in the collector until it was OOM-killed,
+# and the next start began from zero again (1 Oct 2026, three of eight nodes).
+# Loki is for the demo's signals, not for history: include containers, not
+# namespaces, and widen this list, the collector memory and the LokiStack size
+# together.
 apiVersion: observability.openshift.io/v1
 kind: ClusterLogForwarder
 metadata:
@@ -16,26 +22,35 @@ spec:
         cpu: 100m
         memory: 512Mi
       limits:
-        # four of eight collectors were OOM-killed 19 s after start at 2Gi with
-        # 1.2 MB of logs to read (1 Oct 02:09, after the rhdh-test input was
-        # added); the spike is at startup, steady state is a few hundred MiB
-        memory: 4Gi
+        memory: 2Gi
   inputs:
-    # only the namespaces the demo reads; the whole cluster's application logs
-    # OOM-killed the collectors and swamped a demo-size Loki
     - name: demo-namespaces
       type: application
       application:
         includes:
+          # the shared API gateway's JSON access log: consumer identity, plan,
+          # response code, request id, trace id on every request (cluster/service-mesh)
           - namespace: api-demo
+            container: istio-proxy
+          # the demo APIs' own output: inventory, orders, and every API the
+          # Governed REST API template creates (namespaces api-<name>)
+          - namespace: api-demo
+          - namespace: "api-*"
+          # policy decisions: Authorino (authentication), Limitador (plans),
+          # the developer-portal controller (key requests and approvals)
           - namespace: kuadrant-system
-          - namespace: istio-system
-          - namespace: observability
-          - namespace: agent-office
-          - namespace: bestbuy-demo
-          # Developer Hub's audit events (template runs, catalog changes, RBAC
-          # changes; each with the actor) are JSON lines on its pod log
+            container: authorino
+          - namespace: kuadrant-system
+            container: limitador
+          - namespace: kuadrant-system
+            container: manager
+          # Developer Hub's audit events: template runs, catalog and RBAC
+          # changes, each with the actor
           - namespace: rhdh-test
+            container: backstage-backend
+          # the MCP gateway's data plane (agents' tool calls), not the agents
+          - namespace: agent-office
+            container: istio-proxy
   outputs:
     - name: default-lokistack
       type: lokiStack
