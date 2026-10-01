@@ -4,5 +4,8 @@ metadata:
   name: observability
   labels:
     openshift.io/cluster-monitoring: "true"
+    # the Service Mesh 3.4 control plane (cluster/service-mesh) must discover the
+    # collector service so the gateway's Envoy can export spans to it
+    istio-discovery: default
   annotations:
     argocd.argoproj.io/sync-wave: "-1"
