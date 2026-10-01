@@ -102,7 +102,7 @@ spec:
         kind: Panel
         spec:
           display:
-            name: p95 latency at the gateway
+            name: p95 latency at the gateway (range)
           plugin:
             kind: StatChart
             spec:
@@ -118,7 +118,7 @@ spec:
                     datasource:
                       kind: PrometheusDatasource
                       name: accelerators-thanos-querier-datasource
-                    query: histogram_quantile(0.95, sum by (le) (rate(istio_request_duration_milliseconds_bucket{destination_service_namespace="api-demo", destination_service_name=~"$api"}[5m])))
+                    query: histogram_quantile(0.95, sum by (le) (increase(istio_request_duration_milliseconds_bucket{destination_service_namespace="api-demo", destination_service_name=~"$api"}[$__range])))
       byCode:
         kind: Panel
         spec:
