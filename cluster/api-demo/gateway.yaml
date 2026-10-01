@@ -6,6 +6,11 @@ kind: Gateway
 metadata:
   name: api-gateway
   namespace: api-demo
+  labels:
+    # pins the gateway to the Service Mesh 3.4 control plane (revision "default",
+    # cluster/service-mesh); the Ingress Operator's control plane had stamped
+    # istio.io/rev=openshift-gateway on it and Istio honours that label
+    istio.io/rev: default
   annotations:
     # same as mcp-gateway: no LoadBalancer address is needed, the Route fronts it
     networking.istio.io/service-type: ClusterIP
