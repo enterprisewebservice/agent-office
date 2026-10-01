@@ -59,6 +59,21 @@ def gauge(name, query, maximum, description=None):
     return panel(name, "GaugeChart", [(query, None)], description, calculation="last", format={"unit": "decimal", "decimalPlaces": 0}, max=maximum, thresholds=thr)
 
 
+LOKI = "loki-application-logs"   # the platform's Loki datasource (agent-office cluster/observability-ui)
+
+
+def logs(name, query, description=None):
+    """A Logs Table panel on the Loki datasource. Combine label filters in ONE stage with commas: a numeric
+    filter followed by another '|' stage is mis-parsed (response_code=429 | user_id=~".*" returns nothing)."""
+    return {"kind": "Panel", "spec": {"display": {"name": name, **({"description": description} if description else {})},
+            "plugin": {"kind": "LogsTable", "spec": {}},
+            "queries": [{"kind": "LogQuery", "spec": {"plugin": {"kind": "LokiLogQuery", "spec": {"datasource": {"kind": "LokiDatasource", "name": LOKI}, "query": query}}}}]}}
+
+
+def markdown(name, text):
+    return {"kind": "Panel", "spec": {"display": {"name": name}, "plugin": {"kind": "Markdown", "spec": {"text": text}}}}
+
+
 def table(name, query, description=None):
     return panel(name, "Table", [(query, None)], description, density="compact")
 
@@ -203,10 +218,27 @@ def build(v):
                grid("Running", [item(0, 0, 6, 4, "backend"), item(6, 0, 6, 4, "listeners"), item(12, 0, 6, 4, "keysActive"), item(18, 0, 6, 4, "lastCall")]),
                grid("Over time", [item(0, 0, 12, 8, "history"), item(12, 0, 12, 8, "policiesCluster")])]
     out["posture"] = dashboard(v, "posture", "governance posture", "Is this API governed right now: route attached, key and plan policies enforced, GitOps in sync, backend up", panels, layouts, variables)
+
+    # 6. log queries: the questions people ask of the access log, saved with their LogQL, answered live
+    B = '{kubernetes_namespace_name="%s", kubernetes_container_name="istio-proxy"} |= "api-%s" | json | line_format "{{.message}}" | json' % (v.gatewayNamespace, v.name)
+    u = 'user_id=~"$user_id"'
+    panels = {
+        "intro": markdown("What this page is", "Saved log questions for **%s**, each with the LogQL behind it (open a panel's query with the braces button at the top right). Every line is the gateway's own record of a call: the consumer's identity (`user_id`, `plan`), the decision (`response_code`), the path, the duration and the request id. Pick a consumer in the dropdown above to narrow every panel." % v.displayName),
+        "all": logs("Every call, one line each", '%s | %s' % (B, u), "The gateway's JSON access log for this API: user_id, plan, response_code, path, duration_ms, request_id"),
+        "refused": logs("Refused over plan (429), and who was refused", '%s | %s, response_code=429' % (B, u), "The plan limit, enforced by the gateway (Limitador); the application never saw these"),
+        "nokey": logs("No key or a bad key (401)", '%s | response_code=401' % B, "Stopped by the key check (Authorino); no identity on these lines because none was verified"),
+        "served": logs("Served (200), with consumer and plan", '%s | %s, response_code=200' % (B, u), "What reached the application, and on which plan"),
+        "slow": logs("Slower calls (over 20 ms at the gateway)", '%s | %s, duration_ms > 20' % (B, u), "End to end at the gateway; compare with the cost-of-governance dashboard"),
+        "audit": logs("Developer Hub audit log: template runs, registrations, unregisters", '{kubernetes_namespace_name="rhdh-test"} |= "isAuditEvent" |~ "scaffolder.task|location-mutate"', "Who ran which template with which parameters, who registered or unregistered an entity. Widen the range to a day: template runs are rarer than calls"),
+    }
+    layouts = [grid("Who called, what the gateway decided", [item(0, 0, 24, 3, "intro"), item(0, 3, 24, 8, "all"), item(0, 11, 12, 8, "refused"), item(12, 11, 12, 8, "nokey"), item(0, 19, 12, 8, "served"), item(12, 19, 12, 8, "slow")]),
+               grid("Who did what in Developer Hub", [item(0, 0, 24, 8, "audit")])]
+    out["logs"] = dashboard(v, "logs", "log queries", "Saved log questions for this API, each with its LogQL, answered live from OpenShift Logging (Loki); pick a consumer at the top", panels, layouts, [variables[0]])
     return out
 
 
 HEADER = {
+    "logs": "# Saved log questions for this API, answered live by Logs Table panels on the platform's Loki datasource\n# (OpenShift Logging, application tenant); the consumer dropdown narrows every panel.\n",
     "consumers": "# Who is calling: per-consumer counts from Limitador, labelled user_id/plan/consumer by the\n# TelemetryPolicy on the shared gateway (Technology Preview in Connectivity Link 1.4).\n",
     "decisions": "# The funnel every request goes through, from the gateway's own request metrics.\n",
     "cost": "# What the key check and the plan check add to a request (Authorino duration, gateway latency).\n",

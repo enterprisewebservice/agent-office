@@ -1,0 +1,28 @@
+# OpenShift Logging (Loki, application tenant) as a Perses datasource, so dashboards can hold log
+# questions (Logs Table panels) next to the metrics. The proxy carries the signed-in user's token,
+# so Loki's own namespace authorization applies; the operator-generated <name>-secret carries the
+# service-CA TLS settings from spec.client.tls (the proxy must reference it or verification fails).
+apiVersion: perses.dev/v1alpha2
+kind: PersesDatasource
+metadata:
+  name: loki-application-logs
+  namespace: openshift-cluster-observability-operator
+spec:
+  client:
+    tls:
+      enable: true
+      caCert:
+        type: file
+        certPath: /ca/service-ca.crt
+  config:
+    display:
+      name: OpenShift Logging (Loki, application tenant)
+    default: false
+    plugin:
+      kind: LokiDatasource
+      spec:
+        proxy:
+          kind: HTTPProxy
+          spec:
+            url: https://logging-loki-gateway-http.openshift-logging.svc:8080/api/logs/v1/application
+            secret: loki-application-logs-secret

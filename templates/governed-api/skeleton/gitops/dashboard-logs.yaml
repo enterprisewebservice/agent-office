@@ -1,0 +1,218 @@
+# Saved log questions for this API, answered live by Logs Table panels on the platform's Loki datasource
+# (OpenShift Logging, application tenant); the consumer dropdown narrows every panel.
+apiVersion: perses.dev/v1alpha2
+kind: PersesDashboard
+metadata:
+  name: ${{ values.name }}-api-logs
+  namespace: ${{ values.dashboardsNamespace }}
+  labels:
+    governed-api/name: ${{ values.name }}
+spec:
+  config:
+    display:
+      name: '${{ values.displayName }}: log queries'
+      description: Saved log questions for this API, each with its LogQL, answered live from OpenShift Logging (Loki); pick a consumer at the top
+    duration: 1h
+    refreshInterval: 30s
+    variables:
+    - kind: ListVariable
+      spec:
+        name: user_id
+        display:
+          name: Consumer
+          hidden: false
+        allowAllValue: true
+        allowMultiple: true
+        customAllValue: .*
+        defaultValue: $__all
+        plugin:
+          kind: PrometheusLabelValuesVariable
+          spec:
+            datasource:
+              kind: PrometheusDatasource
+              name: ${{ values.datasourceName }}
+            labelName: user_id
+            matchers:
+            - istio_requests_total{destination_service_namespace="api-${{ values.name }}", user_id!~"unknown|"}
+            - authorized_calls{limitador_namespace="api-${{ values.name }}/${{ values.name }}-api", user_id!=""}
+    panels:
+      intro:
+        kind: Panel
+        spec:
+          display:
+            name: What this page is
+          plugin:
+            kind: Markdown
+            spec:
+              text: 'Saved log questions for **${{ values.displayName }}**, each with the LogQL behind it (open a panel''s query with the braces button at the top right). Every line is the gateway''s own record of a call: the consumer''s identity (`user_id`, `plan`), the decision (`response_code`), the path, the duration and the request id. Pick a consumer in the dropdown above to narrow every panel.'
+      all:
+        kind: Panel
+        spec:
+          display:
+            name: Every call, one line each
+            description: 'The gateway''s JSON access log for this API: user_id, plan, response_code, path, duration_ms, request_id'
+          plugin:
+            kind: LogsTable
+            spec: {}
+          queries:
+          - kind: LogQuery
+            spec:
+              plugin:
+                kind: LokiLogQuery
+                spec:
+                  datasource:
+                    kind: LokiDatasource
+                    name: loki-application-logs
+                  query: '{kubernetes_namespace_name="${{ values.gatewayNamespace }}", kubernetes_container_name="istio-proxy"} |= "api-${{ values.name }}" | json | line_format "{{.message}}" | json | user_id=~"$user_id"'
+      refused:
+        kind: Panel
+        spec:
+          display:
+            name: Refused over plan (429), and who was refused
+            description: The plan limit, enforced by the gateway (Limitador); the application never saw these
+          plugin:
+            kind: LogsTable
+            spec: {}
+          queries:
+          - kind: LogQuery
+            spec:
+              plugin:
+                kind: LokiLogQuery
+                spec:
+                  datasource:
+                    kind: LokiDatasource
+                    name: loki-application-logs
+                  query: '{kubernetes_namespace_name="${{ values.gatewayNamespace }}", kubernetes_container_name="istio-proxy"} |= "api-${{ values.name }}" | json | line_format "{{.message}}" | json | user_id=~"$user_id", response_code=429'
+      nokey:
+        kind: Panel
+        spec:
+          display:
+            name: No key or a bad key (401)
+            description: Stopped by the key check (Authorino); no identity on these lines because none was verified
+          plugin:
+            kind: LogsTable
+            spec: {}
+          queries:
+          - kind: LogQuery
+            spec:
+              plugin:
+                kind: LokiLogQuery
+                spec:
+                  datasource:
+                    kind: LokiDatasource
+                    name: loki-application-logs
+                  query: '{kubernetes_namespace_name="${{ values.gatewayNamespace }}", kubernetes_container_name="istio-proxy"} |= "api-${{ values.name }}" | json | line_format "{{.message}}" | json | response_code=401'
+      served:
+        kind: Panel
+        spec:
+          display:
+            name: Served (200), with consumer and plan
+            description: What reached the application, and on which plan
+          plugin:
+            kind: LogsTable
+            spec: {}
+          queries:
+          - kind: LogQuery
+            spec:
+              plugin:
+                kind: LokiLogQuery
+                spec:
+                  datasource:
+                    kind: LokiDatasource
+                    name: loki-application-logs
+                  query: '{kubernetes_namespace_name="${{ values.gatewayNamespace }}", kubernetes_container_name="istio-proxy"} |= "api-${{ values.name }}" | json | line_format "{{.message}}" | json | user_id=~"$user_id", response_code=200'
+      slow:
+        kind: Panel
+        spec:
+          display:
+            name: Slower calls (over 20 ms at the gateway)
+            description: End to end at the gateway; compare with the cost-of-governance dashboard
+          plugin:
+            kind: LogsTable
+            spec: {}
+          queries:
+          - kind: LogQuery
+            spec:
+              plugin:
+                kind: LokiLogQuery
+                spec:
+                  datasource:
+                    kind: LokiDatasource
+                    name: loki-application-logs
+                  query: '{kubernetes_namespace_name="${{ values.gatewayNamespace }}", kubernetes_container_name="istio-proxy"} |= "api-${{ values.name }}" | json | line_format "{{.message}}" | json | user_id=~"$user_id", duration_ms > 20'
+      audit:
+        kind: Panel
+        spec:
+          display:
+            name: 'Developer Hub audit log: template runs, registrations, unregisters'
+            description: 'Who ran which template with which parameters, who registered or unregistered an entity. Widen the range to a day: template runs are rarer than calls'
+          plugin:
+            kind: LogsTable
+            spec: {}
+          queries:
+          - kind: LogQuery
+            spec:
+              plugin:
+                kind: LokiLogQuery
+                spec:
+                  datasource:
+                    kind: LokiDatasource
+                    name: loki-application-logs
+                  query: '{kubernetes_namespace_name="rhdh-test"} |= "isAuditEvent" |~ "scaffolder.task|location-mutate"'
+    layouts:
+    - kind: Grid
+      spec:
+        display:
+          title: Who called, what the gateway decided
+          collapse:
+            open: true
+        items:
+        - x: 0
+          y: 0
+          width: 24
+          height: 3
+          content:
+            $ref: '#/spec/panels/intro'
+        - x: 0
+          y: 3
+          width: 24
+          height: 8
+          content:
+            $ref: '#/spec/panels/all'
+        - x: 0
+          y: 11
+          width: 12
+          height: 8
+          content:
+            $ref: '#/spec/panels/refused'
+        - x: 12
+          y: 11
+          width: 12
+          height: 8
+          content:
+            $ref: '#/spec/panels/nokey'
+        - x: 0
+          y: 19
+          width: 12
+          height: 8
+          content:
+            $ref: '#/spec/panels/served'
+        - x: 12
+          y: 19
+          width: 12
+          height: 8
+          content:
+            $ref: '#/spec/panels/slow'
+    - kind: Grid
+      spec:
+        display:
+          title: Who did what in Developer Hub
+          collapse:
+            open: true
+        items:
+        - x: 0
+          y: 0
+          width: 24
+          height: 8
+          content:
+            $ref: '#/spec/panels/audit'

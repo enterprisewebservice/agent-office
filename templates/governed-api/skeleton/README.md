@@ -41,4 +41,4 @@ Delete the GitOps application `${{ values.name }}-api` (project `governed-apis`)
 Five Perses dashboards in the console (Observe → Dashboards), all as code in `gitops/`: `dashboard.yaml` (traffic, decisions, latency),
 `dashboard-consumers.yaml` (who is calling, on which plan, allowance used today; per-consumer labels come from the gateway's
 TelemetryPolicy), `dashboard-decisions.yaml` (the funnel every request goes through), `dashboard-cost.yaml` (what the key check
-adds next to the end-to-end latency) and `dashboard-posture.yaml` (route attached, policies enforced, GitOps in sync, backend up).
+adds next to the end-to-end latency) `dashboard-posture.yaml` (route attached, policies enforced, GitOps in sync, backend up) and `dashboard-logs.yaml` (saved log questions, answered live from OpenShift Logging through the platform's Loki datasource).
