@@ -27,6 +27,14 @@ spec:
     - name: demo-namespaces
       type: application
       application:
+        # Loki is for the demo's signals, not for history: a container that
+        # produces (or replays) more than this is dropped above the ceiling at
+        # the collector, so a start without a checkpoint can never pile up a
+        # backlog. The gateway logs one line per request; Developer Hub about
+        # ten a second at its busiest.
+        tuning:
+          rateLimitPerContainer:
+            maxRecordsPerSecond: 200
         includes:
           # the shared API gateway's JSON access log: consumer identity, plan,
           # response code, request id, trace id on every request (cluster/service-mesh)
@@ -61,6 +69,12 @@ spec:
         authentication:
           token:
             from: serviceAccount
+        tuning:
+          # smaller writes, shorter retries: a rejected batch is dropped after
+          # a minute instead of held in memory
+          maxWrite: 1Mi
+          minRetryDuration: 1
+          maxRetryDuration: 60
       tls:
         ca:
           key: service-ca.crt
