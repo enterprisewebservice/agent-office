@@ -1,0 +1,87 @@
+# Second hop for the demo trace: GET /orders/{id} looks the item up in the
+# inventory service (the talker-api echo) and answers with both. Plain FastAPI
+# on the UBI Python image; the OpenTelemetry operator injects the instrumentation.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: orders-app
+  namespace: api-demo
+data:
+  app.py: |
+    import os, time, httpx
+    from fastapi import FastAPI
+    app = FastAPI()
+    INVENTORY = os.environ.get("INVENTORY_URL", "http://inventory-api.api-demo.svc.cluster.local:80")
+    @app.get("/orders/{order_id}")
+    async def order(order_id: str):
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            r = await client.get(f"{INVENTORY}/api/stock/{order_id}")
+        time.sleep(0.02)
+        return {"order": order_id, "status": "confirmed", "inventory_status": r.status_code,
+                "inventory_upstream": r.headers.get("server", "-")}
+    @app.get("/orders/health")
+    async def health():
+        return {"ok": True}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orders
+  namespace: api-demo
+  labels:
+    app: orders
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: orders
+  template:
+    metadata:
+      labels:
+        app: orders
+      annotations:
+        instrumentation.opentelemetry.io/inject-python: "true"
+    spec:
+      containers:
+        - name: orders
+          image: registry.access.redhat.com/ubi9/python-312:latest
+          command: ["/bin/bash", "-c"]
+          args:
+            - pip install --quiet --disable-pip-version-check fastapi==0.115.6 "uvicorn[standard]==0.34.0" httpx==0.28.1 && exec uvicorn app:app --host 0.0.0.0 --port 8000 --app-dir /app
+          env:
+            - name: OTEL_SERVICE_NAME
+              value: orders
+          ports:
+            - containerPort: 8000
+          volumeMounts:
+            - name: app
+              mountPath: /app
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /orders/health
+              port: 8000
+            initialDelaySeconds: 20
+            periodSeconds: 10
+      volumes:
+        - name: app
+          configMap:
+            name: orders-app
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: orders
+  namespace: api-demo
+spec:
+  selector:
+    app: orders
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000

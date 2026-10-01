@@ -13,3 +13,5 @@ resources:
   - apiproduct.yaml
   - authorino-tls-envoyfilter.yaml
   - telemetry.yaml
+  - instrumentation.yaml
+  - orders.yaml

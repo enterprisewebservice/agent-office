@@ -75,3 +75,12 @@ spec:
       backendRefs:
         - name: inventory-api
           port: 80
+    # second hop for the demo trace (orders.yaml): same gateway, same AuthPolicy,
+    # same plans; the orders service calls inventory-api in turn
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /orders
+      backendRefs:
+        - name: orders
+          port: 8000

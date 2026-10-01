@@ -1,0 +1,26 @@
+# Red Hat build of OpenTelemetry auto-instrumentation: a pod annotated with
+# instrumentation.opentelemetry.io/inject-python: "true" gets the Python agent
+# injected at start and reports to the collector; no code changes. Incoming
+# traceparent from the gateway's Envoy is continued, so the request shows up as
+# one trace: gateway -> orders -> inventory.
+apiVersion: opentelemetry.io/v1alpha1
+kind: Instrumentation
+metadata:
+  name: python-auto
+  namespace: api-demo
+spec:
+  exporter:
+    endpoint: http://otel-collector.observability.svc.cluster.local:4318
+  propagators:
+    - tracecontext
+    - baggage
+  sampler:
+    type: parentbased_always_on
+  python:
+    env:
+      - name: OTEL_EXPORTER_OTLP_PROTOCOL
+        value: http/protobuf
+      - name: OTEL_LOGS_EXPORTER
+        value: none
+      - name: OTEL_METRICS_EXPORTER
+        value: none
