@@ -38,7 +38,9 @@ spec:
         - name: api
 {%- if values.backendKind == "mock" %}
           image: docker.io/stoplight/prism:5
-          args: ["mock", "-h", "0.0.0.0", "-p", "4010", "/contract/openapi.yaml"]
+          # single process: Prism's default forks a worker through Node's
+          # cluster module, which the injected tracing agent cannot follow
+          args: ["mock", "-h", "0.0.0.0", "-p", "4010", "--multiprocess=false", "/contract/openapi.yaml"]
           ports:
             - name: http
               containerPort: 4010
