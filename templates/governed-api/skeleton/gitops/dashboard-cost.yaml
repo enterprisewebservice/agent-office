@@ -60,7 +60,7 @@ spec:
         spec:
           display:
             name: Key check p95 (Authorino, all consumers)
-            description: 'Shared by every API on the gateway: validating the key and resolving the consumer and plan'
+            description: 'Shared by every API on the gateway: validating the key and resolving the consumer and plan; interpolated inside Authorino''s coarse buckets, so an upper bound'
           plugin:
             kind: StatChart
             spec:
@@ -123,19 +123,19 @@ spec:
                     kind: PrometheusDatasource
                     name: ${{ values.datasourceName }}
                   query: histogram_quantile(0.50, sum by (le) (increase(istio_request_duration_milliseconds_bucket{destination_service_namespace="api-${{ values.name }}", user_id=~"$user_id", plan=~"$plan"}[$__range])))
-      share:
+      authP50:
         kind: Panel
         spec:
           display:
-            name: Key check (all consumers) as a share of p95
-            description: 'Approximate: the auth check''s p95 over this API''s end-to-end p95'
+            name: Key check p50 (Authorino, all consumers)
+            description: 'Authorino''s own histogram has 1 ms and 51 ms buckets, so percentiles are interpolated inside a bucket: read them as an upper bound'
           plugin:
             kind: StatChart
             spec:
               calculation: last
               format:
-                unit: percent
-                decimalPlaces: 0
+                unit: milliseconds
+                decimalPlaces: 1
           queries:
           - kind: TimeSeriesQuery
             spec:
@@ -145,7 +145,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: ${{ values.datasourceName }}
-                  query: 100 * (histogram_quantile(0.95, sum by (le) (increase(auth_server_authconfig_duration_seconds_bucket{namespace="kuadrant-system"}[$__range]))) * 1000) / clamp_min(histogram_quantile(0.95, sum by (le) (increase(istio_request_duration_milliseconds_bucket{destination_service_namespace="api-${{ values.name }}", user_id=~"$user_id", plan=~"$plan"}[$__range]))), 0.1)
+                  query: histogram_quantile(0.50, sum by (le) (increase(auth_server_authconfig_duration_seconds_bucket{namespace="kuadrant-system"}[$__range]))) * 1000
       authSeries:
         kind: Panel
         spec:
@@ -316,13 +316,13 @@ spec:
           width: 6
           height: 4
           content:
-            $ref: '#/spec/panels/authP95'
+            $ref: '#/spec/panels/authP50'
         - x: 6
           y: 0
           width: 6
           height: 4
           content:
-            $ref: '#/spec/panels/e2eP95'
+            $ref: '#/spec/panels/authP95'
         - x: 12
           y: 0
           width: 6
@@ -334,7 +334,7 @@ spec:
           width: 6
           height: 4
           content:
-            $ref: '#/spec/panels/share'
+            $ref: '#/spec/panels/e2eP95'
     - kind: Grid
       spec:
         display:

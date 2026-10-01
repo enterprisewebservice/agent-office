@@ -32,6 +32,8 @@ def panel(name, kind, queries, description=None, **spec):
 
 
 def stat(name, query, unit="decimal", description=None, thresholds=None, decimals=None):
+    if decimals is None and unit == "decimal":
+        decimals = 0   # counts come from increase(), which extrapolates fractions; show whole requests
     spec = {"calculation": "last", "format": {"unit": unit, **({"decimalPlaces": decimals} if decimals is not None else {})}}
     if thresholds:
         spec["thresholds"] = thresholds
@@ -162,11 +164,11 @@ def build(v):
     e2e = 'istio_request_duration_milliseconds_bucket{%s}' % istio
     panels = {
         "authP95": stat("Key check p95 (Authorino, all consumers)", 'histogram_quantile(0.95, sum by (le) (increase(%s[$__range]))) * 1000' % auth, unit="milliseconds", decimals=1,
-                        description="Shared by every API on the gateway: validating the key and resolving the consumer and plan"),
+                        description="Shared by every API on the gateway: validating the key and resolving the consumer and plan; interpolated inside Authorino's coarse buckets, so an upper bound"),
         "e2eP95": stat("End to end p95 at the gateway", 'histogram_quantile(0.95, sum by (le) (increase(%s[$__range])))' % e2e, unit="milliseconds", decimals=1, description="This API: from the gateway receiving the request to the last byte of the answer"),
         "e2eP50": stat("End to end p50", 'histogram_quantile(0.50, sum by (le) (increase(%s[$__range])))' % e2e, unit="milliseconds", decimals=1),
-        "share": stat("Key check (all consumers) as a share of p95", '100 * (histogram_quantile(0.95, sum by (le) (increase(%s[$__range]))) * 1000) / clamp_min(histogram_quantile(0.95, sum by (le) (increase(%s[$__range]))), 0.1)' % (auth, e2e), unit="percent", decimals=0,
-                      description="Approximate: the auth check's p95 over this API's end-to-end p95"),
+        "authP50": stat("Key check p50 (Authorino, all consumers)", 'histogram_quantile(0.50, sum by (le) (increase(%s[$__range]))) * 1000' % auth, unit="milliseconds", decimals=1,
+                        description="Authorino's own histogram has 1 ms and 51 ms buckets, so percentiles are interpolated inside a bucket: read them as an upper bound"),
         "authSeries": ts("Key check duration (shared gateway, all consumers)", [('histogram_quantile(0.50, sum by (le) (rate(%s[5m]))) * 1000' % auth, "p50"), ('histogram_quantile(0.95, sum by (le) (rate(%s[5m]))) * 1000' % auth, "p95"), ('histogram_quantile(0.99, sum by (le) (rate(%s[5m]))) * 1000' % auth, "p99")], "milliseconds"),
         "e2eSeries": ts("End to end at the gateway (this API)", [('histogram_quantile(0.50, sum by (le) (rate(%s[5m])))' % e2e, "p50"), ('histogram_quantile(0.95, sum by (le) (rate(%s[5m])))' % e2e, "p95"), ('histogram_quantile(0.99, sum by (le) (rate(%s[5m])))' % e2e, "p99")], "milliseconds"),
         "byOutcome": ts("p95 by outcome", [('histogram_quantile(0.95, sum by (le) (rate(istio_request_duration_milliseconds_bucket{%s, response_code=~"2.."}[5m])))' % istio, "served (2xx)"),
@@ -175,7 +177,7 @@ def build(v):
                         description="A stopped request is answered by the gateway in the time of the check alone"),
         "authRate": ts("Key checks per second by result (shared gateway, all consumers)", [('sum by (status) (rate(auth_server_authconfig_response_status{namespace="kuadrant-system"}[5m]))', "{{status}}")], "requests/sec"),
     }
-    layouts = [grid("What the checks cost", [item(0, 0, 6, 4, "authP95"), item(6, 0, 6, 4, "e2eP95"), item(12, 0, 6, 4, "e2eP50"), item(18, 0, 6, 4, "share")]),
+    layouts = [grid("What the checks cost", [item(0, 0, 6, 4, "authP50"), item(6, 0, 6, 4, "authP95"), item(12, 0, 6, 4, "e2eP50"), item(18, 0, 6, 4, "e2eP95")]),
                grid("Over time", [item(0, 0, 12, 8, "authSeries"), item(12, 0, 12, 8, "e2eSeries"), item(0, 8, 12, 8, "byOutcome"), item(12, 8, 12, 8, "authRate")])]
     out["cost"] = dashboard(v, "cost", "the cost of governance", "What the key check and the plan check add to a request, next to the end-to-end latency at the gateway", panels, layouts, variables)
 

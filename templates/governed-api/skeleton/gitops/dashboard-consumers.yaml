@@ -68,6 +68,7 @@ spec:
               calculation: last
               format:
                 unit: decimal
+                decimalPlaces: 0
           queries:
           - kind: TimeSeriesQuery
             spec:
@@ -89,6 +90,7 @@ spec:
               calculation: last
               format:
                 unit: decimal
+                decimalPlaces: 0
           queries:
           - kind: TimeSeriesQuery
             spec:
@@ -110,6 +112,7 @@ spec:
               calculation: last
               format:
                 unit: decimal
+                decimalPlaces: 0
           queries:
           - kind: TimeSeriesQuery
             spec:
@@ -132,6 +135,7 @@ spec:
               calculation: last
               format:
                 unit: decimal
+                decimalPlaces: 0
           queries:
           - kind: TimeSeriesQuery
             spec:
