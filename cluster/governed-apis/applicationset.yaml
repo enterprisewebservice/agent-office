@@ -35,6 +35,13 @@ spec:
     metadata:
       # repo store-locator-api-gitops -> app store-locator-api
       name: '{{ trimSuffix "-gitops" .repository }}'
+      # the Application owns everything it created: deleting it (console or
+      # oc delete applications.argoproj.io <name>-api) cascades to the namespace,
+      # the route next to the gateway and the dashboard. Retiring an API is that
+      # delete plus "Unregister entity" in Developer Hub; archive the repository
+      # as the record (the generator only ever creates and updates Applications).
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
       labels:
         app.kubernetes.io/managed-by: governed-apis-applicationset
         governed-api/name: '{{ trimSuffix "-api-gitops" .repository }}'
