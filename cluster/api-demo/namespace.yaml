@@ -6,3 +6,7 @@ metadata:
     app.kubernetes.io/part-of: connectivity-link-api-demo
     # watched by the Service Mesh 3.4 control plane in cluster/service-mesh
     istio-discovery: default
+    # the gateway's listener accepts HTTPRoutes from namespaces with this label
+    # (gateway.yaml); the inventory-api route lives here, template-made APIs
+    # live in their own labelled namespaces
+    governed-api: "true"

@@ -19,13 +19,22 @@ spec:
   # and the JSON access log with the consumer identity need our own Istio CR.
   gatewayClassName: istio
   listeners:
+    # One listener for every API on this gateway: the Governed REST API template
+    # (templates/governed-api) gives each API the hostname api-<name>.apps... and
+    # a Route in this namespace; its HTTPRoute attaches from the API's own
+    # namespace, which the template labels governed-api=true. The gateway, its
+    # access log, tracing and metrics (telemetry.yaml) are the platform's; the
+    # API repositories cannot change them (AppProject governed-apis).
     - name: http
       protocol: HTTP
       port: 80
-      hostname: inventory-api.apps.salamander.aimlworkbench.com
+      hostname: "*.apps.salamander.aimlworkbench.com"
       allowedRoutes:
         namespaces:
-          from: Same
+          from: Selector
+          selector:
+            matchLabels:
+              governed-api: "true"
 ---
 apiVersion: route.openshift.io/v1
 kind: Route

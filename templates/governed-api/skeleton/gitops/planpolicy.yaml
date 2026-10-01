@@ -1,0 +1,30 @@
+# How much each consumer may call: the plan a consumer picks when requesting a
+# key is stamped on the key, and Limitador enforces the matching daily limit at
+# the gateway (429 past the limit). Change a number here, merge, and the new
+# limit is live; the commit is the record of who changed it and when.
+apiVersion: extensions.kuadrant.io/v1alpha1
+kind: PlanPolicy
+metadata:
+  name: ${{ values.name }}-api-plans
+  namespace: api-${{ values.name }}
+spec:
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: ${{ values.name }}-api
+  plans:
+    - tier: gold
+      predicate: |
+        has(auth.identity) && auth.identity.metadata.annotations["secret.kuadrant.io/plan-id"] == "gold"
+      limits:
+        daily: ${{ values.goldDaily }}
+    - tier: silver
+      predicate: |
+        has(auth.identity) && auth.identity.metadata.annotations["secret.kuadrant.io/plan-id"] == "silver"
+      limits:
+        daily: ${{ values.silverDaily }}
+    - tier: bronze
+      predicate: |
+        has(auth.identity) && auth.identity.metadata.annotations["secret.kuadrant.io/plan-id"] == "bronze"
+      limits:
+        daily: ${{ values.bronzeDaily }}

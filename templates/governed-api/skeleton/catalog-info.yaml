@@ -1,0 +1,51 @@
+# Registered in Developer Hub by the "Governed REST API" template. The Component
+# is the service; the API entity carries the OpenAPI contract (openapi.yaml in
+# this repository), which Developer Hub renders on the API's Definition tab.
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: ${{ values.name }}-api
+  title: ${{ values.displayName | dump }}
+  description: ${{ values.description | dump }}
+  annotations:
+    github.com/project-slug: ${{ values.githubOrg }}/${{ values.name }}-api-gitops
+    backstage.io/source-location: url:https://github.com/${{ values.githubOrg }}/${{ values.name }}-api-gitops/tree/main/
+    backstage.io/kubernetes-id: ${{ values.name }}-api
+    backstage.io/kubernetes-namespace: api-${{ values.name }}
+    argocd/app-name: ${{ values.name }}-api
+  links:
+    - url: https://api-${{ values.name }}.${{ values.appsDomain }}${{ values.basePath }}
+      title: Endpoint on the gateway
+      icon: cloud
+    - url: ${{ values.devhubUrl }}/kuadrant/api-products
+      title: API products and key requests
+      icon: catalog
+    - url: https://github.com/${{ values.githubOrg }}/${{ values.name }}-api-gitops
+      title: GitOps repository (the audit trail of every change)
+      icon: github
+  tags:
+    - rest
+    - governed-api
+    - connectivity-link
+spec:
+  type: service
+  lifecycle: ${{ values.lifecycle }}
+  owner: ${{ values.owner }}
+  providesApis:
+    - ${{ values.name }}-api
+---
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: ${{ values.name }}-api
+  title: ${{ values.displayName | dump }}
+  description: ${{ values.description | dump }}
+  tags:
+    - rest
+    - governed-api
+spec:
+  type: openapi
+  lifecycle: ${{ values.lifecycle }}
+  owner: ${{ values.owner }}
+  definition:
+    $text: ./openapi.yaml

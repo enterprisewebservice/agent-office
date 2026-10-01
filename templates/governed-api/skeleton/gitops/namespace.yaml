@@ -1,0 +1,46 @@
+# A namespace of its own, with a quota and default sizes set by the platform.
+# Delete the namespace and the API is gone (the Route and the dashboard go with
+# the GitOps application).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: api-${{ values.name }}
+  labels:
+    app.kubernetes.io/part-of: governed-apis
+    governed-api/name: ${{ values.name }}
+    # lets HTTPRoutes in this namespace attach to the shared gateway
+    # (${{ values.gatewayNamespace }}/${{ values.gatewayName }}, listener allowedRoutes selector)
+    governed-api: "true"
+    # watched by the Service Mesh 3.4 control plane the gateway runs on, so the
+    # gateway can discover the backend Service
+    istio-discovery: default
+  annotations:
+    openshift.io/description: ${{ values.displayName | dump }}
+    governed-api/owner: ${{ values.owner }}
+    governed-api/created-by: ${{ values.createdBy }}
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: governed-api
+  namespace: api-${{ values.name }}
+spec:
+  hard:
+    pods: "10"
+    requests.cpu: "2"
+    requests.memory: 4Gi
+    limits.memory: 8Gi
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: governed-api
+  namespace: api-${{ values.name }}
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        cpu: 50m
+        memory: 128Mi
+      default:
+        memory: 512Mi

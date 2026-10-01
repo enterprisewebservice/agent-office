@@ -1,0 +1,92 @@
+{%- if values.backendKind == "mock" %}
+# Backend: a mock server generated from the contract (Stoplight Prism, a
+# community project), serving the examples in openapi.yaml. Switching to the
+# real implementation later is a one-line change: the image below. Everything
+# in front of it (keys, plans, product, logs, traces, dashboard) stays the same.
+{%- else %}
+# Backend: the API's container image. The gateway, not the application, handles
+# keys, plans, logging and tracing; the OpenTelemetry operator injects the
+# language agent when the image is Python or Node.js (see instrumentation.yaml).
+{%- endif %}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ values.name }}-api
+  namespace: api-${{ values.name }}
+  labels:
+    app: ${{ values.name }}-api
+    backstage.io/kubernetes-id: ${{ values.name }}-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ${{ values.name }}-api
+  template:
+    metadata:
+      labels:
+        app: ${{ values.name }}-api
+        backstage.io/kubernetes-id: ${{ values.name }}-api
+      annotations:
+        governed-api/contract: ${{ values.name }}-api-contract
+{%- if values.backendKind == "mock" %}
+        instrumentation.opentelemetry.io/inject-nodejs: "true"
+{%- elif values.language != "none" %}
+        instrumentation.opentelemetry.io/inject-${{ values.language }}: "true"
+{%- endif %}
+    spec:
+      containers:
+        - name: api
+{%- if values.backendKind == "mock" %}
+          image: docker.io/stoplight/prism:5
+          args: ["mock", "-h", "0.0.0.0", "-p", "4010", "/contract/openapi.yaml"]
+          ports:
+            - name: http
+              containerPort: 4010
+          volumeMounts:
+            - name: contract
+              mountPath: /contract
+              readOnly: true
+          readinessProbe:
+            tcpSocket:
+              port: 4010
+            initialDelaySeconds: 3
+            periodSeconds: 5
+{%- else %}
+          image: ${{ values.image }}
+          ports:
+            - name: http
+              containerPort: ${{ values.port }}
+{%- endif %}
+          env:
+            - name: PORT
+              value: "${{ '4010' if values.backendKind == 'mock' else values.port }}"
+            - name: OTEL_SERVICE_NAME
+              value: ${{ values.name }}-api
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+{%- if values.backendKind == "mock" %}
+      volumes:
+        - name: contract
+          configMap:
+            name: ${{ values.name }}-api-contract
+{%- endif %}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ values.name }}-api
+  namespace: api-${{ values.name }}
+  labels:
+    app: ${{ values.name }}-api
+    backstage.io/kubernetes-id: ${{ values.name }}-api
+spec:
+  selector:
+    app: ${{ values.name }}-api
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

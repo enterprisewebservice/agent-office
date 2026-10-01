@@ -30,6 +30,9 @@ spec:
           - namespace: observability
           - namespace: agent-office
           - namespace: bestbuy-demo
+          # Developer Hub's audit events (template runs, catalog changes, RBAC
+          # changes; each with the actor) are JSON lines on its pod log
+          - namespace: rhdh-test
   outputs:
     - name: default-lokistack
       type: lokiStack

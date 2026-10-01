@@ -1,0 +1,43 @@
+# Tracing without code changes: the Red Hat build of OpenTelemetry injects the
+# language agent into pods annotated instrumentation.opentelemetry.io/inject-<lang>
+# (backend.yaml). The agent continues the trace context the gateway's Envoy
+# sends, so one request shows up as one trace: gateway -> this API -> whatever
+# it calls. Spans go to the platform's collector, and from there to Tempo
+# (console: Observe > Traces).
+apiVersion: opentelemetry.io/v1alpha1
+kind: Instrumentation
+metadata:
+  name: auto
+  namespace: api-${{ values.name }}
+spec:
+  exporter:
+    endpoint: ${{ values.otlpHttpEndpoint }}
+  propagators:
+    - tracecontext
+    - baggage
+  sampler:
+    type: parentbased_always_on
+  python:
+    env:
+      - name: OTEL_EXPORTER_OTLP_PROTOCOL
+        value: http/protobuf
+      - name: OTEL_LOGS_EXPORTER
+        value: none
+      - name: OTEL_METRICS_EXPORTER
+        value: none
+  nodejs:
+    env:
+      - name: OTEL_EXPORTER_OTLP_PROTOCOL
+        value: http/protobuf
+      - name: OTEL_LOGS_EXPORTER
+        value: none
+      - name: OTEL_METRICS_EXPORTER
+        value: none
+  java:
+    env:
+      - name: OTEL_EXPORTER_OTLP_PROTOCOL
+        value: http/protobuf
+      - name: OTEL_LOGS_EXPORTER
+        value: none
+      - name: OTEL_METRICS_EXPORTER
+        value: none

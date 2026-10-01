@@ -1,0 +1,25 @@
+# Everything this API needs on the cluster, synced by OpenShift GitOps
+# (ApplicationSet governed-apis picks this repository up by name). The repository
+# is the audit trail: every change to the contract, the backend or the policies
+# is a commit here, reviewed before it is live.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - gitops/namespace.yaml
+  - gitops/backend.yaml
+  - gitops/httproute.yaml
+  - gitops/route.yaml
+  - gitops/authpolicy.yaml
+  - gitops/planpolicy.yaml
+  - gitops/apiproduct.yaml
+  - gitops/instrumentation.yaml
+  - gitops/dashboard.yaml
+# The contract, mounted into the backend (the mock serves it; a real backend can
+# validate against it).
+configMapGenerator:
+  - name: ${{ values.name }}-api-contract
+    namespace: api-${{ values.name }}
+    files:
+      - openapi.yaml
+generatorOptions:
+  disableNameSuffixHash: true

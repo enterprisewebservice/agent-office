@@ -1,0 +1,31 @@
+# The product consumers see: in Developer Hub (API products, key requests) and
+# on the console's API Products page. Key requests against it create
+# APIKeyRequest objects; approvals create APIKeyApproval objects and the
+# enforcement Secret. Those objects are the first audit ledger: who asked, for
+# which plan, who approved, when.
+apiVersion: devportal.kuadrant.io/v1alpha1
+kind: APIProduct
+metadata:
+  name: ${{ values.name }}-api
+  namespace: api-${{ values.name }}
+  annotations:
+    backstage.io/owner: ${{ values.owner }}
+spec:
+  displayName: ${{ values.displayName | dump }}
+  description: ${{ values.description | dump }}
+  version: ${{ values.version }}
+  approvalMode: ${{ values.approvalMode }}
+  publishStatus: Published
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: ${{ values.name }}-api
+  contact:
+    team: ${{ values.owner }}
+    url: ${{ values.devhubUrl }}/catalog/default/component/${{ values.name }}-api
+  documentation:
+    docsURL: ${{ values.devhubUrl }}/catalog/default/api/${{ values.name }}-api/definition
+    openAPISpecURL: https://raw.githubusercontent.com/${{ values.githubOrg }}/${{ values.name }}-api-gitops/main/openapi.yaml
+  tags:
+    - rest
+    - ${{ values.lifecycle }}

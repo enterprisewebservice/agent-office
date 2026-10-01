@@ -1,0 +1,342 @@
+# Developer Hub Software Template: Governed REST API
+#
+# One form, one API, fully set up: a Git repository with the contract and every
+# cluster object the API needs (namespace with quota, backend, HTTPRoute on the
+# shared Connectivity Link gateway, AuthPolicy, PlanPolicy, API product,
+# OpenTelemetry instrumentation, Perses dashboard), the catalog entries
+# (Component + API with the OpenAPI definition), and a GitOps application that
+# syncs the repository within a minute (ApplicationSet governed-apis,
+# cluster/governed-apis). The platform pieces the developer cannot touch are
+# hidden parameters with defaults: the gateway, the domain, the organization.
+#
+# Audit trail, by design: the template run is a Developer Hub audit event with
+# the actor; the repository's commit history records every later change; key
+# requests and approvals are objects on the cluster; the gateway's access log
+# carries the consumer identity on every request.
+#
+# Registered in Developer Hub as a catalog location (see NOTES.md).
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: governed-api
+  title: Governed REST API
+  description: >
+    Publish a REST API behind Red Hat Connectivity Link from its OpenAPI
+    contract: API-key access through the catalog, plan limits, access log with
+    the consumer identity, tracing and a dashboard, all created for you in a
+    namespace of its own. Start with a mock generated from the contract and
+    switch to the real backend later.
+  tags:
+    - recommended
+    - rest
+    - connectivity-link
+    - governed-api
+spec:
+  owner: agent-office
+  type: service
+
+  parameters:
+    - title: Your API
+      required: [name, displayName, description, owner]
+      properties:
+        name:
+          title: Name
+          type: string
+          description: "kebab-case, e.g. store-locator. Becomes the namespace api-<name>, the hostname api-<name>.<cluster domain> and the repository <name>-api-gitops."
+          pattern: '^[a-z][a-z0-9-]*[a-z0-9]$'
+          maxLength: 30
+        displayName:
+          title: Display name
+          type: string
+          description: "As consumers see it in the catalog, e.g. Store Locator API"
+        description:
+          title: Description
+          type: string
+          description: "One or two sentences for the catalog and the API product page"
+          ui:widget: textarea
+          ui:options: {rows: 3}
+        owner:
+          title: Owner
+          type: string
+          description: "The team (or person) accountable for this API; approves key requests"
+          ui:field: OwnerPicker
+          ui:options:
+            catalogFilter:
+              kind: [Group, User]
+        lifecycle:
+          title: Lifecycle
+          type: string
+          default: experimental
+          enum: [experimental, production]
+          enumNames: ["Test: a throwaway endpoint for development and testing", "Production"]
+        version:
+          title: Version
+          type: string
+          default: v1
+
+    - title: The contract and the backend
+      required: [openapi, basePath, backendKind]
+      properties:
+        openapi:
+          title: OpenAPI contract
+          type: string
+          description: "Paste the OpenAPI 3 document. It becomes openapi.yaml in the repository, the API definition in the catalog, and (for a mock backend) the behaviour of the mock. The sample is a store locator."
+          ui:widget: textarea
+          ui:options: {rows: 22}
+          default: |
+            openapi: 3.0.3
+            info:
+              title: Store Locator API
+              version: v1
+              description: Find stores, their opening hours and the services they offer.
+            paths:
+              /api/stores:
+                get:
+                  summary: List stores near a postal code
+                  operationId: listStores
+                  parameters:
+                    - name: postalCode
+                      in: query
+                      required: false
+                      schema:
+                        type: string
+                      example: M5V 3L9
+                  responses:
+                    '200':
+                      description: Stores, nearest first
+                      content:
+                        application/json:
+                          schema:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/Store'
+                          example:
+                            - id: "1021"
+                              name: Downtown Toronto
+                              address: 65 Dundas St W, Toronto ON
+                              distanceKm: 1.2
+                              openNow: true
+                              services: [pickup, geek-squad, trade-in]
+                            - id: "1044"
+                              name: Mississauga Heartland
+                              address: 5955 Rodeo Dr, Mississauga ON
+                              distanceKm: 24.7
+                              openNow: true
+                              services: [pickup, appliances]
+              /api/stores/{storeId}:
+                get:
+                  summary: Get one store
+                  operationId: getStore
+                  parameters:
+                    - name: storeId
+                      in: path
+                      required: true
+                      schema:
+                        type: string
+                  responses:
+                    '200':
+                      description: The store
+                      content:
+                        application/json:
+                          schema:
+                            $ref: '#/components/schemas/Store'
+                          example:
+                            id: "1021"
+                            name: Downtown Toronto
+                            address: 65 Dundas St W, Toronto ON
+                            distanceKm: 0
+                            openNow: true
+                            hours: "10:00-21:00"
+                            services: [pickup, geek-squad, trade-in]
+                    '404':
+                      description: No such store
+            components:
+              schemas:
+                Store:
+                  type: object
+                  required: [id, name, address]
+                  properties:
+                    id:
+                      type: string
+                    name:
+                      type: string
+                    address:
+                      type: string
+                    distanceKm:
+                      type: number
+                    openNow:
+                      type: boolean
+                    hours:
+                      type: string
+                    services:
+                      type: array
+                      items:
+                        type: string
+        basePath:
+          title: Base path
+          type: string
+          description: "Requests under this path reach the API (must match the paths in the contract)"
+          default: /api
+          pattern: '^/[A-Za-z0-9._~/-]*$'
+        backendKind:
+          title: Backend
+          type: string
+          default: mock
+          enum: [mock, image]
+          enumNames:
+            - "Mock generated from the contract (Stoplight Prism, a community project): answers with the examples"
+            - "Container image (the real implementation)"
+        image:
+          title: Container image
+          type: string
+          description: "Used when the backend is a container image. The default is Kuadrant's echo service, which answers every request with what it received."
+          default: quay.io/kuadrant/authorino-examples:talker-api
+        port:
+          title: Container port
+          type: integer
+          description: "The port the image listens on (ignored for the mock)"
+          default: 3000
+        language:
+          title: Tracing agent for the image
+          type: string
+          description: "The OpenTelemetry operator injects a language agent at start, no code changes (ignored for the mock, which is traced as Node.js)"
+          default: none
+          enum: [none, python, nodejs, java]
+          enumNames: ["None (the gateway span only)", "Python", "Node.js", "Java"]
+
+    - title: Plans and approval
+      required: [goldDaily, silverDaily, bronzeDaily, approvalMode]
+      properties:
+        goldDaily:
+          title: Gold plan, requests per day
+          type: integer
+          default: 1000
+          minimum: 1
+        silverDaily:
+          title: Silver plan, requests per day
+          type: integer
+          default: 200
+          minimum: 1
+        bronzeDaily:
+          title: Bronze plan, requests per day
+          type: integer
+          default: 20
+          minimum: 1
+        approvalMode:
+          title: Key requests
+          type: string
+          default: manual
+          enum: [manual, automatic]
+          enumNames: ["Approved by the owner (recorded as an APIKeyApproval)", "Approved automatically"]
+        # Platform defaults, set by the platform team; not shown to the developer.
+        appsDomain:
+          type: string
+          default: apps.salamander.aimlworkbench.com
+          ui:widget: hidden
+        gatewayName:
+          type: string
+          default: api-gateway
+          ui:widget: hidden
+        gatewayNamespace:
+          type: string
+          default: api-demo
+          ui:widget: hidden
+        githubOrg:
+          type: string
+          default: enterprisewebservice
+          ui:widget: hidden
+        devhubUrl:
+          type: string
+          default: https://v1-developer-hub-rhdh-test.apps.salamander.aimlworkbench.com
+          ui:widget: hidden
+        consoleUrl:
+          type: string
+          default: https://console-openshift-console.apps.salamander.aimlworkbench.com
+          ui:widget: hidden
+        dashboardsNamespace:
+          type: string
+          default: openshift-cluster-observability-operator
+          ui:widget: hidden
+        datasourceName:
+          type: string
+          default: accelerators-thanos-querier-datasource
+          ui:widget: hidden
+        otlpHttpEndpoint:
+          type: string
+          default: http://otel-collector.observability.svc.cluster.local:4318
+          ui:widget: hidden
+
+  steps:
+    - id: render
+      name: Render the repository from the contract
+      action: fetch:template
+      input:
+        url: ./skeleton
+        values:
+          name: ${{ parameters.name }}
+          displayName: ${{ parameters.displayName }}
+          description: ${{ parameters.description }}
+          owner: ${{ parameters.owner }}
+          lifecycle: ${{ parameters.lifecycle }}
+          version: ${{ parameters.version }}
+          openapi: ${{ parameters.openapi }}
+          basePath: ${{ parameters.basePath }}
+          backendKind: ${{ parameters.backendKind }}
+          image: ${{ parameters.image }}
+          port: ${{ parameters.port }}
+          language: ${{ parameters.language }}
+          goldDaily: ${{ parameters.goldDaily }}
+          silverDaily: ${{ parameters.silverDaily }}
+          bronzeDaily: ${{ parameters.bronzeDaily }}
+          approvalMode: ${{ parameters.approvalMode }}
+          appsDomain: ${{ parameters.appsDomain }}
+          gatewayName: ${{ parameters.gatewayName }}
+          gatewayNamespace: ${{ parameters.gatewayNamespace }}
+          githubOrg: ${{ parameters.githubOrg }}
+          devhubUrl: ${{ parameters.devhubUrl }}
+          dashboardsNamespace: ${{ parameters.dashboardsNamespace }}
+          datasourceName: ${{ parameters.datasourceName }}
+          otlpHttpEndpoint: ${{ parameters.otlpHttpEndpoint }}
+          createdBy: ${{ user.ref }}
+
+    - id: publish
+      name: Publish the repository
+      action: publish:github
+      input:
+        repoUrl: github.com?owner=${{ parameters.githubOrg }}&repo=${{ parameters.name }}-api-gitops
+        defaultBranch: main
+        repoVisibility: public
+        description: "${{ parameters.displayName }}: contract, policies and deployment of a governed REST API (created from the Developer Hub template)"
+        topics: [governed-api]
+        gitCommitMessage: "${{ parameters.name }}: created from the Governed REST API template by ${{ user.ref }}"
+        gitAuthorName: ${{ user.entity.spec.profile.displayName or user.entity.metadata.name or user.ref }}
+        gitAuthorEmail: ${{ user.entity.spec.profile.email or 'developer-hub@noreply.local' }}
+
+    - id: wait
+      name: Let the repository settle
+      action: debug:wait
+      input:
+        seconds: 5
+
+    - id: register
+      name: Register the component and the API in the catalog
+      action: catalog:register
+      input:
+        repoContentsUrl: ${{ steps['publish'].output.repoContentsUrl }}
+        catalogInfoPath: /catalog-info.yaml
+
+  output:
+    links:
+      - title: Repository (contract, policies, deployment)
+        url: ${{ steps['publish'].output.remoteUrl }}
+        icon: github
+      - title: Open in the catalog
+        icon: catalog
+        entityRef: ${{ steps['register'].output.entityRef }}
+      - title: Endpoint on the gateway (live within about a minute)
+        url: https://api-${{ parameters.name }}.${{ parameters.appsDomain }}${{ parameters.basePath }}
+        icon: cloud
+      - title: API products and key requests
+        url: ${{ parameters.devhubUrl }}/kuadrant/api-products
+      - title: Dashboard (console, Observe > Dashboards)
+        url: ${{ parameters.consoleUrl }}/monitoring/v2/dashboards

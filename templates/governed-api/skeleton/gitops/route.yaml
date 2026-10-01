@@ -1,0 +1,20 @@
+# Public hostname: an OpenShift Route in the gateway's namespace that terminates
+# TLS with the cluster certificate and hands the request to the gateway's
+# Service. DNS already resolves *.${{ values.appsDomain }} to the routers.
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: api-${{ values.name }}
+  namespace: ${{ values.gatewayNamespace }}
+  labels:
+    governed-api/name: ${{ values.name }}
+spec:
+  host: api-${{ values.name }}.${{ values.appsDomain }}
+  to:
+    kind: Service
+    name: ${{ values.gatewayName }}-istio
+  port:
+    targetPort: 80
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect

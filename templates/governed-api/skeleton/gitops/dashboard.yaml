@@ -1,0 +1,252 @@
+# The owner's view of this API, as code: a Red Hat build of Perses dashboard
+# shown in the OpenShift console under Observe > Dashboards (Perses), project
+# ${{ values.dashboardsNamespace }}. Every number comes from the gateway (Envoy
+# request metrics) and the policy engine (Limitador counters); the application
+# did not have to export anything.
+apiVersion: perses.dev/v1alpha2
+kind: PersesDashboard
+metadata:
+  name: ${{ values.name }}-api
+  namespace: ${{ values.dashboardsNamespace }}
+  labels:
+    governed-api/name: ${{ values.name }}
+spec:
+  config:
+    display:
+      name: "${{ values.displayName }}: traffic, decisions, latency"
+      description: "Gateway ${{ values.gatewayNamespace }}/${{ values.gatewayName }}, API api-${{ values.name }}: requests by response code and path, plan decisions, latency"
+    duration: 1h
+    refreshInterval: 30s
+    panels:
+      total:
+        kind: Panel
+        spec:
+          display:
+            name: Requests in range
+          plugin:
+            kind: StatChart
+            spec:
+              calculation: last
+              format:
+                unit: decimal
+          queries:
+            - kind: TimeSeriesQuery
+              spec:
+                plugin:
+                  kind: PrometheusTimeSeriesQuery
+                  spec:
+                    datasource:
+                      kind: PrometheusDatasource
+                      name: ${{ values.datasourceName }}
+                    query: sum(increase(istio_requests_total{destination_service_namespace="api-${{ values.name }}"}[$__range])) or vector(0)
+      denied:
+        kind: Panel
+        spec:
+          display:
+            name: Denied, no or bad key (401, 403)
+          plugin:
+            kind: StatChart
+            spec:
+              calculation: last
+              format:
+                unit: decimal
+          queries:
+            - kind: TimeSeriesQuery
+              spec:
+                plugin:
+                  kind: PrometheusTimeSeriesQuery
+                  spec:
+                    datasource:
+                      kind: PrometheusDatasource
+                      name: ${{ values.datasourceName }}
+                    query: sum(increase(istio_requests_total{destination_service_namespace="api-${{ values.name }}", response_code=~"401|403"}[$__range])) or vector(0)
+      limited:
+        kind: Panel
+        spec:
+          display:
+            name: Over the plan limit (429)
+          plugin:
+            kind: StatChart
+            spec:
+              calculation: last
+              format:
+                unit: decimal
+          queries:
+            - kind: TimeSeriesQuery
+              spec:
+                plugin:
+                  kind: PrometheusTimeSeriesQuery
+                  spec:
+                    datasource:
+                      kind: PrometheusDatasource
+                      name: ${{ values.datasourceName }}
+                    query: sum(increase(istio_requests_total{destination_service_namespace="api-${{ values.name }}", response_code="429"}[$__range])) or vector(0)
+      p95:
+        kind: Panel
+        spec:
+          display:
+            name: p95 latency at the gateway (range)
+          plugin:
+            kind: StatChart
+            spec:
+              calculation: last
+              format:
+                unit: milliseconds
+          queries:
+            - kind: TimeSeriesQuery
+              spec:
+                plugin:
+                  kind: PrometheusTimeSeriesQuery
+                  spec:
+                    datasource:
+                      kind: PrometheusDatasource
+                      name: ${{ values.datasourceName }}
+                    query: histogram_quantile(0.95, sum by (le) (increase(istio_request_duration_milliseconds_bucket{destination_service_namespace="api-${{ values.name }}"}[$__range])))
+      byCode:
+        kind: Panel
+        spec:
+          display:
+            name: Requests per second by response code
+            description: "200 served by the backend, 401 no or bad key (AuthPolicy), 429 over the plan (PlanPolicy); the application enforced none of it"
+          plugin:
+            kind: TimeSeriesChart
+            spec:
+              legend:
+                position: bottom
+              yAxis:
+                format:
+                  unit: requests/sec
+          queries:
+            - kind: TimeSeriesQuery
+              spec:
+                plugin:
+                  kind: PrometheusTimeSeriesQuery
+                  spec:
+                    datasource:
+                      kind: PrometheusDatasource
+                      name: ${{ values.datasourceName }}
+                    query: sum by (response_code) (rate(istio_requests_total{destination_service_namespace="api-${{ values.name }}"}[5m]))
+                    seriesNameFormat: "{{response_code}}"
+      byPath:
+        kind: Panel
+        spec:
+          display:
+            name: Requests per second by path
+          plugin:
+            kind: TimeSeriesChart
+            spec:
+              legend:
+                position: bottom
+              yAxis:
+                format:
+                  unit: requests/sec
+          queries:
+            - kind: TimeSeriesQuery
+              spec:
+                plugin:
+                  kind: PrometheusTimeSeriesQuery
+                  spec:
+                    datasource:
+                      kind: PrometheusDatasource
+                      name: ${{ values.datasourceName }}
+                    query: sum by (request_url_path) (rate(istio_requests_total{destination_service_namespace="api-${{ values.name }}"}[5m]))
+                    seriesNameFormat: "{{request_url_path}}"
+      decisions:
+        kind: Panel
+        spec:
+          display:
+            name: Plan decisions per second (Limitador)
+            description: "Counted by the policy engine, not by Envoy: calls within the consumer's plan and calls refused over it"
+          plugin:
+            kind: TimeSeriesChart
+            spec:
+              legend:
+                position: bottom
+          queries:
+            - kind: TimeSeriesQuery
+              spec:
+                plugin:
+                  kind: PrometheusTimeSeriesQuery
+                  spec:
+                    datasource:
+                      kind: PrometheusDatasource
+                      name: ${{ values.datasourceName }}
+                    query: sum(rate(authorized_calls{limitador_namespace=~"api-${{ values.name }}/.*"}[5m])) or vector(0)
+                    seriesNameFormat: "within plan"
+            - kind: TimeSeriesQuery
+              spec:
+                plugin:
+                  kind: PrometheusTimeSeriesQuery
+                  spec:
+                    datasource:
+                      kind: PrometheusDatasource
+                      name: ${{ values.datasourceName }}
+                    query: sum(rate(limited_calls{limitador_namespace=~"api-${{ values.name }}/.*"}[5m])) or vector(0)
+                    seriesNameFormat: "over plan (429)"
+      latency:
+        kind: Panel
+        spec:
+          display:
+            name: Latency at the gateway (p50, p95, p99)
+          plugin:
+            kind: TimeSeriesChart
+            spec:
+              legend:
+                position: bottom
+              yAxis:
+                format:
+                  unit: milliseconds
+          queries:
+            - kind: TimeSeriesQuery
+              spec:
+                plugin:
+                  kind: PrometheusTimeSeriesQuery
+                  spec:
+                    datasource:
+                      kind: PrometheusDatasource
+                      name: ${{ values.datasourceName }}
+                    query: histogram_quantile(0.50, sum by (le) (rate(istio_request_duration_milliseconds_bucket{destination_service_namespace="api-${{ values.name }}"}[5m])))
+                    seriesNameFormat: p50
+            - kind: TimeSeriesQuery
+              spec:
+                plugin:
+                  kind: PrometheusTimeSeriesQuery
+                  spec:
+                    datasource:
+                      kind: PrometheusDatasource
+                      name: ${{ values.datasourceName }}
+                    query: histogram_quantile(0.95, sum by (le) (rate(istio_request_duration_milliseconds_bucket{destination_service_namespace="api-${{ values.name }}"}[5m])))
+                    seriesNameFormat: p95
+            - kind: TimeSeriesQuery
+              spec:
+                plugin:
+                  kind: PrometheusTimeSeriesQuery
+                  spec:
+                    datasource:
+                      kind: PrometheusDatasource
+                      name: ${{ values.datasourceName }}
+                    query: histogram_quantile(0.99, sum by (le) (rate(istio_request_duration_milliseconds_bucket{destination_service_namespace="api-${{ values.name }}"}[5m])))
+                    seriesNameFormat: p99
+    layouts:
+      - kind: Grid
+        spec:
+          display:
+            title: Overview
+            collapse:
+              open: true
+          items:
+            - { x: 0, y: 0, width: 6, height: 4, content: { $ref: "#/spec/panels/total" } }
+            - { x: 6, y: 0, width: 6, height: 4, content: { $ref: "#/spec/panels/denied" } }
+            - { x: 12, y: 0, width: 6, height: 4, content: { $ref: "#/spec/panels/limited" } }
+            - { x: 18, y: 0, width: 6, height: 4, content: { $ref: "#/spec/panels/p95" } }
+      - kind: Grid
+        spec:
+          display:
+            title: Traffic and decisions
+            collapse:
+              open: true
+          items:
+            - { x: 0, y: 0, width: 12, height: 8, content: { $ref: "#/spec/panels/byCode" } }
+            - { x: 12, y: 0, width: 12, height: 8, content: { $ref: "#/spec/panels/byPath" } }
+            - { x: 0, y: 8, width: 12, height: 8, content: { $ref: "#/spec/panels/decisions" } }
+            - { x: 12, y: 8, width: 12, height: 8, content: { $ref: "#/spec/panels/latency" } }

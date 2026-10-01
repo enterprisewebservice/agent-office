@@ -1,0 +1,58 @@
+# What an API team's repository is allowed to create. The Governed REST API
+# template (templates/governed-api) renders exactly these kinds; anything else
+# in a *-api-gitops repository (a Gateway, a Secret, a RoleBinding, an
+# EnvoyFilter) is refused by OpenShift GitOps at sync time. The gateway, the
+# control plane, the observability stack and the policy engine stay with the
+# platform team.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: governed-apis
+  namespace: openshift-gitops
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  description: REST APIs created from the Governed REST API template, one namespace each
+  sourceRepos:
+    - https://github.com/enterprisewebservice/*-api-gitops.git
+    - https://github.com/enterprisewebservice/*-api-gitops
+  destinations:
+    # the API's own namespace
+    - namespace: 'api-*'
+      server: https://kubernetes.default.svc
+    # the public hostname is a Route next to the shared gateway
+    - namespace: api-demo
+      server: https://kubernetes.default.svc
+    # the API's dashboard lives where the console's Perses datasource is
+    - namespace: openshift-cluster-observability-operator
+      server: https://kubernetes.default.svc
+  clusterResourceWhitelist:
+    - group: ''
+      kind: Namespace
+  namespaceResourceWhitelist:
+    - group: ''
+      kind: ConfigMap
+    - group: ''
+      kind: Service
+    - group: ''
+      kind: ResourceQuota
+    - group: ''
+      kind: LimitRange
+    - group: apps
+      kind: Deployment
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+    - group: kuadrant.io
+      kind: AuthPolicy
+    - group: kuadrant.io
+      kind: RateLimitPolicy
+    - group: extensions.kuadrant.io
+      kind: PlanPolicy
+    - group: devportal.kuadrant.io
+      kind: APIProduct
+    - group: route.openshift.io
+      kind: Route
+    - group: opentelemetry.io
+      kind: Instrumentation
+    - group: perses.dev
+      kind: PersesDashboard

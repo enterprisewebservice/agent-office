@@ -1,0 +1,8 @@
+# The platform side of the Governed REST API template (templates/governed-api):
+# the AppProject that limits what an API repository may create, and the
+# ApplicationSet that turns every *-api-gitops repository into an Application.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - appproject.yaml
+  - applicationset.yaml

@@ -1,0 +1,64 @@
+# One OpenShift GitOps Application per API repository. The Governed REST API
+# template publishes <name>-api-gitops in enterprisewebservice with the marker
+# file argocd/applicationset-managed; this generator finds it within a minute
+# and syncs it into the namespace api-<name>, under the governed-apis
+# AppProject (appproject.yaml: the allow-list of kinds and namespaces).
+#
+# Same shape and the same safety settings as cluster/argocd-appset/
+# agent-office-appset.yaml: a generator blip never deletes an Application, and
+# deleting an Application never takes its resources with it. Removing an API is
+# an explicit act (templates/governed-api/NOTES.md, teardown).
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: governed-apis
+  namespace: openshift-gitops
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  syncPolicy:
+    preserveResourcesOnDeletion: true
+    applicationsSync: create-update
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - scmProvider:
+        github:
+          organization: enterprisewebservice
+          appSecretName: agent-office-github-app-scm
+        cloneProtocol: https
+        requeueAfterSeconds: 60
+        filters:
+          - repositoryMatch: '.*-api-gitops$'
+            pathsExist: ['argocd/applicationset-managed']
+  template:
+    metadata:
+      # repo store-locator-api-gitops -> app store-locator-api
+      name: '{{ trimSuffix "-gitops" .repository }}'
+      labels:
+        app.kubernetes.io/managed-by: governed-apis-applicationset
+        governed-api/name: '{{ trimSuffix "-api-gitops" .repository }}'
+      annotations:
+        governed-api/repository: '{{ .url }}'
+    spec:
+      project: governed-apis
+      source:
+        repoURL: '{{ .url }}'
+        targetRevision: '{{ .branch }}'
+        path: .
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: 'api-{{ trimSuffix "-api-gitops" .repository }}'
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+        retry:
+          limit: 10
+          backoff:
+            duration: 20s
+            factor: 2
+            maxDuration: 3m

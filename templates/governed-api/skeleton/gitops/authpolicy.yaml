@@ -1,0 +1,44 @@
+# Who may call this API: consumers holding a key issued through the catalog.
+# The developer-portal controller stamps the labels of this selector onto every
+# enforcement Secret it creates when a key request for this product is
+# approved, so keys for this API are accepted here and nowhere else. The
+# consumer's identity and plan are written into two request headers, which the
+# gateway's access log records on every line (who called what, and on which plan).
+apiVersion: kuadrant.io/v1
+kind: AuthPolicy
+metadata:
+  name: ${{ values.name }}-api-auth
+  namespace: api-${{ values.name }}
+spec:
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: ${{ values.name }}-api
+  rules:
+    authentication:
+      api-key-consumers:
+        apiKey:
+          selector:
+            matchLabels:
+              app: ${{ values.name }}-api
+          allNamespaces: true
+        credentials:
+          authorizationHeader:
+            prefix: Bearer
+    response:
+      success:
+        headers:
+          x-auth-identity:
+            plain:
+              expression: auth.identity.metadata.annotations["secret.kuadrant.io/user-id"]
+          x-auth-plan:
+            plain:
+              expression: auth.identity.metadata.annotations["secret.kuadrant.io/plan-id"]
+        filters:
+          identity:
+            json:
+              properties:
+                consumer:
+                  selector: auth.identity.metadata.labels.devportal\.kuadrant\.io/apikey-namespace
+                plan:
+                  selector: auth.identity.metadata.annotations.secret\.kuadrant\.io/plan-id

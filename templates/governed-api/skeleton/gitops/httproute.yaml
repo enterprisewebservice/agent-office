@@ -1,0 +1,29 @@
+# The API's place on the shared gateway. The gateway itself
+# (${{ values.gatewayNamespace }}/${{ values.gatewayName }}) is owned by the platform
+# team and is not part of this repository: it carries the access log with the
+# consumer identity, the tracing provider and the request metrics for every API
+# attached to it.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ${{ values.name }}-api
+  namespace: api-${{ values.name }}
+  labels:
+    # the Connectivity Link Grafana dashboards join Istio request metrics to the
+    # route through these two labels (1.4 observability guide)
+    service: ${{ values.name }}-api
+    deployment: ${{ values.name }}-api
+spec:
+  parentRefs:
+    - name: ${{ values.gatewayName }}
+      namespace: ${{ values.gatewayNamespace }}
+  hostnames:
+    - api-${{ values.name }}.${{ values.appsDomain }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: ${{ values.basePath }}
+      backendRefs:
+        - name: ${{ values.name }}-api
+          port: 80
