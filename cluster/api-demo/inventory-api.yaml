@@ -63,7 +63,9 @@ metadata:
     deployment: inventory-api
 spec:
   parentRefs:
-    - name: api-gateway
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: api-gateway
       namespace: api-demo
   hostnames:
     - inventory-api.apps.salamander.aimlworkbench.com
@@ -73,8 +75,11 @@ spec:
             type: PathPrefix
             value: /api
       backendRefs:
-        - name: inventory-api
+        - group: ""
+          kind: Service
+          name: inventory-api
           port: 80
+          weight: 1
     # second hop for the demo trace (orders.yaml): same gateway, same AuthPolicy,
     # same plans; the orders service calls inventory-api in turn
     - matches:
@@ -82,5 +87,8 @@ spec:
             type: PathPrefix
             value: /orders
       backendRefs:
-        - name: orders
+        - group: ""
+          kind: Service
+          name: orders
           port: 8000
+          weight: 1

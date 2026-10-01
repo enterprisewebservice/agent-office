@@ -15,7 +15,9 @@ metadata:
     deployment: ${{ values.name }}-api
 spec:
   parentRefs:
-    - name: ${{ values.gatewayName }}
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ${{ values.gatewayName }}
       namespace: ${{ values.gatewayNamespace }}
   hostnames:
     - api-${{ values.name }}.${{ values.appsDomain }}
@@ -24,6 +26,11 @@ spec:
         - path:
             type: PathPrefix
             value: ${{ values.basePath }}
+      # written out in full (group, kind, weight are API defaults) so the
+      # GitOps diff stays clean
       backendRefs:
-        - name: ${{ values.name }}-api
+        - group: ""
+          kind: Service
+          name: ${{ values.name }}-api
           port: 80
+          weight: 1
