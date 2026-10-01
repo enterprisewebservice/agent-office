@@ -69,11 +69,21 @@ def item(x, y, w, h, ref):
     return {"x": x, "y": y, "width": w, "height": h, "content": {"$ref": "#/spec/panels/%s" % ref}}
 
 
-def dashboard(v, suffix, title, description, panels, layouts):
+def variable(name, label, label_name, matcher):
+    """A dropdown fed by the label values of a metric; 'All' and multi-select allowed. Use in queries as label=~"$name"."""
+    return {"kind": "ListVariable", "spec": {"name": name, "display": {"name": label, "hidden": False}, "allowAllValue": True, "allowMultiple": True,
+            "defaultValue": "$__all", "plugin": {"kind": "PrometheusLabelValuesVariable", "spec": {"datasource": {"kind": "PrometheusDatasource", "name": DS},
+            "labelName": label_name, "matchers": [matcher]}}}}
+
+
+def dashboard(v, suffix, title, description, panels, layouts, variables=None):
+    cfg = {"display": {"name": "%s: %s" % (v.displayName, title), "description": description}, "duration": "1h", "refreshInterval": "30s"}
+    if variables:
+        cfg["variables"] = variables
+    cfg.update({"panels": panels, "layouts": layouts})
     return {"apiVersion": "perses.dev/v1alpha2", "kind": "PersesDashboard",
             "metadata": {"name": "%s-api-%s" % (v.name, suffix), "namespace": v.dashboardsNamespace, "labels": {"governed-api/name": v.name}},
-            "spec": {"config": {"display": {"name": "%s: %s" % (v.displayName, title), "description": description},
-                                "duration": "1h", "refreshInterval": "30s", "panels": panels, "layouts": layouts}}}
+            "spec": {"config": cfg}}
 
 
 OK_RED = {"steps": [{"value": 0, "color": "#c9190b"}, {"value": 1, "color": "#3e8635"}]}
@@ -86,28 +96,30 @@ def build(v):
     out = {}
 
     # 1. consumers and plans (TelemetryPolicy labels on Limitador's counters)
+    sel = '%s, user_id=~"$user_id", plan=~"$plan"' % lim   # the Consumer and Plan dropdowns
     panels = {
-        "consumers": stat("Consumers seen in range", 'count(count by (user_id) (increase(authorized_calls{%s, user_id!=""}[$__range]) > 0)) or vector(0)' % lim,
-                          description="Distinct user ids behind the keys that made at least one call within their plan"),
-        "calls": stat("Calls within plan", 'sum(increase(authorized_calls{%s}[$__range])) or vector(0)' % lim),
-        "refused": stat("Refused over plan (429)", 'sum(increase(limited_calls{%s}[$__range])) or vector(0)' % lim),
-        "topPlan": stat("Busiest plan", 'topk(1, sum by (plan) (increase(authorized_calls{%s, plan!=""}[$__range])))' % lim, description="The plan with the most calls in range"),
-        "byConsumer": bar("Calls per consumer and plan (range)", 'sum by (user_id, plan) (increase(authorized_calls{%s, user_id!=""}[$__range]))' % lim, "{{user_id}} · {{plan}}",
+        "consumers": stat("Consumers seen in range", 'count(count by (user_id) (increase(authorized_calls{%s, user_id!=""}[$__range]) > 0)) or vector(0)' % sel,
+                          description="Distinct user ids behind the keys that made at least one call within their plan (filtered by the dropdowns)"),
+        "calls": stat("Calls within plan", 'sum(increase(authorized_calls{%s}[$__range])) or vector(0)' % sel),
+        "refused": stat("Refused over plan (429)", 'sum(increase(limited_calls{%s}[$__range])) or vector(0)' % sel),
+        "topPlan": stat("Busiest plan", 'topk(1, sum by (plan) (increase(authorized_calls{%s, plan!=""}[$__range])))' % sel, description="The plan with the most calls in range"),
+        "byConsumer": bar("Calls per consumer and plan (range)", 'sum by (user_id, plan) (increase(authorized_calls{%s, user_id!=""}[$__range]))' % sel, "{{user_id}} · {{plan}}",
                           description="Counted by the policy engine per consumer: the TelemetryPolicy on the gateway labels every decision with the user id and the plan of the key"),
-        "refusedByConsumer": bar("Refused over plan, per consumer (range)", 'sum by (user_id, plan) (increase(limited_calls{%s, user_id!=""}[$__range]))' % lim, "{{user_id}} · {{plan}}"),
-        "rateByConsumer": ts("Calls per second by consumer", [('sum by (user_id, plan) (rate(authorized_calls{%s, user_id!=""}[5m]))' % lim, "{{user_id}} · {{plan}}")], "requests/sec"),
-        "refusedRate": ts("Refusals per second by consumer (429)", [('sum by (user_id, plan) (rate(limited_calls{%s, user_id!=""}[5m]))' % lim, "{{user_id}} · {{plan}}")], "requests/sec"),
-        "gold": gauge("Gold plan: calls today of %s" % v.goldDaily, 'sum(increase(authorized_calls{%s, plan="gold"}[24h])) or vector(0)' % lim, int(v.goldDaily) if str(v.goldDaily).isdigit() else v.goldDaily,
-                      description="All gold consumers together; the limit applies per consumer"),
-        "silver": gauge("Silver plan: calls today of %s" % v.silverDaily, 'sum(increase(authorized_calls{%s, plan="silver"}[24h])) or vector(0)' % lim, int(v.silverDaily) if str(v.silverDaily).isdigit() else v.silverDaily),
-        "bronze": gauge("Bronze plan: calls today of %s" % v.bronzeDaily, 'sum(increase(authorized_calls{%s, plan="bronze"}[24h])) or vector(0)' % lim, int(v.bronzeDaily) if str(v.bronzeDaily).isdigit() else v.bronzeDaily),
-        "ledger": table("Consumer ledger (range)", 'sum by (user_id, plan, consumer) (increase(authorized_calls{%s, user_id!=""}[$__range]))' % lim,
+        "refusedByConsumer": bar("Refused over plan, per consumer (range)", 'sum by (user_id, plan) (increase(limited_calls{%s, user_id!=""}[$__range]))' % sel, "{{user_id}} · {{plan}}"),
+        "rateByConsumer": ts("Calls per second by consumer", [('sum by (user_id, plan) (rate(authorized_calls{%s, user_id!=""}[5m]))' % sel, "{{user_id}} · {{plan}}")], "requests/sec"),
+        "refusedRate": ts("Refusals per second by consumer (429)", [('sum by (user_id, plan) (rate(limited_calls{%s, user_id!=""}[5m]))' % sel, "{{user_id}} · {{plan}}")], "requests/sec"),
+        "gold": gauge("Gold plan: calls today of %s" % v.goldDaily, 'sum(increase(authorized_calls{%s, user_id=~"$user_id", plan="gold"}[24h])) or vector(0)' % lim, int(v.goldDaily) if str(v.goldDaily).isdigit() else v.goldDaily,
+                      description="The limit applies per consumer: pick one in the Consumer dropdown for an exact gauge; All adds the consumers up"),
+        "silver": gauge("Silver plan: calls today of %s" % v.silverDaily, 'sum(increase(authorized_calls{%s, user_id=~"$user_id", plan="silver"}[24h])) or vector(0)' % lim, int(v.silverDaily) if str(v.silverDaily).isdigit() else v.silverDaily),
+        "bronze": gauge("Bronze plan: calls today of %s" % v.bronzeDaily, 'sum(increase(authorized_calls{%s, user_id=~"$user_id", plan="bronze"}[24h])) or vector(0)' % lim, int(v.bronzeDaily) if str(v.bronzeDaily).isdigit() else v.bronzeDaily),
+        "ledger": table("Consumer ledger (range)", 'sum by (user_id, plan, consumer) (increase(authorized_calls{%s, user_id!=""}[$__range]))' % sel,
                         description="user id, plan and the consumer's namespace, with the calls counted within plan"),
     }
     layouts = [grid("Who is calling", [item(0, 0, 6, 4, "consumers"), item(6, 0, 6, 4, "calls"), item(12, 0, 6, 4, "refused"), item(18, 0, 6, 4, "topPlan")]),
                grid("Per consumer", [item(0, 0, 12, 8, "byConsumer"), item(12, 0, 12, 8, "refusedByConsumer"), item(0, 8, 12, 8, "rateByConsumer"), item(12, 8, 12, 8, "refusedRate")]),
                grid("Plan allowances today", [item(0, 0, 8, 6, "gold"), item(8, 0, 8, 6, "silver"), item(16, 0, 8, 6, "bronze"), item(0, 6, 24, 8, "ledger")])]
-    out["consumers"] = dashboard(v, "consumers", "consumers and plans", "Who is calling this API, on which plan, and how much of today's allowance is used; from the policy engine's counters, labelled by the gateway's TelemetryPolicy", panels, layouts)
+    variables = [variable("user_id", "Consumer", "user_id", 'authorized_calls{%s, user_id!=""}' % lim), variable("plan", "Plan", "plan", 'authorized_calls{%s, plan!=""}' % lim)]
+    out["consumers"] = dashboard(v, "consumers", "consumers and plans", "Who is calling this API, on which plan, and how much of today's allowance is used; pick a consumer or a plan at the top. From the policy engine's counters, labelled by the gateway's TelemetryPolicy", panels, layouts, variables)
 
     # 2. policy decisions: the funnel every request goes through
     total = 'sum(increase(istio_requests_total{%s}[$__range]))' % istio

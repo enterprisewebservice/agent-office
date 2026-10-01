@@ -10,9 +10,46 @@ spec:
   config:
     display:
       name: 'Governed APIs: the platform view'
-      description: 'Every API created from the Governed REST API template on the shared gateway: traffic, what policy stopped, consumers, latency, GitOps and policy state'
+      description: 'Every API created from the Governed REST API template on the shared gateway: traffic, what policy stopped, consumers, latency, GitOps and policy state. Pick an API or a consumer at the top.'
     duration: 1h
     refreshInterval: 30s
+    variables:
+    - kind: ListVariable
+      spec:
+        name: api
+        display:
+          name: API (namespace)
+          hidden: false
+        allowAllValue: true
+        allowMultiple: true
+        defaultValue: $__all
+        plugin:
+          kind: PrometheusLabelValuesVariable
+          spec:
+            datasource:
+              kind: PrometheusDatasource
+              name: accelerators-thanos-querier-datasource
+            labelName: destination_service_namespace
+            matchers:
+            - istio_requests_total{destination_service_namespace=~"api-.*"}
+    - kind: ListVariable
+      spec:
+        name: user_id
+        display:
+          name: Consumer
+          hidden: false
+        allowAllValue: true
+        allowMultiple: true
+        defaultValue: $__all
+        plugin:
+          kind: PrometheusLabelValuesVariable
+          spec:
+            datasource:
+              kind: PrometheusDatasource
+              name: accelerators-thanos-querier-datasource
+            labelName: user_id
+            matchers:
+            - authorized_calls{user_id!=""}
     panels:
       apis:
         kind: Panel
@@ -125,7 +162,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: accelerators-thanos-querier-datasource
-                  query: sum(increase(istio_requests_total{destination_service_namespace=~"api-.*"}[$__range])) or vector(0)
+                  query: sum(increase(istio_requests_total{destination_service_namespace=~"$api"}[$__range])) or vector(0)
       stopped:
         kind: Panel
         spec:
@@ -147,7 +184,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: accelerators-thanos-querier-datasource
-                  query: sum(increase(istio_requests_total{destination_service_namespace=~"api-.*", response_code=~"401|403|429"}[$__range])) or vector(0)
+                  query: sum(increase(istio_requests_total{destination_service_namespace=~"$api", response_code=~"401|403|429"}[$__range])) or vector(0)
       consumers:
         kind: Panel
         spec:
@@ -170,7 +207,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: accelerators-thanos-querier-datasource
-                  query: count(count by (user_id) (increase(authorized_calls{user_id!=""}[$__range]) > 0)) or vector(0)
+                  query: count(count by (user_id) (increase(authorized_calls{user_id=~"$user_id", user_id!=""}[$__range]) > 0)) or vector(0)
       p95:
         kind: Panel
         spec:
@@ -192,7 +229,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: accelerators-thanos-querier-datasource
-                  query: histogram_quantile(0.95, sum by (le) (increase(istio_request_duration_milliseconds_bucket{destination_service_namespace=~"api-.*"}[$__range])))
+                  query: histogram_quantile(0.95, sum by (le) (increase(istio_request_duration_milliseconds_bucket{destination_service_namespace=~"$api"}[$__range])))
       byApi:
         kind: Panel
         spec:
@@ -215,7 +252,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: accelerators-thanos-querier-datasource
-                  query: sum by (destination_service_namespace) (rate(istio_requests_total{destination_service_namespace=~"api-.*"}[5m]))
+                  query: sum by (destination_service_namespace) (rate(istio_requests_total{destination_service_namespace=~"$api"}[5m]))
                   seriesNameFormat: '{{destination_service_namespace}}'
       stoppedByApi:
         kind: Panel
@@ -239,7 +276,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: accelerators-thanos-querier-datasource
-                  query: sum by (destination_service_namespace) (rate(istio_requests_total{destination_service_namespace=~"api-.*", response_code=~"401|403|429"}[5m]))
+                  query: sum by (destination_service_namespace) (rate(istio_requests_total{destination_service_namespace=~"$api", response_code=~"401|403|429"}[5m]))
                   seriesNameFormat: '{{destination_service_namespace}}'
       p95ByApi:
         kind: Panel
@@ -263,7 +300,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: accelerators-thanos-querier-datasource
-                  query: histogram_quantile(0.95, sum by (le, destination_service_namespace) (rate(istio_request_duration_milliseconds_bucket{destination_service_namespace=~"api-.*"}[5m])))
+                  query: histogram_quantile(0.95, sum by (le, destination_service_namespace) (rate(istio_request_duration_milliseconds_bucket{destination_service_namespace=~"$api"}[5m])))
                   seriesNameFormat: '{{destination_service_namespace}}'
       errByApi:
         kind: Panel
@@ -287,7 +324,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: accelerators-thanos-querier-datasource
-                  query: sum by (destination_service_namespace) (rate(istio_requests_total{destination_service_namespace=~"api-.*", response_code=~"5.."}[5m]))
+                  query: sum by (destination_service_namespace) (rate(istio_requests_total{destination_service_namespace=~"$api", response_code=~"5.."}[5m]))
                   seriesNameFormat: '{{destination_service_namespace}}'
       topApis:
         kind: Panel
@@ -311,7 +348,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: accelerators-thanos-querier-datasource
-                  query: sum by (destination_service_namespace) (increase(istio_requests_total{destination_service_namespace=~"api-.*"}[$__range]))
+                  query: sum by (destination_service_namespace) (increase(istio_requests_total{destination_service_namespace=~"$api"}[$__range]))
                   seriesNameFormat: '{{destination_service_namespace}}'
       topConsumers:
         kind: Panel
@@ -336,7 +373,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: accelerators-thanos-querier-datasource
-                  query: sum by (user_id, limitador_namespace) (increase(authorized_calls{user_id!=""}[$__range]))
+                  query: sum by (user_id, limitador_namespace) (increase(authorized_calls{user_id=~"$user_id", user_id!=""}[$__range]))
                   seriesNameFormat: '{{user_id}} · {{limitador_namespace}}'
       auth:
         kind: Panel
@@ -384,7 +421,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: accelerators-thanos-querier-datasource
-                  query: sum by (limitador_namespace) (rate(authorized_calls[5m]))
+                  query: sum by (limitador_namespace) (rate(authorized_calls{limitador_namespace=~"$api/.*"}[5m]))
                   seriesNameFormat: '{{limitador_namespace}} within plan'
           - kind: TimeSeriesQuery
             spec:
@@ -394,7 +431,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: accelerators-thanos-querier-datasource
-                  query: sum by (limitador_namespace) (rate(limited_calls[5m]))
+                  query: sum by (limitador_namespace) (rate(limited_calls{limitador_namespace=~"$api/.*"}[5m]))
                   seriesNameFormat: '{{limitador_namespace}} over plan'
       gitops:
         kind: Panel

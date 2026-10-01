@@ -11,16 +11,53 @@ spec:
   config:
     display:
       name: '${{ values.displayName }}: consumers and plans'
-      description: Who is calling this API, on which plan, and how much of today's allowance is used; from the policy engine's counters, labelled by the gateway's TelemetryPolicy
+      description: Who is calling this API, on which plan, and how much of today's allowance is used; pick a consumer or a plan at the top. From the policy engine's counters, labelled by the gateway's TelemetryPolicy
     duration: 1h
     refreshInterval: 30s
+    variables:
+    - kind: ListVariable
+      spec:
+        name: user_id
+        display:
+          name: Consumer
+          hidden: false
+        allowAllValue: true
+        allowMultiple: true
+        defaultValue: $__all
+        plugin:
+          kind: PrometheusLabelValuesVariable
+          spec:
+            datasource:
+              kind: PrometheusDatasource
+              name: ${{ values.datasourceName }}
+            labelName: user_id
+            matchers:
+            - authorized_calls{limitador_namespace="api-${{ values.name }}/${{ values.name }}-api", user_id!=""}
+    - kind: ListVariable
+      spec:
+        name: plan
+        display:
+          name: Plan
+          hidden: false
+        allowAllValue: true
+        allowMultiple: true
+        defaultValue: $__all
+        plugin:
+          kind: PrometheusLabelValuesVariable
+          spec:
+            datasource:
+              kind: PrometheusDatasource
+              name: ${{ values.datasourceName }}
+            labelName: plan
+            matchers:
+            - authorized_calls{limitador_namespace="api-${{ values.name }}/${{ values.name }}-api", plan!=""}
     panels:
       consumers:
         kind: Panel
         spec:
           display:
             name: Consumers seen in range
-            description: Distinct user ids behind the keys that made at least one call within their plan
+            description: Distinct user ids behind the keys that made at least one call within their plan (filtered by the dropdowns)
           plugin:
             kind: StatChart
             spec:
@@ -36,7 +73,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: ${{ values.datasourceName }}
-                  query: count(count by (user_id) (increase(authorized_calls{limitador_namespace="api-${{ values.name }}/${{ values.name }}-api", user_id!=""}[$__range]) > 0)) or vector(0)
+                  query: count(count by (user_id) (increase(authorized_calls{limitador_namespace="api-${{ values.name }}/${{ values.name }}-api", user_id=~"$user_id", plan=~"$plan", user_id!=""}[$__range]) > 0)) or vector(0)
       calls:
         kind: Panel
         spec:
@@ -57,7 +94,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: ${{ values.datasourceName }}
-                  query: sum(increase(authorized_calls{limitador_namespace="api-${{ values.name }}/${{ values.name }}-api"}[$__range])) or vector(0)
+                  query: sum(increase(authorized_calls{limitador_namespace="api-${{ values.name }}/${{ values.name }}-api", user_id=~"$user_id", plan=~"$plan"}[$__range])) or vector(0)
       refused:
         kind: Panel
         spec:
@@ -78,7 +115,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: ${{ values.datasourceName }}
-                  query: sum(increase(limited_calls{limitador_namespace="api-${{ values.name }}/${{ values.name }}-api"}[$__range])) or vector(0)
+                  query: sum(increase(limited_calls{limitador_namespace="api-${{ values.name }}/${{ values.name }}-api", user_id=~"$user_id", plan=~"$plan"}[$__range])) or vector(0)
       topPlan:
         kind: Panel
         spec:
@@ -100,7 +137,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: ${{ values.datasourceName }}
-                  query: topk(1, sum by (plan) (increase(authorized_calls{limitador_namespace="api-${{ values.name }}/${{ values.name }}-api", plan!=""}[$__range])))
+                  query: topk(1, sum by (plan) (increase(authorized_calls{limitador_namespace="api-${{ values.name }}/${{ values.name }}-api", user_id=~"$user_id", plan=~"$plan", plan!=""}[$__range])))
       byConsumer:
         kind: Panel
         spec:
@@ -124,7 +161,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: ${{ values.datasourceName }}
-                  query: sum by (user_id, plan) (increase(authorized_calls{limitador_namespace="api-${{ values.name }}/${{ values.name }}-api", user_id!=""}[$__range]))
+                  query: sum by (user_id, plan) (increase(authorized_calls{limitador_namespace="api-${{ values.name }}/${{ values.name }}-api", user_id=~"$user_id", plan=~"$plan", user_id!=""}[$__range]))
                   seriesNameFormat: '{{user_id}} · {{plan}}'
       refusedByConsumer:
         kind: Panel
@@ -148,7 +185,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: ${{ values.datasourceName }}
-                  query: sum by (user_id, plan) (increase(limited_calls{limitador_namespace="api-${{ values.name }}/${{ values.name }}-api", user_id!=""}[$__range]))
+                  query: sum by (user_id, plan) (increase(limited_calls{limitador_namespace="api-${{ values.name }}/${{ values.name }}-api", user_id=~"$user_id", plan=~"$plan", user_id!=""}[$__range]))
                   seriesNameFormat: '{{user_id}} · {{plan}}'
       rateByConsumer:
         kind: Panel
@@ -172,7 +209,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: ${{ values.datasourceName }}
-                  query: sum by (user_id, plan) (rate(authorized_calls{limitador_namespace="api-${{ values.name }}/${{ values.name }}-api", user_id!=""}[5m]))
+                  query: sum by (user_id, plan) (rate(authorized_calls{limitador_namespace="api-${{ values.name }}/${{ values.name }}-api", user_id=~"$user_id", plan=~"$plan", user_id!=""}[5m]))
                   seriesNameFormat: '{{user_id}} · {{plan}}'
       refusedRate:
         kind: Panel
@@ -196,14 +233,14 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: ${{ values.datasourceName }}
-                  query: sum by (user_id, plan) (rate(limited_calls{limitador_namespace="api-${{ values.name }}/${{ values.name }}-api", user_id!=""}[5m]))
+                  query: sum by (user_id, plan) (rate(limited_calls{limitador_namespace="api-${{ values.name }}/${{ values.name }}-api", user_id=~"$user_id", plan=~"$plan", user_id!=""}[5m]))
                   seriesNameFormat: '{{user_id}} · {{plan}}'
       gold:
         kind: Panel
         spec:
           display:
             name: 'Gold plan: calls today of ${{ values.goldDaily }}'
-            description: All gold consumers together; the limit applies per consumer
+            description: 'The limit applies per consumer: pick one in the Consumer dropdown for an exact gauge; All adds the consumers up'
           plugin:
             kind: GaugeChart
             spec:
@@ -228,7 +265,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: ${{ values.datasourceName }}
-                  query: sum(increase(authorized_calls{limitador_namespace="api-${{ values.name }}/${{ values.name }}-api", plan="gold"}[24h])) or vector(0)
+                  query: sum(increase(authorized_calls{limitador_namespace="api-${{ values.name }}/${{ values.name }}-api", user_id=~"$user_id", plan="gold"}[24h])) or vector(0)
       silver:
         kind: Panel
         spec:
@@ -258,7 +295,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: ${{ values.datasourceName }}
-                  query: sum(increase(authorized_calls{limitador_namespace="api-${{ values.name }}/${{ values.name }}-api", plan="silver"}[24h])) or vector(0)
+                  query: sum(increase(authorized_calls{limitador_namespace="api-${{ values.name }}/${{ values.name }}-api", user_id=~"$user_id", plan="silver"}[24h])) or vector(0)
       bronze:
         kind: Panel
         spec:
@@ -288,7 +325,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: ${{ values.datasourceName }}
-                  query: sum(increase(authorized_calls{limitador_namespace="api-${{ values.name }}/${{ values.name }}-api", plan="bronze"}[24h])) or vector(0)
+                  query: sum(increase(authorized_calls{limitador_namespace="api-${{ values.name }}/${{ values.name }}-api", user_id=~"$user_id", plan="bronze"}[24h])) or vector(0)
       ledger:
         kind: Panel
         spec:
@@ -308,7 +345,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: ${{ values.datasourceName }}
-                  query: sum by (user_id, plan, consumer) (increase(authorized_calls{limitador_namespace="api-${{ values.name }}/${{ values.name }}-api", user_id!=""}[$__range]))
+                  query: sum by (user_id, plan, consumer) (increase(authorized_calls{limitador_namespace="api-${{ values.name }}/${{ values.name }}-api", user_id=~"$user_id", plan=~"$plan", user_id!=""}[$__range]))
     layouts:
     - kind: Grid
       spec:
