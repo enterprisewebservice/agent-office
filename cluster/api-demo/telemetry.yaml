@@ -22,13 +22,27 @@ spec:
     - providers:
         - name: prometheus
       overrides:
+        # user_id and plan: the identity headers Authorino injects after the key
+        # check (x-auth-identity, x-auth-plan), so requests, latency and the
+        # dashboards built on them can be filtered per consumer. Empty on a 401
+        # (no identity yet); present on 429s and 2xx. Per-user labels raise the
+        # series count (consumers x paths x codes): fine for a shared demo
+        # gateway, size the retention for a busy production one.
         - match:
             metric: REQUEST_COUNT
           tagOverrides:
             request_url_path:
               value: "request.url_path"
+            user_id:
+              value: "request.headers['x-auth-identity']"
+            plan:
+              value: "request.headers['x-auth-plan']"
         - match:
             metric: REQUEST_DURATION
           tagOverrides:
             request_url_path:
               value: "request.url_path"
+            user_id:
+              value: "request.headers['x-auth-identity']"
+            plan:
+              value: "request.headers['x-auth-plan']"
