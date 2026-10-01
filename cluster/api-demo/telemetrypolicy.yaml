@@ -1,0 +1,23 @@
+# Per-consumer labels on the policy engine's counters (Technology Preview in
+# Connectivity Link 1.4): Limitador's authorized_calls / limited_calls gain
+# user_id, plan and consumer, taken from what each API's AuthPolicy exports in
+# response.success.filters.identity (userid, plan, consumer). The expressions
+# are fail-safe on purpose: an unresolvable label discards the whole descriptor
+# and rate limiting stops counting (kuadrant-operator#2242, #2298), so every
+# label falls back to "" when the identity has no such field.
+apiVersion: extensions.kuadrant.io/v1alpha1
+kind: TelemetryPolicy
+metadata:
+  name: consumer-labels
+  namespace: api-demo
+spec:
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: Gateway
+    name: api-gateway
+  metrics:
+    default:
+      labels:
+        user_id: 'has(auth.identity.userid) ? auth.identity.userid : ""'
+        plan: 'has(auth.identity.plan) ? auth.identity.plan : ""'
+        consumer: 'has(auth.identity.consumer) ? auth.identity.consumer : ""'

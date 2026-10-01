@@ -42,3 +42,6 @@ spec:
                   selector: auth.identity.metadata.labels.devportal\.kuadrant\.io/apikey-namespace
                 plan:
                   selector: auth.identity.metadata.annotations.secret\.kuadrant\.io/plan-id
+                # the consumer's user id, for per-user metric labels (TelemetryPolicy on the gateway)
+                userid:
+                  selector: auth.identity.metadata.annotations.secret\.kuadrant\.io/user-id
