@@ -70,7 +70,7 @@ spec:
                   fi
                   code=$(wget --quiet -O /dev/null --server-response \
                     "$VAULT_ADDR/v1/sys/health" 2>&1 | \
-                    awk '/HTTP\/1.[01]/ {print $2}' | tail -1 || true)
+                    sed -n 's/.*HTTP\/1\.[01] \([0-9][0-9][0-9]\).*/\1/p' | tail -1 || true)
                   case "${code:-none}" in
                     200|429|472|473) echo "Vault is unsealed (HTTP $code); nothing to do"; exit 0 ;;
                     503) echo "Vault is sealed (HTTP 503); unsealing" ;;
