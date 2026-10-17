@@ -1,0 +1,45 @@
+# Let's Encrypt production issuer, DNS-01 through Route 53. The only issuer
+# in the estate that can mint wildcards (HTTP-01 cannot), so the router's
+# default certificate depends on it. Credentials come from Secret
+# aws-route53 in the cert-manager namespace (externalsecret-aws-route53.yaml);
+# cert-manager resolves ClusterIssuer secret refs in its own namespace
+# (--cluster-resource-namespace). The operator's CertManager CR pins the
+# DNS-01 self-check to public resolvers (1.1.1.1, 9.9.9.9) so the cluster's
+# own DNS cache cannot hide a fresh TXT record.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: peterson.dean@gmail.com
+    privateKeySecretRef:
+      name: letsencrypt-prod-account-key
+    solvers:
+      - selector:
+          dnsZones:
+            - aimlworkbench.com
+        dns01:
+          route53:
+            region: us-east-1
+            hostedZoneID: Z05939181UAPRPGKZ9ZLF
+            accessKeyIDSecretRef:
+              name: aws-route53
+              key: access-key-id
+            secretAccessKeySecretRef:
+              name: aws-route53
+              key: secret-access-key
+      - selector:
+          dnsZones:
+            - runtab.io
+        dns01:
+          route53:
+            region: us-east-1
+            hostedZoneID: Z07235946XFQQU2GAXO5
+            accessKeyIDSecretRef:
+              name: aws-route53
+              key: access-key-id
+            secretAccessKeySecretRef:
+              name: aws-route53
+              key: secret-access-key

@@ -1,0 +1,26 @@
+# The router's default certificate: *.apps.salamander.aimlworkbench.com.
+# IngressController default (openshift-ingress-operator) points at
+# spec.defaultCertificate.name = apps-wildcard-prod-tls, and the Gateway API
+# gateway openshift-ai-inference in openshift-ingress references the same
+# Secret. cert-manager renews it 30 days before expiry; the router and the
+# gateway reload on the Secret change, nobody has to touch anything.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: apps-wildcard-prod
+  namespace: openshift-ingress
+spec:
+  secretName: apps-wildcard-prod-tls
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  commonName: "*.apps.salamander.aimlworkbench.com"
+  dnsNames:
+    - "*.apps.salamander.aimlworkbench.com"
+    - "apps.salamander.aimlworkbench.com"
+  privateKey:
+    algorithm: RSA
+    size: 2048
+    rotationPolicy: Always
+  duration: 2160h   # 90 days, Let's Encrypt's maximum
+  renewBefore: 720h # renew 30 days before expiry

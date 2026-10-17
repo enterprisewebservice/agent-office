@@ -18,9 +18,16 @@
 # of exactly its own CRDs; re-extract after an operator upgrade. The PrometheusRule pages RuntabOps if the CSV leaves
 # Succeeded or cainjector crash-loops, so the next occurrence is caught
 # while the API audit log still names the deleter.
+#
+# letsencrypt-prod (Route 53 DNS-01) and the router's wildcard Certificate
+# live here too since 16 Oct 2026: they used to be hand-applied from the
+# runtab repo, were lost in the same wipes, and both wildcards expired.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - crds-redhat-cert-manager-operator-1.20.0.yaml
   - clusterissuer-letsencrypt-http01.yaml
+  - externalsecret-aws-route53.yaml
+  - clusterissuer-letsencrypt-prod.yaml
+  - certificate-apps-wildcard-prod.yaml
   - alerts.yaml
