@@ -60,7 +60,11 @@ Break-glass for a CronJob that genuinely needs concurrent runs:
 
 | Secret | What it holds | How to recreate |
 |---|---|---|
-| `openshift-monitoring/alertmanager-smtp` | key `password`: the Resend API key Alertmanager uses for SMTP (the same key `claude-code-agent/ccs-secrets` holds as `RESEND_API_KEY`) | `oc create secret generic alertmanager-smtp -n openshift-monitoring --from-file=password=<file with the key>` |
+| `openshift-monitoring/alertmanager-smtp` | key `password`: a Google app password for admin@enterprisewebservice.com, which Alertmanager uses to authenticate to Google Workspace's SMTP relay (`smtp-relay.gmail.com:587`). Until 2026-10-22 it held the Resend API key. | In zsh: `read -s "PW?Google app password: " && printf %s "$PW" \| oc create secret generic alertmanager-smtp -n openshift-monitoring --from-file=password=/dev/stdin --dry-run=client -o yaml \| oc apply -f - ; unset PW` |
+
+The relay must be switched on in Google Admin: Apps → Google Workspace → Gmail →
+Routing → SMTP relay service → Configure, with "Only addresses in my domains",
+"Require SMTP Authentication" and "Require TLS encryption".
 
 If it is missing, the Alertmanager pods stay in ContainerCreating (the
 monitoring operator mounts it as a volume). Long-term it belongs behind an

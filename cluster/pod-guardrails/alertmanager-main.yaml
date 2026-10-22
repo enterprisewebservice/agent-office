@@ -1,13 +1,20 @@
 # Alertmanager configuration for core platform monitoring, in git since
 # 2026-09-29. It reproduces the configuration that had been applied by hand
-# (Resend SMTP, email to admin@enterprisewebservice.com for critical alerts
-# and for the claude-code-agent namespace) and adds one route:
+# (email to admin@enterprisewebservice.com for critical alerts and for the
+# claude-code-agent namespace) and adds one route:
 #
 #   PlatformOps: the pod pile-up family (our four AlertingRule alerts plus
 #   the built-in KubeJobNotCompleted, KubeletTooManyPods and KubePodNotReady)
 #   is emailed. Before this route those alerts fell through to "Default",
 #   which has no receiver, which is how 1,301 KubeJobNotCompleted firings
 #   and KubeletTooManyPods on all eight nodes went unseen.
+#
+# Sender (since 2026-10-22): Google Workspace's SMTP relay, from
+# alerts@enterprisewebservice.com, authenticated as admin@enterprisewebservice.com.
+# Alerts used to go out through Resend as hello@runtab.io, where they were three
+# quarters of runtab.io's mail and dragged down the reputation Runtab's
+# customer email depends on. Google asks relay clients to greet with their own
+# domain, hence smtp_hello (Alertmanager's default is "localhost").
 #
 # No credential lives here: smtp_auth_password_file points at the
 # alertmanager-smtp Secret that cluster-monitoring-config.yaml mounts.
@@ -29,9 +36,10 @@ stringData:
     global:
       http_config:
         proxy_from_environment: true
-      smtp_smarthost: smtp.resend.com:587
-      smtp_from: hello@runtab.io
-      smtp_auth_username: resend
+      smtp_smarthost: smtp-relay.gmail.com:587
+      smtp_from: alerts@enterprisewebservice.com
+      smtp_hello: enterprisewebservice.com
+      smtp_auth_username: admin@enterprisewebservice.com
       smtp_auth_password_file: /etc/alertmanager/secrets/alertmanager-smtp/password
       smtp_require_tls: true
     inhibit_rules:
