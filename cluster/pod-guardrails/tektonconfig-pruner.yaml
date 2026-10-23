@@ -1,0 +1,30 @@
+# Layer 4: pruning. The OpenShift Pipelines pruner, declared here instead of
+# the hand `kubectl patch` it came from. The operator renders this into the
+# tekton-resource-pruner CronJob in openshift-pipelines (daily 08:00 UTC)
+# and prunes every namespace that has runs; opt a namespace out with the
+# annotation operator.tekton.dev/prune.skip: "true".
+#
+# Before (22 Oct 2026): keep 100 PipelineRuns per namespace, TaskRuns not
+# listed. Konflux's default-tenant sat at 80 PipelineRuns with 535 TaskRuns
+# and 1,502 ResolutionRequests hanging off them (385 TaskRuns older than 90
+# days) and nothing was ever pruned; agent-office carried 40 standalone
+# TaskRuns no pruner looked at. keep 50 of each kind bounds every namespace;
+# a PipelineRun's TaskRuns and ResolutionRequests are deleted with it.
+#
+# Partial object, applied server-side: git owns only spec.pruner, the
+# operator keeps everything else. Prune=false because deleting TektonConfig
+# would uninstall OpenShift Pipelines.
+apiVersion: operator.tekton.dev/v1alpha1
+kind: TektonConfig
+metadata:
+  name: config
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false
+spec:
+  pruner:
+    disabled: false
+    schedule: "0 8 * * *"
+    resources:
+      - pipelinerun
+      - taskrun
+    keep: 50

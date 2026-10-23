@@ -10,3 +10,6 @@ resources:
   - project-request.yaml
   # layer 3: admission policy for CronJobs
   - cronjob-policy.yaml
+  # layer 4: pruning of what nothing else garbage-collects
+  - olm-unpack-janitor.yaml
+  - tektonconfig-pruner.yaml

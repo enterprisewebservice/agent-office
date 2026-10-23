@@ -1,0 +1,111 @@
+# Layer 4: pruning. Daily janitor for the one pile nothing on this cluster
+# garbage-collects (found 22 Oct 2026, Dean: "I just don't want any leaks of
+# resources that are getting worse over time").
+#
+# Every bundle the catalog-operator unpacks leaves a ConfigMap in
+# openshift-marketplace (sha-named, label olm.managed=true, owned by the
+# CatalogSource) that in turn owns a Job, a Role, a RoleBinding and
+# sometimes a ServiceAccount. OLM reuses them between InstallPlans but never
+# removes them: 608 ConfigMaps, 608 Roles, 608 RoleBindings, 376 Jobs and
+# 32 ServiceAccounts had piled up since November 2025, about six objects a
+# day, none referenced by an InstallPlan (there were none in the
+# namespace). Deleting a ConfigMap older than UNPACK_MAX_AGE_DAYS cascades
+# to the rest through ownerReferences; OLM unpacks again on demand if it
+# ever needs that bundle.
+#
+# Follows the rules this directory enforces on CronJobs: Forbid, deadline,
+# history limits, pinned image, the cluster's own oc from the console's
+# downloads service (registry.redhat.io dropped ose-cli:latest). Dry run:
+# set JANITOR_DRY_RUN=true and the next run only reports.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cluster-janitor
+  namespace: openshift-marketplace
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: cluster-janitor-unpack-leftovers
+  namespace: openshift-marketplace
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["list", "get", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: cluster-janitor-unpack-leftovers
+  namespace: openshift-marketplace
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: cluster-janitor-unpack-leftovers
+subjects:
+  - kind: ServiceAccount
+    name: cluster-janitor
+    namespace: openshift-marketplace
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cluster-janitor
+  namespace: openshift-marketplace
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  schedule: "30 3 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 1200
+      backoffLimit: 1
+      template:
+        spec:
+          restartPolicy: Never
+          serviceAccountName: cluster-janitor
+          containers:
+            - name: janitor
+              image: registry.access.redhat.com/ubi9/ubi:9.7
+              env:
+                - name: JANITOR_DRY_RUN
+                  value: "false"
+                - name: UNPACK_MAX_AGE_DAYS
+                  value: "7"
+              command:
+                - /bin/bash
+                - -c
+                - |
+                  set -euo pipefail
+                  curl -sL http://downloads.openshift-console.svc.cluster.local:80/amd64/linux/oc.tar -o /tmp/oc.tar
+                  tar -x -C /tmp -f /tmp/oc.tar oc
+                  export PATH=/tmp:$PATH
+                  now=$(date +%s)
+                  echo "OLM bundle-unpack leftovers in openshift-marketplace older than ${UNPACK_MAX_AGE_DAYS} days"
+                  : > /tmp/unpack.txt
+                  oc -n openshift-marketplace get configmaps -l olm.managed=true \
+                    -o jsonpath='{range .items[*]}{.metadata.name} {.metadata.creationTimestamp}{"\n"}{end}' \
+                  | while read -r name ts; do
+                      [ ${#name} -ge 63 ] || continue
+                      age=$(( (now - $(date -d "$ts" +%s)) / 86400 ))
+                      [ "$age" -ge "${UNPACK_MAX_AGE_DAYS}" ] || continue
+                      echo "$name" >> /tmp/unpack.txt
+                    done
+                  n=$(wc -l < /tmp/unpack.txt | tr -d ' ')
+                  if [ "${JANITOR_DRY_RUN:-false}" = "true" ]; then
+                    echo "dry run: would delete $n ConfigMaps (each cascades to its Job, Role, RoleBinding, ServiceAccount)"
+                  elif [ "$n" -gt 0 ]; then
+                    xargs -n 50 oc -n openshift-marketplace delete configmap --ignore-not-found < /tmp/unpack.txt > /dev/null
+                    echo "deleted $n ConfigMaps; their Job, Role, RoleBinding and ServiceAccount follow through ownerReferences"
+                  else
+                    echo "nothing to delete"
+                  fi
