@@ -13,6 +13,13 @@
 # to the rest through ownerReferences; OLM unpacks again on demand if it
 # ever needs that bundle.
 #
+# The CronJob runs in agent-office-operator, not in openshift-marketplace:
+# that namespace ships a default-deny-all NetworkPolicy (OLM 4.19+), so a
+# pod there can reach neither the API server nor the console's downloads
+# service (the first run on 23 Oct 2026 did nothing for that reason). The
+# ServiceAccount is bound into openshift-marketplace by a RoleBinding, the
+# same cross-namespace pattern as cluster/operator/operator-pullsecret-copier.
+#
 # Follows the rules this directory enforces on CronJobs: Forbid, deadline,
 # history limits, pinned image, the cluster's own oc from the console's
 # downloads service (registry.redhat.io dropped ose-cli:latest). Dry run:
@@ -21,7 +28,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: cluster-janitor
-  namespace: openshift-marketplace
+  namespace: agent-office-operator
   labels:
     app.kubernetes.io/managed-by: agent-office-gitops
 ---
@@ -51,13 +58,13 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: cluster-janitor
-    namespace: openshift-marketplace
+    namespace: agent-office-operator
 ---
 apiVersion: batch/v1
 kind: CronJob
 metadata:
   name: cluster-janitor
-  namespace: openshift-marketplace
+  namespace: agent-office-operator
   labels:
     app.kubernetes.io/managed-by: agent-office-gitops
 spec:

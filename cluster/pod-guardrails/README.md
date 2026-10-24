@@ -36,7 +36,7 @@ everything that was not critical to a receiver with no integration.
 
 | File | What it does |
 |---|---|
-| `olm-unpack-janitor.yaml` | CronJob `cluster-janitor` in openshift-marketplace, daily 03:30 UTC. Deletes OLM bundle-unpack ConfigMaps older than 7 days; each cascades to its Job, Role, RoleBinding and ServiceAccount (about 2,200 objects had accumulated since November 2025, six a day, with no InstallPlan referencing them). `JANITOR_DRY_RUN=true` makes a run report only. |
+| `olm-unpack-janitor.yaml` | CronJob `cluster-janitor` in agent-office-operator (openshift-marketplace denies all pod traffic by NetworkPolicy), daily 03:30 UTC. Deletes OLM bundle-unpack ConfigMaps older than 7 days; each cascades to its Job, Role, RoleBinding and ServiceAccount (about 2,200 objects had accumulated since November 2025, six a day, with no InstallPlan referencing them). `JANITOR_DRY_RUN=true` makes a run report only. |
 | `tektonconfig-pruner.yaml` | The OpenShift Pipelines pruner (`TektonConfig spec.pruner`) in git: keep 50 PipelineRuns and 50 TaskRuns per namespace, daily 08:00 UTC. It was a hand patch keeping 100 PipelineRuns with TaskRuns unlisted. ResolutionRequests are owned by the runs and go with them. Partial object, server-side applied, Prune=false. |
 
 Why these and not a quota: both piles are created by platform operators (OLM, Tekton) in namespaces the admission policy deliberately skips, so the only lever is to delete what they leave behind.
