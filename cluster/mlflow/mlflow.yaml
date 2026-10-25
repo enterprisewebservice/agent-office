@@ -19,6 +19,24 @@ metadata:
   labels:
     app.kubernetes.io/part-of: agent-office-genesis-demo
 spec:
+  # Image pin, 2026-10-25. RHOAI 3.4.5 ships an MLflow image
+  # (odh-mlflow-rhel9@sha256:cc58c668...) without the Python `kubernetes`
+  # package, so the mlflow-kubernetes-plugins workspace provider behind the
+  # operator's --workspace-store-uri=kubernetes:// cannot import and the
+  # server crash-looped from the 3.4.5 rollout on 2026-10-19 (1,784 restarts).
+  # This digest is the RHOAI 3.4.4 build: the same MLflow 3.10.1+rhaiv.3 and
+  # plugins 1.1.1, with kubernetes 35.0.0 installed, and it ran the operator's
+  # current pod layout until the 3.4.5 rollout.
+  #
+  # Remove this block before upgrading RHOAI to 3.5 (its MLflow 3.14.0 image
+  # includes kubernetes) or when a 3.4.z release ships a fixed image.
+  image:
+    image: registry.redhat.io/rhoai/odh-mlflow-rhel9@sha256:fe4719b7cb5094a81bca1a06a3cf0ea266f2f10ccff4096b420e1ae678a2d503
+  # The 3.4.5 CRD rejects any spec change unless backendStoreUri (or
+  # backendStoreUriFrom) is set. This is the value the operator defaulted to
+  # before, so MLflow keeps the same database on the same PVC; the registry
+  # store defaults to the same URI.
+  backendStoreUri: sqlite:////mlflow/mlflow.db
   serveArtifacts: true
   storage:
     accessModes:
