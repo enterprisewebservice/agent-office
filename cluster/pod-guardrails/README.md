@@ -32,14 +32,13 @@ everything that was not critical to a receiver with no integration.
 | | `project-request.yaml` | The project request template, so every project created with `oc new-project` or the console gets `pods: 100`. |
 | 3. Admission | `cronjob-policy.yaml` | `cronjob-hygiene` denies a CronJob without `activeDeadlineSeconds`, with `concurrencyPolicy: Allow`, or with a `:latest`/untagged image, in the namespaces we own. `cronjob-gitops-owned` warns when a CronJob has no Argo tracking annotation. |
 
-## Layer 4: pruning (added 2026-10-22)
+## Pipelines pruner (declared 2026-10-25)
 
-| File | What it does |
-|---|---|
-| `olm-unpack-janitor.yaml` | CronJob `cluster-janitor` in agent-office-operator (openshift-marketplace denies all pod traffic by NetworkPolicy), daily 03:30 UTC. Deletes OLM bundle-unpack ConfigMaps older than 7 days; each cascades to its Job, Role, RoleBinding and ServiceAccount (about 2,200 objects had accumulated since November 2025, six a day, with no InstallPlan referencing them). `JANITOR_DRY_RUN=true` makes a run report only. |
-| `tektonconfig-pruner.yaml` | The OpenShift Pipelines pruner (`TektonConfig spec.pruner`) in git: keep 50 PipelineRuns and 50 TaskRuns per namespace, daily 08:00 UTC. It was a hand patch keeping 100 PipelineRuns with TaskRuns unlisted. ResolutionRequests are owned by the runs and go with them. Partial object, server-side applied, Prune=false. |
-
-Why these and not a quota: both piles are created by platform operators (OLM, Tekton) in namespaces the admission policy deliberately skips, so the only lever is to delete what they leave behind.
+`tektonconfig-pruner.yaml` holds the OpenShift Pipelines pruner at the operator's defaults (keep 100
+PipelineRuns per namespace, daily 08:00 UTC) as a server-side-applied partial object, Prune=false, so the
+setting is visible in git. An OLM clean-up CronJob for openshift-marketplace lived here for two days
+(22-25 Oct 2026) and was removed: OLM reuses those unpack objects across InstallPlans and a pending
+manual InstallPlan breaks when its ConfigMap disappears, so the platform namespace is left alone.
 
 ## What every CronJob in this repo must have
 
