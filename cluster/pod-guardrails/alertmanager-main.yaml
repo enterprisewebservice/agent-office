@@ -5,7 +5,9 @@
 #
 #   PlatformOps: the pod pile-up family (our four AlertingRule alerts plus
 #   the built-in KubeJobNotCompleted, KubeletTooManyPods and KubePodNotReady)
-#   is emailed. Before this route those alerts fell through to "Default",
+#   is emailed, and so is the Codex gateway test-turn family (agent-office
+#   manifests/monitoring/agent-office-codex-monitoring.yaml, 2026-10-28).
+#   Before this route those alerts fell through to "Default",
 #   which has no receiver, which is how 1,301 KubeJobNotCompleted firings
 #   and KubeletTooManyPods on all eight nodes went unseen.
 #
@@ -74,7 +76,7 @@ stringData:
         - matchers: ["alertname = Watchdog"]
           receiver: Watchdog
         - matchers:
-            - 'alertname =~ "NamespacePendingPodPileUp|JobPodsStuckPending|NodePodCapacityHigh|ClusterPodCapacityHigh|KubeJobNotCompleted|KubeletTooManyPods|KubePodNotReady"'
+            - 'alertname =~ "NamespacePendingPodPileUp|JobPodsStuckPending|NodePodCapacityHigh|ClusterPodCapacityHigh|KubeJobNotCompleted|KubeletTooManyPods|KubePodNotReady|CodexGatewayTurnFailing|CodexGatewayTurnStale|CodexGatewayTurnProbeMissing"'
           receiver: PlatformOps
           repeat_interval: 4h
         - matchers: ["namespace = claude-code-agent"]

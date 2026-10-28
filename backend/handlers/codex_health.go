@@ -158,6 +158,9 @@ type GatewayHealth struct {
 	ProbeError        string            `json:"probeError,omitempty"`
 	Desk              *DeskHealth       `json:"desk,omitempty"`
 	LastActivity      string            `json:"lastActivity,omitempty"`
+	// Turn is the gateway's last daily test turn (codex_turn.go): the only
+	// signal that OpenAI still honours the token, not just that one exists.
+	Turn *TurnHealth `json:"turn,omitempty"`
 }
 
 type AgentAuthHealth struct {
@@ -248,7 +251,7 @@ func (h *CodexHandler) GetAuthHealth(w http.ResponseWriter, r *http.Request) {
 		wg.Add(1)
 		go func(gw gatewayInfo) {
 			defer wg.Done()
-			gh := GatewayHealth{Name: gw.name, Secret: gw.secret, Agents: []AgentAuthHealth{}}
+			gh := GatewayHealth{Name: gw.name, Secret: gw.secret, Agents: []AgentAuthHealth{}, Turn: lastTurn(gw.name)}
 
 			probe := h.probeGatewayAgents(ctx, gw.name)
 			gh.ProbeError = probe.err

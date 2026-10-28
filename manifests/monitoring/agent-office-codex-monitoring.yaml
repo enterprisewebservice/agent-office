@@ -1,0 +1,80 @@
+# Codex gateway daily test turns (backend/handlers/codex_turn.go).
+#
+# The agent-office backend gives every Codex gateway one tiny `openclaw agent`
+# turn a day and publishes agentoffice_codex_gateway_turn_ok{gateway} on its
+# metrics port. On 2026-10-28 four gateways (runtab-help, handsonmode-help,
+# research-gateway, supply-chain-ops-gateway) had held a dead Codex refresh
+# token for weeks with nothing saying so. These alerts route to PlatformOps
+# (email; cluster/pod-guardrails/alertmanager-main.yaml).
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent-office-metrics
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/name: agent-office-metrics
+    app.kubernetes.io/part-of: agent-office
+spec:
+  selector:
+    app.kubernetes.io/name: agent-office-server
+  ports:
+    - name: metrics
+      port: 9090
+      targetPort: metrics
+      protocol: TCP
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: agent-office-server
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/part-of: agent-office
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agent-office-metrics
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 5m
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: agent-office-codex-alerts
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/part-of: agent-office
+spec:
+  groups:
+    - name: codex-gateway-turns
+      rules:
+        - alert: CodexGatewayTurnFailing
+          expr: agentoffice_codex_gateway_turn_ok == 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Codex gateway {{ $labels.gateway }} failed its daily test turn"
+            description: >-
+              The agent-office backend's daily `openclaw agent` test turn on
+              {{ $labels.gateway }} got no answer. The usual cause is a dead
+              Codex sign-in (invalid_refresh_token): renew that gateway's own
+              sign-in, then check the Dev Hub Codex card.
+        - alert: CodexGatewayTurnStale
+          expr: time() - agentoffice_codex_gateway_turn_checked_timestamp_seconds > 2 * 86400
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: "No daily test turn for Codex gateway {{ $labels.gateway }} in two days"
+            description: "The agent-office backend has not run its daily test turn on {{ $labels.gateway }} for over 48 hours."
+        - alert: CodexGatewayTurnProbeMissing
+          expr: absent(agentoffice_codex_gateway_turn_ok)
+          for: 2h
+          labels:
+            severity: warning
+          annotations:
+            summary: "No Codex gateway test-turn results at all"
+            description: "agentoffice_codex_gateway_turn_ok is absent: the agent-office backend is down, its metrics port is not scraped, or no probe has run."

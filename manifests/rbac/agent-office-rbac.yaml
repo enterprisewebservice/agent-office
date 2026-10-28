@@ -215,6 +215,12 @@ spec:
             - name: http
               containerPort: 8080
               protocol: TCP
+            # Daily Codex gateway test turns (backend/handlers/codex_turn.go),
+            # scraped by monitoring/agent-office-codex-monitoring.yaml. Never
+            # behind the public Route.
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
           env:
             - name: NAMESPACE
               valueFrom:

@@ -405,6 +405,17 @@ function renderGateways(
                 persists.
               </Typography>
             )}
+            <Typography
+              variant="body2"
+              color={g.turn && !g.turn.ok ? 'error' : 'textSecondary'}
+            >
+              Daily test turn:{' '}
+              {!g.turn
+                ? 'not run yet (first one ten minutes after the backend starts)'
+                : g.turn.ok
+                ? `answered ${relativeTime(g.turn.checkedAt)} in ${g.turn.seconds.toFixed(1)}s${g.turn.agent ? ` (${g.turn.agent})` : ''}`
+                : `FAILED ${relativeTime(g.turn.checkedAt)}${g.turn.agent ? ` (${g.turn.agent})` : ''}: ${g.turn.error ?? 'no answer'}`}
+            </Typography>
             {g.probeError && (
               <Typography variant="caption" color="textSecondary">
                 probe: {g.probeError}

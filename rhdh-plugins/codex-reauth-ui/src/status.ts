@@ -63,6 +63,16 @@ export interface DeskHealth {
   error?: string;
 }
 
+// The gateway's last daily test turn (backend codex_turn.go): one tiny
+// `openclaw agent` turn a day, the only proof OpenAI still honours the token.
+export interface TurnHealth {
+  ok: boolean;
+  checkedAt: string;
+  seconds: number;
+  agent?: string;
+  error?: string;
+}
+
 export interface GatewayHealth {
   name: string;
   secret?: string;
@@ -71,6 +81,7 @@ export interface GatewayHealth {
   probeError?: string;
   desk?: DeskHealth;
   lastActivity?: string;
+  turn?: TurnHealth;
 }
 
 export interface CodexAuthHealth {

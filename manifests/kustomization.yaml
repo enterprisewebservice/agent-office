@@ -16,6 +16,8 @@ kind: Kustomization
 resources:
   - deploy/agent-office-deploy.yaml
   - rbac/agent-office-rbac.yaml
+  # Codex gateway daily test turns: metrics Service, scrape config, alert rules
+  - monitoring/agent-office-codex-monitoring.yaml
   # supply-chain demo scenery: the pre-existing endpoint the ops manager exports CSVs from
   - supply-chain-demo/orders-api/orders-app.yaml
   - supply-chain-demo/orders-api/orders-data.yaml

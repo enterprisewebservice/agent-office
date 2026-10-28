@@ -47,6 +47,25 @@ func main() {
 	codexHandler := handlers.NewCodexHandler(namespace, clients, cache)
 	ttsHandler := handlers.NewTTSHandler(namespace, clients)
 
+	// Daily test turn per Codex gateway (codex_turn.go): first ten minutes
+	// after a start, then every 24h. Results feed the Dev Hub card and the
+	// metrics port below, which the CodexGatewayTurnFailing alert watches.
+	codexHandler.StartTurnProbes(ctx, 10*time.Minute, 24*time.Hour)
+
+	// Metrics on their own port, never behind the public Route.
+	metricsMux := http.NewServeMux()
+	metricsMux.HandleFunc("GET /metrics", codexHandler.Metrics)
+	go func() {
+		addr := os.Getenv("METRICS_ADDR")
+		if addr == "" {
+			addr = ":9090"
+		}
+		log.Printf("metrics listening on %s", addr)
+		if err := http.ListenAndServe(addr, metricsMux); err != nil {
+			log.Printf("metrics server error: %v", err)
+		}
+	}()
+
 	// Set up routes using Go 1.22 path patterns
 	mux := http.NewServeMux()
 
