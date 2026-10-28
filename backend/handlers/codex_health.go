@@ -3,7 +3,9 @@ package handlers
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -38,6 +40,22 @@ import (
 //     openclaw prunes on a refresh hiccup), plus desk activity from the
 //     newsroom MCPs where configured.
 //
+// The refresh probe is DELIBERATELY CONSERVATIVE. Codex refresh tokens are
+// single-use with rotation: proving one alive spends it and mints a
+// successor, which is exactly what strands an agent still holding the
+// prior token — the failure mode the 30s codex-auth-sync sidecar
+// (operator v1.7.40) narrows but does not close. So a live refresh only
+// happens when it provably cannot strand anyone (see lineageCensus.gate);
+// the rest of the time liveness is reported from the signals collected here
+// anyway — JWT expiry, per-agent profile presence and lastUsed, and desk
+// activity — with refreshAlive left null and a "not probed" reason the
+// card renders as informational rather than red.
+//
+// This does not create a silent-death hole: the gate always opens inside
+// refreshSafetyWindow of access-token expiry, so a dead refresh token is
+// still caught the moment it starts to matter, and ?probe=1 remains an
+// explicit operator override.
+//
 // Note on ESO: codex-subscription-credentials is nominally owned by an
 // ExternalSecret. While ESO can read its Vault path it may overwrite a
 // probe-persisted rotation with Vault's copy — that is fine: reporting
@@ -66,6 +84,21 @@ const (
 	deskTTL                = 1 * time.Minute
 )
 
+// refreshSafetyWindow is how close to access-token expiry a credential
+// must be before a live refresh counts as needed anyway (gate case (a)).
+//
+// After a rotation the successor token reaches the agents through
+// Secret -> kubelet projection (up to ~90s) -> codex-auth-sync's 30s
+// tick. Fifteen minutes is an order of magnitude more headroom than that
+// chain needs, while still guaranteeing the probe runs before any agent
+// has to fall back on the refresh token itself.
+const refreshSafetyWindow = 15 * time.Minute
+
+// noAgentStoreMsg marks an AgentWorkstation-declared agent the pod probe
+// found no sqlite for. Distinct from a read failure: an agent with no
+// store holds no lineage, so it is not a gap in the lineage census.
+const noAgentStoreMsg = "no agent store found in gateway pod"
+
 type CodexAuthHealth struct {
 	// Legacy fields the v0.0.5 card understands — kept truthful so a
 	// not-yet-updated card stops lying the moment the backend ships.
@@ -79,18 +112,42 @@ type CodexAuthHealth struct {
 }
 
 type CredentialHealth struct {
-	Secret               string   `json:"secret"`
-	SecretExists         bool     `json:"secretExists"`
-	AuthMode             string   `json:"authMode,omitempty"`
-	AccountID            string   `json:"accountId,omitempty"`
-	HasRefreshToken      bool     `json:"hasRefreshToken"`
-	AccessTokenExpiresAt string   `json:"accessTokenExpiresAt,omitempty"`
-	AccessTokenExpired   bool     `json:"accessTokenExpired"`
-	LastRefresh          string   `json:"lastRefresh,omitempty"`
-	RefreshAlive         *bool    `json:"refreshAlive"` // null = not proven either way
-	RefreshError         string   `json:"refreshError,omitempty"`
-	RefreshCheckedAt     string   `json:"refreshCheckedAt,omitempty"`
-	Gateways             []string `json:"gateways"`
+	Secret               string `json:"secret"`
+	SecretExists         bool   `json:"secretExists"`
+	AuthMode             string `json:"authMode,omitempty"`
+	AccountID            string `json:"accountId,omitempty"`
+	HasRefreshToken      bool   `json:"hasRefreshToken"`
+	AccessTokenExpiresAt string `json:"accessTokenExpiresAt,omitempty"`
+	AccessTokenExpired   bool   `json:"accessTokenExpired"`
+	LastRefresh          string `json:"lastRefresh,omitempty"`
+	RefreshAlive         *bool  `json:"refreshAlive"` // null = not proven either way
+	RefreshError         string `json:"refreshError,omitempty"`
+	RefreshCheckedAt     string `json:"refreshCheckedAt,omitempty"`
+
+	// RefreshProbed says whether the refreshAlive verdict is backed by a
+	// real call to the token endpoint. When it is false and
+	// RefreshSkipReason is set, the live refresh was deliberately not
+	// attempted — an informational state, NOT an error. (A card that
+	// conflates the two turns a healthy credential red.)
+	RefreshProbed     bool   `json:"refreshProbed"`
+	RefreshSkipReason string `json:"refreshSkipReason,omitempty"`
+	// RefreshLastAlive is the last time a real probe proved this token
+	// alive, kept past its TTL. Process-local — a restarted backend
+	// forgets, and the card falls back to the Secret's last_refresh.
+	RefreshLastAlive string `json:"refreshLastAlive,omitempty"`
+
+	// Lineage identifies the stored refresh token WITHOUT exposing it:
+	// sha256(token)[:12]. Rotation changes it, so a fingerprint shared
+	// with an agent profile means literally the same single-use grant.
+	Lineage string `json:"lineage,omitempty"`
+	// AgentsOnLineage counts the live agent profiles holding that exact
+	// token right now — the population a live refresh would strand.
+	AgentsOnLineage int `json:"agentsOnLineage"`
+	// LivenessBasis summarizes the cheaper signals behind a not-probed
+	// verdict (JWT expiry, agent profiles, last activity).
+	LivenessBasis string `json:"livenessBasis,omitempty"`
+
+	Gateways []string `json:"gateways"`
 }
 
 type GatewayHealth struct {
@@ -110,6 +167,11 @@ type AgentAuthHealth struct {
 	LastUsed         string `json:"lastUsed,omitempty"`
 	ErrorCount       int    `json:"errorCount"`
 	Error            string `json:"error,omitempty"`
+	// Lineages fingerprints the refresh tokens this agent's openai
+	// profiles hold (sha256[:12], computed in the pod — token material
+	// never leaves it). Matching a credential's lineage is what makes a
+	// live refresh unsafe; differing from it is lineage drift.
+	Lineages []string `json:"lineages,omitempty"`
 }
 
 type DeskHealth struct {
@@ -125,6 +187,8 @@ type refreshProbeResult struct {
 	err       string
 	checkedAt time.Time
 	ttl       time.Duration
+	probed    bool   // a real token-endpoint call backs this verdict
+	skip      string // set when the live refresh was deliberately skipped
 }
 
 type agentProbeResult struct {
@@ -140,9 +204,13 @@ type deskProbeResult struct {
 
 // GetAuthHealth handles GET /codex-auth/status — the endpoint the Dev Hub
 // card and scaffolder pre-flight fetch through Backstage's proxy plugin.
-// ?probe=1 bypasses the refresh-probe cache.
+// ?probe=1 is the explicit operator override: it bypasses BOTH the
+// refresh-probe cache and the safety gate, accepting the rotation.
 func (h *CodexHandler) GetAuthHealth(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
+	// Two serialized phases (agents, then credentials), each internally
+	// parallel: the worst case is one 15s exec probe followed by one 15s
+	// token-endpoint call, plus the API round trips around them.
+	ctx, cancel := context.WithTimeout(r.Context(), 40*time.Second)
 	defer cancel()
 	force := r.URL.Query().Get("probe") == "1"
 
@@ -169,24 +237,12 @@ func (h *CodexHandler) GetAuthHealth(w http.ResponseWriter, r *http.Request) {
 		secretNames[codexSecretName] = nil
 	}
 
-	// Credential health (JWT expiry + throttled live refresh probe),
-	// probed concurrently per unique secret.
+	// ── Phase 1: per-gateway agent auth health (exec probe) + desk
+	// activity. This runs BEFORE the credential pass — not merely
+	// alongside it — because the refresh probe's safety gate has to know
+	// which refresh-token lineages the agent stores are holding right now.
 	var mu sync.Mutex
 	var wg sync.WaitGroup
-	for secretName, gwNames := range secretNames {
-		wg.Add(1)
-		go func(secretName string, gwNames []string) {
-			defer wg.Done()
-			ch := h.credentialHealth(ctx, secretName, force)
-			sort.Strings(gwNames)
-			ch.Gateways = gwNames
-			mu.Lock()
-			health.Credentials = append(health.Credentials, ch)
-			mu.Unlock()
-		}(secretName, gwNames)
-	}
-
-	// Per-gateway agent auth health (exec probe) + desk activity.
 	deskURLs := deskURLsFromEnv()
 	for _, gw := range gateways {
 		wg.Add(1)
@@ -214,12 +270,40 @@ func (h *CodexHandler) GetAuthHealth(w http.ResponseWriter, r *http.Request) {
 		}(gw)
 	}
 	wg.Wait()
+	sort.Slice(health.Gateways, func(i, j int) bool { return health.Gateways[i].Name < health.Gateways[j].Name })
+
+	// A failed discovery means gateways we never enumerated may be holding
+	// any lineage, so it counts as an incomplete census the same way a
+	// failed pod probe does.
+	census := newLineageCensus(health.Gateways, err == nil)
+
+	// ── Phase 2: credential health — JWT expiry always, live refresh only
+	// where the census proves rotating the stored token strands nobody.
+	// health.Gateways is read-only from here on, so the goroutines can
+	// share it.
+	for secretName, gwNames := range secretNames {
+		wg.Add(1)
+		go func(secretName string, gwNames []string) {
+			defer wg.Done()
+			ch := h.credentialHealth(ctx, secretName, force, census)
+			sort.Strings(gwNames)
+			ch.Gateways = gwNames
+			ch.LivenessBasis = livenessBasis(ch, health.Gateways)
+			mu.Lock()
+			health.Credentials = append(health.Credentials, ch)
+			mu.Unlock()
+		}(secretName, gwNames)
+	}
+	wg.Wait()
 
 	sort.Slice(health.Credentials, func(i, j int) bool { return health.Credentials[i].Secret < health.Credentials[j].Secret })
-	sort.Slice(health.Gateways, func(i, j int) bool { return health.Gateways[i].Name < health.Gateways[j].Name })
 
 	// Overall verdict: every credential set must either have a proven-alive
 	// refresh token or an unexpired access token with no proof of death.
+	// A deliberately not-probed credential lands in the second branch —
+	// skipping the probe to protect running agents must never read as a
+	// fault, and it cannot hide an expired access token, because expiry is
+	// exactly the condition that opens the gate.
 	health.OK = true
 	for _, c := range health.Credentials {
 		healthy := false
@@ -251,8 +335,11 @@ func credentialProblem(c CredentialHealth) string {
 		return fmt.Sprintf("%s: refresh token rejected — %s", c.Secret, c.RefreshError)
 	case c.AccessTokenExpired:
 		reason := fmt.Sprintf("%s: access token expired %s", c.Secret, c.AccessTokenExpiresAt)
-		if c.RefreshError != "" {
+		switch {
+		case c.RefreshError != "":
 			reason += " and refresh could not be verified: " + c.RefreshError
+		case c.RefreshSkipReason != "":
+			reason += " and refresh was " + c.RefreshSkipReason
 		}
 		return reason
 	default:
@@ -260,9 +347,170 @@ func credentialProblem(c CredentialHealth) string {
 	}
 }
 
+// ─── refresh-probe safety gate ──────────────────────────────────────────
+
+// lineageCensus is the live answer to "who is holding which refresh
+// token right now", assembled from the per-gateway agent probes.
+//
+// A lineage is a fingerprint of the token itself, so a fingerprint shared
+// between a credential Secret and an agent profile is not a resemblance —
+// it is the same single-use grant. Rotating it invalidates the agent's
+// copy until codex-auth-sync re-seeds the pod.
+type lineageCensus struct {
+	holders map[string]int // lineage fingerprint -> agent profiles holding it
+	// complete is false when any gateway or agent store could not be read.
+	// An unread store may hold ANY lineage, so an incomplete census can
+	// never license a rotation — the fallback is to report from cheaper
+	// signals, which costs nothing, where a wrong rotation costs a desk.
+	complete bool
+}
+
+func newLineageCensus(gateways []GatewayHealth, discovered bool) lineageCensus {
+	c := lineageCensus{holders: map[string]int{}, complete: discovered}
+	for _, gw := range gateways {
+		if gw.ProbeError != "" {
+			c.complete = false
+		}
+		for _, a := range gw.Agents {
+			// An agent with no store holds no lineage — that is a read, not
+			// a gap. Anything else the probe could not read is a gap.
+			if a.Error != "" && a.Error != noAgentStoreMsg {
+				c.complete = false
+			}
+			for _, fp := range a.Lineages {
+				c.holders[fp]++
+			}
+		}
+	}
+	return c
+}
+
+// probeGate is the verdict on whether a live refresh may be performed.
+type probeGate struct {
+	safe   bool
+	reason string // why the refresh was skipped; set only when !safe
+}
+
+// gate decides whether performing a REAL refresh is provably safe.
+//
+// The probe's method is to spend the token: Codex refresh tokens are
+// single-use with rotation, so proving one alive kills it and mints a
+// successor. That is free when the Secret's copy is the only one, and an
+// outage when agents are running on the same lineage — they keep the
+// superseded token until the sidecar re-seeds them, and openclaw prunes
+// the profile if it tries to use it first.
+//
+// Safe when either:
+//
+//	(a) the access token is expired or within refreshSafetyWindow of it.
+//	    The refresh has to happen for anything to keep working, so
+//	    declining to probe preserves nothing — and this branch is what
+//	    keeps a dead refresh token from going unnoticed indefinitely.
+//	(b) no agent store holds this lineage. Nobody to strand.
+//
+// Otherwise: report from the cheaper signals and leave the token alone.
+func (c lineageCensus) gate(lineage string, expiresAt time.Time, haveExpiry bool) probeGate {
+	if haveExpiry && time.Until(expiresAt) <= refreshSafetyWindow {
+		return probeGate{safe: true} // (a) — needed anyway
+	}
+	switch {
+	case lineage == "":
+		return probeGate{reason: "not probed (lineage unknown) — no readable refresh token to fingerprint"}
+	case !c.complete:
+		return probeGate{reason: "not probed (lineage may be in use) — the agent stores could not be fully enumerated"}
+	case c.holders[lineage] == 0:
+		return probeGate{safe: true} // (b) — nobody holds this token
+	default:
+		return probeGate{reason: fmt.Sprintf(
+			"not probed (lineage in use) — %s currently running on this exact refresh token; a live refresh would rotate it out from under them",
+			countAgents(c.holders[lineage]))}
+	}
+}
+
+// lineageFingerprint identifies a refresh token without exposing it:
+// sha256(token)[:12]. 48 bits is far past collision risk for a handful of
+// live grants, and a truncated hash of a high-entropy token reveals
+// nothing about it.
+func lineageFingerprint(token string) string {
+	if token == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])[:12]
+}
+
+// livenessBasis summarizes what a not-probed verdict actually rests on:
+// JWT expiry, agent profile presence, and the freshest activity seen on
+// the gateways this credential feeds.
+func livenessBasis(c CredentialHealth, gateways []GatewayHealth) string {
+	if !c.SecretExists {
+		return ""
+	}
+	var parts []string
+	switch {
+	case c.AccessTokenExpiresAt == "":
+		parts = append(parts, "access token expiry unreadable")
+	case c.AccessTokenExpired:
+		parts = append(parts, "access token expired "+humanSince(c.AccessTokenExpiresAt))
+	default:
+		parts = append(parts, "access token valid for "+humanSpan(time.Until(mustParse(c.AccessTokenExpiresAt))))
+	}
+
+	present, total, activity := 0, 0, ""
+	for _, gw := range gateways {
+		if gw.Secret != c.Secret {
+			continue
+		}
+		present += gw.AgentsWithProfile
+		total += len(gw.Agents)
+		if gw.LastActivity != "" && (activity == "" || mustParse(gw.LastActivity).After(mustParse(activity))) {
+			activity = gw.LastActivity
+		}
+	}
+	if total > 0 {
+		parts = append(parts, fmt.Sprintf("%d/%d agent profiles present", present, total))
+	}
+	if activity != "" {
+		parts = append(parts, "last agent activity "+humanSince(activity))
+	}
+	return strings.Join(parts, "; ")
+}
+
+func countAgents(n int) string {
+	if n == 1 {
+		return "1 agent profile is"
+	}
+	return fmt.Sprintf("%d agent profiles are", n)
+}
+
+// humanSpan renders a duration the way the card does — coarse on purpose.
+func humanSpan(d time.Duration) string {
+	if d < 0 {
+		d = -d
+	}
+	switch {
+	case d < time.Minute:
+		return "under a minute"
+	case d < time.Hour:
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh %dm", int(d.Hours()), int(d.Minutes())%60)
+	default:
+		return fmt.Sprintf("%dd %dh", int(d.Hours())/24, int(d.Hours())%24)
+	}
+}
+
+func humanSince(ts string) string {
+	t := mustParse(ts)
+	if t.IsZero() {
+		return "unknown"
+	}
+	return humanSpan(time.Since(t)) + " ago"
+}
+
 // ─── credential (secret + refresh probe) ────────────────────────────────
 
-func (h *CodexHandler) credentialHealth(ctx context.Context, secretName string, force bool) CredentialHealth {
+func (h *CodexHandler) credentialHealth(ctx context.Context, secretName string, force bool, census lineageCensus) CredentialHealth {
 	ch := CredentialHealth{Secret: secretName}
 
 	secret, err := h.clients.Clientset.CoreV1().Secrets(h.namespace).Get(ctx, secretName, metav1.GetOptions{})
@@ -294,18 +542,26 @@ func (h *CodexHandler) credentialHealth(ctx context.Context, secretName string, 
 	ch.AuthMode = creds.AuthMode
 	ch.LastRefresh = creds.LastRefresh
 	ch.HasRefreshToken = creds.Tokens.RefreshToken != ""
+	ch.Lineage = lineageFingerprint(creds.Tokens.RefreshToken)
+	ch.AgentsOnLineage = census.holders[ch.Lineage]
 	if creds.Tokens.AccountID != "" {
 		ch.AccountID = truncateID(creds.Tokens.AccountID)
 	}
+	var expiresAt time.Time
+	var haveExpiry bool
 	if exp, ok := jwtExpiry(creds.Tokens.AccessToken); ok {
+		expiresAt, haveExpiry = exp, true
 		ch.AccessTokenExpiresAt = exp.UTC().Format(time.RFC3339)
 		ch.AccessTokenExpired = time.Now().After(exp)
 	}
 
 	if ch.HasRefreshToken {
-		res := h.refreshProbe(ctx, secretName, force)
+		res := h.refreshProbe(ctx, secretName, force, census.gate(ch.Lineage, expiresAt, haveExpiry))
 		ch.RefreshAlive = res.alive
 		ch.RefreshError = res.err
+		ch.RefreshProbed = res.probed
+		ch.RefreshSkipReason = res.skip
+		ch.RefreshLastAlive = h.lastProvenAlive(secretName)
 		if !res.checkedAt.IsZero() {
 			ch.RefreshCheckedAt = res.checkedAt.UTC().Format(time.RFC3339)
 		}
@@ -337,19 +593,27 @@ func (h *CodexHandler) credentialHealth(ctx context.Context, secretName string, 
 }
 
 // refreshProbe proves the refresh token is alive by performing a real
-// refresh, at most once per TTL. On success the rotated tokens are written
-// back to the Secret; on any failure the Secret is left untouched.
-func (h *CodexHandler) refreshProbe(ctx context.Context, secretName string, force bool) refreshProbeResult {
+// refresh, at most once per TTL AND only when the gate says spending the
+// token cannot strand a running agent. On success the rotated tokens are
+// written back to the Secret; on any failure the Secret is left untouched.
+//
+// A skip is never cached: it is cheap to recompute, and caching it would
+// suppress the probe later, once the gate has opened.
+func (h *CodexHandler) refreshProbe(ctx context.Context, secretName string, force bool, gate probeGate) refreshProbeResult {
 	h.probeMu.Lock()
 	if h.probeCache == nil {
 		h.probeCache = map[string]refreshProbeResult{}
 	}
 	cached, ok := h.probeCache[secretName]
+	h.probeMu.Unlock()
 	if ok && !force && time.Since(cached.checkedAt) < cached.ttl {
-		h.probeMu.Unlock()
 		return cached
 	}
-	h.probeMu.Unlock()
+
+	if !force && !gate.safe {
+		log.Printf("codex refresh probe: %s not probed — %s", secretName, gate.reason)
+		return refreshProbeResult{skip: gate.reason}
+	}
 
 	res := h.doRefresh(ctx, secretName)
 
@@ -359,6 +623,18 @@ func (h *CodexHandler) refreshProbe(ctx context.Context, secretName string, forc
 	return res
 }
 
+// lastProvenAlive reports when a real probe last proved this secret's
+// refresh token alive, whether or not that verdict is still inside its
+// TTL — the strongest signal a not-probed credential has.
+func (h *CodexHandler) lastProvenAlive(secretName string) string {
+	h.probeMu.Lock()
+	defer h.probeMu.Unlock()
+	if r, ok := h.probeCache[secretName]; ok && r.alive != nil && *r.alive {
+		return r.checkedAt.UTC().Format(time.RFC3339)
+	}
+	return ""
+}
+
 func (h *CodexHandler) invalidateRefreshProbe(secretName string) {
 	h.probeMu.Lock()
 	delete(h.probeCache, secretName)
@@ -366,7 +642,7 @@ func (h *CodexHandler) invalidateRefreshProbe(secretName string) {
 }
 
 func (h *CodexHandler) doRefresh(ctx context.Context, secretName string) refreshProbeResult {
-	res := refreshProbeResult{checkedAt: time.Now(), ttl: refreshTTLInconclusive}
+	res := refreshProbeResult{checkedAt: time.Now(), ttl: refreshTTLInconclusive, probed: true}
 
 	secret, err := h.clients.Clientset.CoreV1().Secrets(h.namespace).Get(ctx, secretName, metav1.GetOptions{})
 	if err != nil {
@@ -512,7 +788,9 @@ func (h *CodexHandler) discoverGateways(ctx context.Context) ([]gatewayInfo, err
 // reports profile PRESENCE and usage metadata — never token material.
 const agentProbeJS = `
 const fs=require('fs');
+const crypto=require('crypto');
 const {DatabaseSync}=require('node:sqlite');
+const fp=t=>crypto.createHash('sha256').update(String(t)).digest('hex').slice(0,12);
 const base='/home/node/.openclaw/agents';
 const out=[];
 let dirs=[];
@@ -532,6 +810,12 @@ for(const name of dirs){
     }catch(e){}
     const ids=Object.keys(profs).filter(k=>profs[k]&&profs[k].provider==='openai');
     a.profilePresent=ids.length>0;
+    // Refresh-token LINEAGE, never the token: the sha256[:12] the backend
+    // compares against the credential secret's own fingerprint to decide
+    // whether a live refresh would rotate a token this agent runs on.
+    const ln=new Set();
+    for(const id of ids){const r=profs[id].refresh;if(r){ln.add(fp(r));}}
+    a.lineages=[...ln].sort();
     let exp=null;
     for(const id of ids){const e=profs[id].expires;if(typeof e==='number'&&(exp===null||e<exp)){exp=e;}}
     if(exp!==null){a.profileExpiresAt=new Date(exp).toISOString();}
@@ -653,7 +937,7 @@ func (h *CodexHandler) orderAgents(gateway string, probed []AgentAuthHealth) []A
 		if a, ok := byName[name]; ok {
 			out = append(out, a)
 		} else {
-			out = append(out, AgentAuthHealth{Name: name, Error: "no agent store found in gateway pod"})
+			out = append(out, AgentAuthHealth{Name: name, Error: noAgentStoreMsg})
 		}
 		seen[name] = true
 	}

@@ -14,6 +14,19 @@
  *   - per-gateway agent auth profiles (the thing openclaw prunes on a
  *     refresh hiccup) and newsroom desk activity.
  *
+ * Four refresh states, and the card's main job is keeping the middle two
+ * apart (see refreshState in status.ts):
+ *
+ *   alive / dead    verdicts from a real refresh — outlined blue / red.
+ *   not probed      the backend declined to spend a token that running
+ *                   agents hold. Grey and informational: this is the
+ *                   system protecting the desk, not a gap.
+ *   unverified      a probe ran and reached no verdict — red outline,
+ *                   because something is in the way.
+ *
+ * Colouring "not probed" like "unverified" would train operators to
+ * ignore the one state that means a probe genuinely failed.
+ *
  * Legacy backends that return only {ok, lastRefresh, reason} still
  * render as a basic pill. If the endpoint is unreachable the card
  * hides itself so non-agent Component pages stay clean.
@@ -47,10 +60,13 @@ import {
   CodexAuthHealth,
   CredentialHealth,
   GatewayHealth,
+  RefreshState,
   fetchAuthHealth,
   relativeTime,
   credentialProblem,
   credentialHealthy,
+  refreshState,
+  lineageDrift,
 } from './status';
 
 type Status =
@@ -82,21 +98,30 @@ export const CodexAuthCard = () => {
   const fetchApi = useApi(fetchApiRef);
   const [status, setStatus] = React.useState<Status>({ kind: 'loading' });
   const [dialogOpen, setDialogOpen] = React.useState(false);
+  const [probing, setProbing] = React.useState(false);
 
-  const fetchStatus = React.useCallback(async () => {
-    try {
-      const health = await fetchAuthHealth(discovery, fetchApi);
-      if (!health || isNoCodexUsage(health)) {
+  // probe=true is the operator override: it bypasses the backend's probe
+  // cache AND its safety gate, so it rotates the stored refresh token.
+  const fetchStatus = React.useCallback(
+    async (probe = false) => {
+      try {
+        if (probe) setProbing(true);
+        const health = await fetchAuthHealth(discovery, fetchApi, { probe });
+        if (!health || isNoCodexUsage(health)) {
+          setStatus({ kind: 'hidden' });
+          return;
+        }
+        setStatus({ kind: 'loaded', health });
+      } catch {
+        // Endpoint not reachable — don't decorate non-agent pages
+        // with errors. Hide silently.
         setStatus({ kind: 'hidden' });
-        return;
+      } finally {
+        setProbing(false);
       }
-      setStatus({ kind: 'loaded', health });
-    } catch {
-      // Endpoint not reachable — don't decorate non-agent pages
-      // with errors. Hide silently.
-      setStatus({ kind: 'hidden' });
-    }
-  }, [discovery, fetchApi]);
+    },
+    [discovery, fetchApi],
+  );
 
   React.useEffect(() => {
     void fetchStatus();
@@ -150,7 +175,9 @@ export const CodexAuthCard = () => {
         )}
 
         {health.credentials ? (
-          renderCredentials(health.credentials)
+          renderCredentials(health.credentials, probing, () =>
+            fetchStatus(true),
+          )
         ) : (
           <Typography variant="body2" color="textSecondary" paragraph>
             {health.ok
@@ -167,7 +194,7 @@ export const CodexAuthCard = () => {
             <Box my={1.5}>
               <Divider />
             </Box>
-            {renderGateways(health.gateways)}
+            {renderGateways(health.gateways, health.credentials)}
           </>
         )}
 
@@ -192,21 +219,27 @@ export const CodexAuthCard = () => {
   );
 };
 
-function renderCredentials(credentials: CredentialHealth[]) {
+function renderCredentials(
+  credentials: CredentialHealth[],
+  probing: boolean,
+  forceProbe: () => void,
+) {
   return (
     <Box>
       {credentials.map(c => {
         const healthy = credentialHealthy(c);
         const reason = credentialProblem(c);
+        const state = refreshState(c);
+        const pill = credentialPill(c, state);
         return (
           <Box key={c.secret} mb={1.5}>
             <Box display="flex" alignItems="center" gridGap={8}>
               <Typography variant="subtitle2">{c.secret}</Typography>
               <Chip
                 size="small"
-                label={credentialPill(c)}
-                color={healthy ? 'primary' : 'secondary'}
-                variant={healthy ? 'outlined' : 'default'}
+                label={pill.label}
+                color={pill.color}
+                variant={pill.variant}
               />
             </Box>
             <Typography variant="body2" color="textSecondary">
@@ -215,7 +248,7 @@ function renderCredentials(credentials: CredentialHealth[]) {
                 ? `expired ${relativeTime(c.accessTokenExpiresAt)}`
                 : `expires ${relativeTime(c.accessTokenExpiresAt)}`}
               {' · '}
-              {refreshLine(c)}
+              {refreshLine(c, state)}
               {c.lastRefresh
                 ? ` · last refresh ${relativeTime(c.lastRefresh)}`
                 : ''}
@@ -225,6 +258,7 @@ function renderCredentials(credentials: CredentialHealth[]) {
                 {reason}
               </Typography>
             )}
+            {state === 'not-probed' && renderNotProbed(c, probing, forceProbe)}
             {c.gateways.length > 0 && (
               <Typography variant="caption" color="textSecondary">
                 Used by: {c.gateways.join(', ')}
@@ -237,23 +271,93 @@ function renderCredentials(credentials: CredentialHealth[]) {
   );
 }
 
-function credentialPill(c: CredentialHealth): string {
-  if (!c.secretExists) return 'Missing';
-  if (c.refreshAlive === true) return 'Refresh alive';
-  if (c.refreshAlive === false) return 'Refresh dead';
-  return c.accessTokenExpired ? 'Expired' : 'Unverified';
+/*
+ * The not-probed explainer. Deliberately grey and wordy: an operator
+ * seeing "not probed" for the first time needs to learn that the backend
+ * held the probe back ON PURPOSE, what it is reporting instead, and that
+ * the override exists — otherwise they go looking for a fault that isn't
+ * there, or worse, force a rotation without knowing what it costs.
+ */
+function renderNotProbed(
+  c: CredentialHealth,
+  probing: boolean,
+  forceProbe: () => void,
+) {
+  return (
+    <Box mt={0.5} mb={0.5}>
+      <Typography variant="caption" color="textSecondary" component="div">
+        {c.refreshSkipReason}
+        {c.lineage ? ` (lineage ${c.lineage})` : ''}. Verifying spends the
+        token — Codex rotates on every refresh — so liveness here is read
+        from {c.livenessBasis || 'the signals above'}.
+        {c.refreshLastAlive
+          ? ` Last proven alive ${relativeTime(c.refreshLastAlive)}.`
+          : ''}
+      </Typography>
+      <Button
+        size="small"
+        disabled={probing}
+        onClick={forceProbe}
+        style={{ paddingLeft: 0, minWidth: 0 }}
+      >
+        {probing ? 'Verifying…' : 'Verify now (rotates the token)'}
+      </Button>
+    </Box>
+  );
 }
 
-function refreshLine(c: CredentialHealth): string {
-  if (c.refreshAlive === true)
-    return `refresh verified ${relativeTime(c.refreshCheckedAt)}`;
-  if (c.refreshAlive === false) return 'refresh token rejected';
-  return c.refreshError
-    ? `refresh unverified (${c.refreshError})`
-    : 'refresh not yet verified';
+type Pill = {
+  label: string;
+  color: 'primary' | 'secondary' | 'default';
+  variant: 'outlined' | 'default';
+};
+
+/*
+ * "Not probed" is grey-outlined and "Unverified" is red-outlined on
+ * purpose: only one of them means a check failed.
+ */
+function credentialPill(c: CredentialHealth, state: RefreshState): Pill {
+  if (!c.secretExists)
+    return { label: 'Missing', color: 'secondary', variant: 'default' };
+  switch (state) {
+    case 'alive':
+      return { label: 'Refresh alive', color: 'primary', variant: 'outlined' };
+    case 'dead':
+      return { label: 'Refresh dead', color: 'secondary', variant: 'default' };
+    case 'not-probed':
+      return c.accessTokenExpired
+        ? { label: 'Expired', color: 'secondary', variant: 'default' }
+        : { label: 'Not probed', color: 'default', variant: 'outlined' };
+    default:
+      return c.accessTokenExpired
+        ? { label: 'Expired', color: 'secondary', variant: 'default' }
+        : { label: 'Unverified', color: 'secondary', variant: 'outlined' };
+  }
 }
 
-function renderGateways(gateways: GatewayHealth[]) {
+function refreshLine(c: CredentialHealth, state: RefreshState): string {
+  switch (state) {
+    case 'alive':
+      return `refresh verified ${relativeTime(c.refreshCheckedAt)}`;
+    case 'dead':
+      return 'refresh token rejected';
+    case 'not-probed':
+      return c.agentsOnLineage
+        ? `refresh not probed (${c.agentsOnLineage} agent${
+            c.agentsOnLineage === 1 ? '' : 's'
+          } on this token)`
+        : 'refresh not probed';
+    default:
+      return c.refreshError
+        ? `refresh unverified (${c.refreshError})`
+        : 'refresh not yet verified';
+  }
+}
+
+function renderGateways(
+  gateways: GatewayHealth[],
+  credentials: CredentialHealth[] = [],
+) {
   const anyMissing = gateways.some(
     g => g.agentsWithProfile < g.agents.length && g.agents.length > 0,
   );
@@ -263,6 +367,7 @@ function renderGateways(gateways: GatewayHealth[]) {
         const total = g.agents.length;
         const missing = g.agents.filter(a => !a.profilePresent);
         const gwProblem = total > 0 && missing.length > 0;
+        const drift = lineageDrift(g, credentials);
         return (
           <Box key={g.name} mb={1}>
             <Box display="flex" alignItems="center" gridGap={8} flexWrap="wrap">
@@ -293,6 +398,13 @@ function renderGateways(gateways: GatewayHealth[]) {
                 ? ` · missing profiles: ${missing.map(a => a.name).join(', ')}`
                 : ''}
             </Typography>
+            {drift.length > 0 && (
+              <Typography variant="caption" color="textSecondary">
+                Token lineage differs from {g.secret}: {drift.join(', ')} —
+                expected within ~2min of a rotation, worth a look if it
+                persists.
+              </Typography>
+            )}
             {g.probeError && (
               <Typography variant="caption" color="textSecondary">
                 probe: {g.probeError}
