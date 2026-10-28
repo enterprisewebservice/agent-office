@@ -79,56 +79,85 @@ def release() -> dict:
 
 KNOWLEDGE = {
     "install": (
-        "Download at https://runtab.io/download (a DMG, free to download; the trial and plan live on the "
-        "account, not in the file). Requirements: macOS 14 or later on Apple silicon. Open the DMG, drag "
-        "Runtab to Applications, launch it: it lives in the menu bar (no Dock icon). The app is signed "
-        "with a Developer ID and notarized by Apple, so Gatekeeper opens it without warnings; if macOS "
-        "says the app is damaged or cannot be opened, the download was incomplete: delete it and download again."
+        "iPhone: 'Runtab: Credit Card Balance' on the App Store (https://apps.apple.com/app/id6823869078), "
+        "iOS 17 or later, free to download; the plans are bought inside the app. Mac: download at "
+        "https://runtab.io/download (a DMG, free; the trial and plan live on the account, not in the file). "
+        "Requirements: macOS 14 or later on Apple silicon. Open the DMG, drag Runtab to Applications, launch "
+        "it: it lives in the menu bar (no Dock icon). It is signed with a Developer ID and notarized by "
+        "Apple; if macOS says the app is damaged or cannot be opened, the download was incomplete: delete "
+        "it and download again. One Runtab account works on both."
     ),
     "signin": (
-        "Menu bar icon > Sign In… opens the browser at auth.runtab.io (the account service). New users pick "
-        "'Register', enter email + password, then confirm the verification email from hello@runtab.io "
-        "(check spam). The browser hands the session back to the app; the menu shows the email when signed in. "
-        "'Waiting for browser sign-in…' means the browser step was not finished; 'Session expired' means Sign In again."
+        "iPhone: open Runtab > Sign in or create account. Mac: menu bar icon > Sign In… opens the browser. "
+        "Both go to auth.runtab.io (the account service). New users pick 'Register', enter email + "
+        "password, then confirm the verification email from hello@runtab.io (check spam). The website "
+        "(runtab.io/help, runtab.io/account) has its own sign-in with the same email and password. On the "
+        "Mac, 'Waiting for browser sign-in…' means the browser step was not finished; 'Session expired' "
+        "means Sign In again."
     ),
     "link": (
-        "After signing in: menu > Link new card… opens Plaid Link in the browser. Pick the bank (Wells Fargo "
-        "and most US banks), sign in at the bank, choose the credit card account. Runtab only gets read-only "
-        "access through Plaid and never sees bank credentials. The 14-day free trial starts when the first "
-        "card is linked. If the item later needs a new login (bank changed password or MFA), the menu shows "
-        "'Reconnect bank…'."
+        "iPhone: Link a card on the home screen, or Settings > Link a card… (Add another card… for the "
+        "next one). Mac: menu > Link new card…. Plaid opens: pick the bank (Chase, Wells Fargo and most US "
+        "banks), sign in at the bank, choose the credit card account. Runtab only gets read-only access "
+        "through Plaid and never sees bank credentials. The 14-day free trial starts when the first card "
+        "is linked; more than one card needs a paid plan. If the bank later wants a new login (changed "
+        "password or MFA): iPhone Settings > Reconnect bank…, Mac menu > Reconnect bank…."
+    ),
+    "widgets": (
+        "Home Screen: touch and hold an empty spot > Edit > Add Widget > Runtab. Lock Screen: touch and "
+        "hold the Lock Screen > Customize > Lock Screen > tap the widget area > Runtab. Widgets show what "
+        "the app last loaded; iOS refreshes them on its own schedule, and opening the app refreshes them."
     ),
     "bank-issue": (
-        "The label 'Runtab · Bank issue' means Plaid reports the bank itself is degraded or down for logins, "
-        "transactions or balances, so waiting is the fix, not reconnecting. Until 2026-09-25 the app also "
-        "showed it when only an unrelated Plaid area (investments) was degraded, which happened most days "
-        "for Wells Fargo; the backend now ignores areas a card balance does not use, no app update needed."
+        "The label 'Bank issue' (on the Mac, 'Runtab · Bank issue') means Plaid reports the bank itself is "
+        "degraded or down for logins, transactions or balances, so waiting is the fix, not reconnecting. "
+        "Since 2026-09-25 the backend ignores degraded Plaid areas a card balance does not use (such as "
+        "investments), with no app update needed."
     ),
     "refresh": (
-        "The app polls the Runtab backend at the interval set in the menu (default 5 minutes). 'Pull updates "
-        "(Plaid cache)' re-reads Plaid's cached data (fast, free); 'Pull fresh from bank' asks Plaid to "
-        "re-pull from the bank (slow, rate limited, 30 seconds to 2 minutes). Balances update when the bank "
-        "posts transactions, typically within a day."
+        "Banks send Runtab new balances on their own 1 to 4 times a day. iPhone: pull down on the home "
+        "screen to reload from Runtab's server (free); Settings > Refresh from bank now asks the bank for "
+        "new numbers. Mac: the app checks Runtab's server at the menu's Refresh interval (default 5 "
+        "minutes); 'Pull updates (Plaid cache)' is free; 'Pull fresh from bank (slow, metered)' asks the "
+        "bank (30 seconds to 2 minutes). Asking the bank uses the plan's allowance: trial and Runtab, 10 a "
+        "month; Plus, 3 automatic checks a day at about 8 AM, 1 PM and 6 PM; Pro, 6 a day at about 7:30 "
+        "AM, 10 AM, 12:30 PM, 3 PM, 5:30 PM and 8 PM (the user's time zone). On Plus and Pro, Refresh from "
+        "bank now uses one of that day's checks."
+    ),
+    "balance": (
+        "Each card shows posted (what the bank has settled) plus pending (the charges the bank lists as "
+        "pending), and 'Bank data' with the time the bank last sent numbers. After a payment some banks "
+        "(Chase) lower the posted balance at once but hold back the available credit for days; Runtab "
+        "does not count that held credit as a pending charge. Runtab never shows a balance the bank has "
+        "not sent; if numbers look stale, see refresh."
     ),
     "trial-billing": (
-        "14-day free trial from the first linked card, then $5/month or $48/year through Stripe, managed at "
-        "https://runtab.io/account (Upgrade… in the menu opens it). When the trial ends the menu says 'Your "
-        "free trial has ended'; data is kept, the balance stops updating until a plan is active. Billing "
-        "changes and refunds are handled by a person: support@runtab.io."
+        "14-day free trial with one card, starting when the first card is linked. Then: Runtab $5/month "
+        "(the bank's own updates plus 10 refreshes a month), Runtab Plus $15/month (3 automatic checks a "
+        "day), Runtab Pro $30/month (6 a day). Every paid plan allows more than one card. There is no "
+        "yearly plan. iPhone: App Store subscriptions (Settings > Subscribe…, Get Plus or Pro…, Manage App "
+        "Store subscription; cancel in the iPhone's Settings app under Subscriptions); on the App Store, "
+        "the $5 plan starts with a 2-week free trial for new subscribers, Plus and Pro start right away. "
+        "Web and Mac: billed by Stripe at https://runtab.io/account (the Mac's Upgrade… opens it), managed "
+        "and cancelled there. One subscription covers iPhone and Mac. When a trial ends, data is kept and "
+        "balances stop updating until a plan is active. Refunds: App Store purchases through Apple "
+        "(reportaproblem.apple.com); Stripe billing is handled by a person at support@runtab.io."
     ),
     "privacy": (
-        "Runtab stores the linked account's masked name and the balance history needed to show the number; "
-        "bank credentials never touch Runtab (Plaid handles the bank login). Data deletion requests go to "
-        "support@runtab.io. Runtab is operated by Enterprise Web Service LLC (Minnesota)."
+        "Runtab stores the linked accounts' masked names and the balance history needed to show the "
+        "numbers; bank credentials never touch Runtab (Plaid handles the bank login). iPhone Settings > "
+        "Delete account removes the account and its data; deletion requests also go to support@runtab.io. "
+        "Runtab is operated by Enterprise Web Service LLC (Minnesota)."
     ),
-    "contact": "A person (Dean) reads every help desk transcript. Email: support@runtab.io. Replies within about five business days; security matters faster.",
+    "contact": "A person (Dean) reads every help desk transcript. Email: support@runtab.io, or the help desk at https://runtab.io/help. Replies within about five business days; security matters faster.",
 }
 
 
 @mcp.tool()
 def knowledge(topic: str = "") -> dict:
-    """Runtab product facts for the help desk. Topics: install, signin, link,
-    bank-issue, refresh, trial-billing, privacy, contact. Empty topic lists them."""
+    """Runtab product facts for the help desk (iPhone and Mac). Topics: install,
+    signin, link, widgets, bank-issue, refresh, balance, trial-billing, privacy,
+    contact. Empty topic lists them."""
     t = (topic or "").strip().lower()
     if not t:
         return {"topics": sorted(KNOWLEDGE)}
