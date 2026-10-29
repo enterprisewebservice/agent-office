@@ -44,7 +44,9 @@ spec:
     name: fedora-black-zebra-36
     namespace: default
   autoApproveNodeHost: true
-  codexCredentialsSecretRef: codex-subscription-credentials
+  # Its own Codex sign-in, synced by ESO from Vault agent-office/codex/research-gateway
+  # (cluster/secrets/codex-gateway-credentials.yaml): never shared between gateways.
+  codexCredentialsSecretRef: research-gateway-codex-credentials
   # Bill agent turns against the ChatGPT/Codex subscription, never the
   # metered API key. Explicit rather than inferred from
   # codexCredentialsSecretRef so the intent is readable in git.

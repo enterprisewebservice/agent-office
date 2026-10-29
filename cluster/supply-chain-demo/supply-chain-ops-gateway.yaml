@@ -30,5 +30,7 @@ spec:
   # v2026.7.1; the operator's default is :latest, which is how this one came
   # up on a build three weeks behind the rest of the fleet.
   image: quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/openclaw:v2026.7.1
-  codexCredentialsSecretRef: codex-subscription-credentials
+  # Its own Codex sign-in, synced by ESO from Vault agent-office/codex/supply-chain-ops-gateway
+  # (the live object is owned by monday-ops-reporter-agent-gitops).
+  codexCredentialsSecretRef: supply-chain-ops-gateway-codex-credentials
   autoApproveNodeHost: true
