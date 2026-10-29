@@ -98,6 +98,12 @@ export const CodexAuthCard = () => {
   const fetchApi = useApi(fetchApiRef);
   const [status, setStatus] = React.useState<Status>({ kind: 'loading' });
   const [dialogOpen, setDialogOpen] = React.useState(false);
+  // The gateway being re-authenticated; undefined = the old shared sign-in.
+  const [dialogGateway, setDialogGateway] = React.useState<string>();
+  const openReauth = (gateway?: string) => {
+    setDialogGateway(gateway);
+    setDialogOpen(true);
+  };
   const [probing, setProbing] = React.useState(false);
 
   // probe=true is the operator override: it bypasses the backend's probe
@@ -194,24 +200,30 @@ export const CodexAuthCard = () => {
             <Box my={1.5}>
               <Divider />
             </Box>
-            {renderGateways(health.gateways, health.credentials)}
+            {renderGateways(health.gateways, health.credentials, openReauth)}
           </>
         )}
 
-        <Box mt={2}>
-          <Button
-            variant="contained"
-            color={problem ? 'secondary' : 'default'}
-            onClick={() => setDialogOpen(true)}
-          >
-            {problem ? 'Re-authenticate now' : 'Re-authenticate'}
-          </Button>
-        </Box>
+        {usesSharedSignIn(health) && (
+          <Box mt={2}>
+            <Button
+              variant="contained"
+              color={problem ? 'secondary' : 'default'}
+              onClick={() => openReauth(undefined)}
+            >
+              {problem
+                ? 'Re-authenticate shared sign-in now'
+                : 'Re-authenticate shared sign-in'}
+            </Button>
+          </Box>
+        )}
       </CardContent>
       <CodexReauthDialog
         open={dialogOpen}
+        gateway={dialogGateway}
         onClose={() => {
           setDialogOpen(false);
+          setDialogGateway(undefined);
           void fetchStatus();
         }}
       />
@@ -242,23 +254,36 @@ function renderCredentials(
                 variant={pill.variant}
               />
             </Box>
-            <Typography variant="body2" color="textSecondary">
-              Access token{' '}
-              {c.accessTokenExpired
-                ? `expired ${relativeTime(c.accessTokenExpiresAt)}`
-                : `expires ${relativeTime(c.accessTokenExpiresAt)}`}
-              {' · '}
-              {refreshLine(c, state)}
-              {c.lastRefresh
-                ? ` · last refresh ${relativeTime(c.lastRefresh)}`
-                : ''}
-            </Typography>
+            {c.syncedFromVault ? (
+              <Typography variant="body2" color="textSecondary">
+                Synced from Vault · Vault's copy{' '}
+                {c.accessTokenExpired
+                  ? `expired ${relativeTime(c.accessTokenExpiresAt)}`
+                  : `expires ${relativeTime(c.accessTokenExpiresAt)}`}{' '}
+                (the gateway refreshes its own token; this copy is its
+                recovery seed) · liveness from the daily test turn
+              </Typography>
+            ) : (
+              <Typography variant="body2" color="textSecondary">
+                Access token{' '}
+                {c.accessTokenExpired
+                  ? `expired ${relativeTime(c.accessTokenExpiresAt)}`
+                  : `expires ${relativeTime(c.accessTokenExpiresAt)}`}
+                {' · '}
+                {refreshLine(c, state)}
+                {c.lastRefresh
+                  ? ` · last refresh ${relativeTime(c.lastRefresh)}`
+                  : ''}
+              </Typography>
+            )}
             {!healthy && reason && (
               <Typography variant="body2" color="error">
                 {reason}
               </Typography>
             )}
-            {state === 'not-probed' && renderNotProbed(c, probing, forceProbe)}
+            {state === 'not-probed' &&
+              !c.syncedFromVault &&
+              renderNotProbed(c, probing, forceProbe)}
             {c.gateways.length > 0 && (
               <Typography variant="caption" color="textSecondary">
                 Used by: {c.gateways.join(', ')}
@@ -319,6 +344,13 @@ type Pill = {
 function credentialPill(c: CredentialHealth, state: RefreshState): Pill {
   if (!c.secretExists)
     return { label: 'Missing', color: 'secondary', variant: 'default' };
+  if (c.syncedFromVault) {
+    if (c.turnsOK === true)
+      return { label: 'Test turn OK', color: 'primary', variant: 'outlined' };
+    if (c.turnsOK === false)
+      return { label: 'Test turn failed', color: 'secondary', variant: 'default' };
+    return { label: 'Awaiting test turn', color: 'default', variant: 'outlined' };
+  }
   switch (state) {
     case 'alive':
       return { label: 'Refresh alive', color: 'primary', variant: 'outlined' };
@@ -354,9 +386,28 @@ function refreshLine(c: CredentialHealth, state: RefreshState): string {
   }
 }
 
+// The old shared sign-in. Its button stays while any gateway (or a backend
+// that reports no gateways) still uses it; each gateway on its own
+// Vault-synced sign-in gets a button on its row instead.
+const SHARED_SECRET = 'codex-subscription-credentials';
+
+function usesSharedSignIn(health: { credentials?: CredentialHealth[] }) {
+  return (
+    !health.credentials ||
+    health.credentials.some(c => c.secret === SHARED_SECRET)
+  );
+}
+
+// A gateway's own sign-in: <gateway>-codex-credentials, synced by ESO from
+// Vault agent-office/codex/<gateway>, the key the dialog writes.
+function hasOwnSignIn(g: GatewayHealth): boolean {
+  return g.secret === `${g.name}-codex-credentials`;
+}
+
 function renderGateways(
   gateways: GatewayHealth[],
   credentials: CredentialHealth[] = [],
+  onReauth?: (gateway: string) => void,
 ) {
   const anyMissing = gateways.some(
     g => g.agentsWithProfile < g.agents.length && g.agents.length > 0,
@@ -389,6 +440,16 @@ function renderGateways(
                   color={g.desk.verdict === 'HEALTHY' ? 'default' : 'secondary'}
                   variant="outlined"
                 />
+              )}
+              {onReauth && hasOwnSignIn(g) && (
+                <Button
+                  size="small"
+                  variant="outlined"
+                  color={g.turn && !g.turn.ok ? 'secondary' : 'default'}
+                  onClick={() => onReauth(g.name)}
+                >
+                  Re-authenticate
+                </Button>
               )}
             </Box>
             <Typography variant="body2" color="textSecondary">

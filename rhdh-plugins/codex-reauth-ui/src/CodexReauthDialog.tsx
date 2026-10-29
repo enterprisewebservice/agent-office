@@ -91,7 +91,11 @@ type Phase =
 export interface CodexReauthDialogProps {
   open: boolean;
   onClose: () => void;
-  vaultPath?: string;
+  /**
+   * The agent gateway whose own sign-in this replaces (Vault
+   * agent-office/codex/<gateway>). Omitted: the old shared sign-in.
+   */
+  gateway?: string;
 }
 
 interface UserCodeResp {
@@ -165,7 +169,7 @@ export const CodexReauthDialog = (props: CodexReauthDialogProps) => {
           accessToken: tokens.access_token,
           refreshToken: tokens.refresh_token,
           accountId: accountId ?? undefined,
-          vaultPath: props.vaultPath,
+          gateway: props.gateway,
         });
         if (cancelled) return;
 
@@ -181,11 +185,15 @@ export const CodexReauthDialog = (props: CodexReauthDialogProps) => {
     return () => {
       cancelled = true;
     };
-  }, [props.open, discovery, fetchApi, props.vaultPath]);
+  }, [props.open, discovery, fetchApi, props.gateway]);
 
   return (
     <Dialog open={props.open} onClose={props.onClose} maxWidth="sm" fullWidth>
-      <DialogTitle>Re-authenticate Codex Subscription</DialogTitle>
+      <DialogTitle>
+        {props.gateway
+          ? `Re-authenticate ${props.gateway}`
+          : 'Re-authenticate Codex Subscription'}
+      </DialogTitle>
       <DialogContent>{renderBody(phase)}</DialogContent>
       <DialogActions>
         <Button onClick={props.onClose}>
@@ -377,7 +385,7 @@ async function postVaultWrite(
     accessToken: string;
     refreshToken: string;
     accountId?: string;
-    vaultPath?: string;
+    gateway?: string;
   },
 ): Promise<{ vaultVersion: number }> {
   // discovery.getBaseUrl('codex-reauth') resolves to

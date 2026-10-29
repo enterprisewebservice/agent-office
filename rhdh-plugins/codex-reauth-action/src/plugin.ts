@@ -11,8 +11,15 @@
  *
  *   POST /api/codex-reauth/write
  *     body: { idToken, accessToken, refreshToken, accountId?,
- *             vaultPath? }
+ *             gateway? }
  *     reply: { vaultVersion }  (200) or { error } (4xx/5xx)
+ *
+ * `gateway` names the agent gateway whose own sign-in this replaces:
+ * Vault agent-office/codex/<gateway>, which ESO syncs into
+ * <gateway>-codex-credentials. The browser names a gateway, never a Vault
+ * path, so a request can only reach keys under codex/ (and the Vault role
+ * codex-reauth-writer allows nothing else). Without it the write goes to
+ * the old shared sign-in, agent-office/codex-subscription-credentials.
  *
  * The frontend dialog hits this directly via Backstage's fetchApi
  * (so the request carries the user's identity token; Backstage's
@@ -34,7 +41,20 @@ interface WriteRequestBody {
   accessToken?: unknown;
   refreshToken?: unknown;
   accountId?: unknown;
-  vaultPath?: unknown;
+  gateway?: unknown;
+}
+
+// A Kubernetes object name (RFC 1123 label), as AgentGateway names are.
+const GATEWAY_NAME = /^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$/;
+
+class BadRequest extends Error {}
+
+function gatewayVaultPath(value: unknown): string | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  if (typeof value !== 'string' || !GATEWAY_NAME.test(value)) {
+    throw new BadRequest('gateway must be an agent gateway name');
+  }
+  return `agent-office/codex/${value}`;
 }
 
 function asString(value: unknown, field: string): string {
@@ -64,18 +84,23 @@ export const codexReauthPlugin = createBackendPlugin({
 
         router.post('/write', async (req, res) => {
           const log = (msg: string) => logger.info(`[codex-reauth] ${msg}`);
+          let opts: Parameters<typeof writeCodexAuthJson>[0];
           try {
             const body = (req.body ?? {}) as WriteRequestBody;
-            const result = await writeCodexAuthJson(
-              {
-                idToken: asString(body.idToken, 'idToken'),
-                accessToken: asString(body.accessToken, 'accessToken'),
-                refreshToken: asString(body.refreshToken, 'refreshToken'),
-                accountId: optionalString(body.accountId),
-                vaultPath: optionalString(body.vaultPath),
-              },
-              log,
-            );
+            opts = {
+              idToken: asString(body.idToken, 'idToken'),
+              accessToken: asString(body.accessToken, 'accessToken'),
+              refreshToken: asString(body.refreshToken, 'refreshToken'),
+              accountId: optionalString(body.accountId),
+              vaultPath: gatewayVaultPath(body.gateway),
+            };
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            res.status(400).json({ error: message });
+            return;
+          }
+          try {
+            const result = await writeCodexAuthJson(opts, log);
             res.json(result);
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
