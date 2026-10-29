@@ -41,6 +41,16 @@ export interface CredentialHealth {
   agentsOnLineage?: number;
   /** What a not-probed verdict rests on: expiry, profiles, activity. */
   livenessBasis?: string;
+  /**
+   * Owned by an ExternalSecret (a gateway's own Vault-synced sign-in). Never
+   * refresh-probed; judged by its gateways' daily test turns, because Vault's
+   * copy goes stale by design once the gateway refreshes in its pod.
+   */
+  syncedFromVault?: boolean;
+  /** Daily test turns of the gateways using it: true, false, null = none yet. */
+  turnsOK?: boolean | null;
+  /** "<gateway>: <error>" for the first failed test turn. */
+  turnProblem?: string;
   gateways: string[];
 }
 
@@ -157,6 +167,10 @@ export function refreshState(c: CredentialHealth): RefreshState {
 
 export function credentialProblem(c: CredentialHealth): string | null {
   if (!c.secretExists) return `secret ${c.secret} not found`;
+  if (c.syncedFromVault)
+    return c.turnsOK === false
+      ? `daily test turn failed on ${c.turnProblem ?? 'a gateway'}`
+      : null;
   if (c.refreshAlive === false)
     return `refresh token rejected${c.refreshError ? ` — ${c.refreshError}` : ''}`;
   if (c.accessTokenExpired && c.refreshAlive !== true)
@@ -172,6 +186,7 @@ export function credentialProblem(c: CredentialHealth): string | null {
  * token — expiry is exactly the condition that makes the backend probe.
  */
 export function credentialHealthy(c: CredentialHealth): boolean {
+  if (c.syncedFromVault) return c.secretExists && c.turnsOK !== false;
   return (
     c.refreshAlive === true ||
     (c.refreshAlive === null && c.secretExists && !c.accessTokenExpired)
@@ -188,7 +203,10 @@ export function lineageDrift(
   gateway: GatewayHealth,
   credentials: CredentialHealth[] = [],
 ): string[] {
-  const expected = credentials.find(c => c.secret === gateway.secret)?.lineage;
+  const cred = credentials.find(c => c.secret === gateway.secret);
+  // A Vault-synced copy stays on the sign-in it was written with while the
+  // gateway refreshes in its pod, so drift from it is expected, not a finding.
+  const expected = cred?.syncedFromVault ? undefined : cred?.lineage;
   if (!expected) return [];
   return gateway.agents
     .filter(a => a.lineages?.length && !a.lineages.includes(expected))

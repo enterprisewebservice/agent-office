@@ -147,6 +147,19 @@ type CredentialHealth struct {
 	// verdict (JWT expiry, agent profiles, last activity).
 	LivenessBasis string `json:"livenessBasis,omitempty"`
 
+	// SyncedFromVault is true when an ExternalSecret owns the Secret, as
+	// with each gateway's own <gateway>-codex-credentials. ESO copies Vault
+	// back over it every minute, so a refresh probe could not save the
+	// rotated token, and the agents holding the same token would be left
+	// with a spent one. These are never refresh-probed; TurnsOK is their
+	// liveness instead.
+	SyncedFromVault bool `json:"syncedFromVault"`
+	// TurnsOK is the last daily test turn of the gateways using this
+	// credential: true when they answered, false when one failed (named in
+	// TurnProblem), null before any has run.
+	TurnsOK     *bool  `json:"turnsOK"`
+	TurnProblem string `json:"turnProblem,omitempty"`
+
 	Gateways []string `json:"gateways"`
 }
 
@@ -291,6 +304,7 @@ func (h *CodexHandler) GetAuthHealth(w http.ResponseWriter, r *http.Request) {
 			ch := h.credentialHealth(ctx, secretName, force, census)
 			sort.Strings(gwNames)
 			ch.Gateways = gwNames
+			ch.TurnsOK, ch.TurnProblem = turnsVerdict(gwNames)
 			ch.LivenessBasis = livenessBasis(ch, health.Gateways)
 			mu.Lock()
 			health.Credentials = append(health.Credentials, ch)
@@ -309,14 +323,7 @@ func (h *CodexHandler) GetAuthHealth(w http.ResponseWriter, r *http.Request) {
 	// exactly the condition that opens the gate.
 	health.OK = true
 	for _, c := range health.Credentials {
-		healthy := false
-		switch {
-		case c.RefreshAlive != nil && *c.RefreshAlive:
-			healthy = true
-		case c.RefreshAlive == nil && c.SecretExists && !c.AccessTokenExpired:
-			healthy = true
-		}
-		if !healthy {
+		if !credentialHealthy(c) {
 			health.OK = false
 			if health.Reason == "" {
 				health.Reason = credentialProblem(c)
@@ -334,6 +341,8 @@ func credentialProblem(c CredentialHealth) string {
 	switch {
 	case !c.SecretExists:
 		return fmt.Sprintf("secret %s not found", c.Secret)
+	case c.SyncedFromVault && c.TurnsOK != nil && !*c.TurnsOK:
+		return fmt.Sprintf("%s: daily test turn failed on %s", c.Secret, c.TurnProblem)
 	case c.RefreshAlive != nil && !*c.RefreshAlive:
 		return fmt.Sprintf("%s: refresh token rejected — %s", c.Secret, c.RefreshError)
 	case c.AccessTokenExpired:
@@ -348,6 +357,70 @@ func credentialProblem(c CredentialHealth) string {
 	default:
 		return fmt.Sprintf("%s: unhealthy", c.Secret)
 	}
+}
+
+// credentialHealthy is one credential's part of the overall verdict: a
+// proven-alive refresh token, or an unexpired access token with no proof
+// of death. A Vault-synced credential is judged by its gateways' daily test
+// turns instead: Vault's copy goes stale by design once the gateway
+// refreshes in its pod, so its expiry says nothing about the gateway.
+func credentialHealthy(c CredentialHealth) bool {
+	switch {
+	case c.SyncedFromVault:
+		return c.SecretExists && (c.TurnsOK == nil || *c.TurnsOK)
+	case c.RefreshAlive != nil && *c.RefreshAlive:
+		return true
+	case c.RefreshAlive == nil && c.SecretExists && !c.AccessTokenExpired:
+		return true
+	}
+	return false
+}
+
+// turnsVerdict reads the last daily test turn of each gateway using a
+// credential: false with the first failure when any failed, true when the
+// rest answered, nil while none has run yet (the backend's first round
+// starts ten minutes after it does).
+func turnsVerdict(gateways []string) (*bool, string) {
+	var verdict *bool
+	for _, gw := range gateways {
+		t := lastTurn(gw)
+		if t == nil {
+			continue
+		}
+		if !t.OK {
+			f, why := false, t.Error
+			if why == "" {
+				why = "no answer"
+			}
+			return &f, gw + ": " + why
+		}
+		ok := true
+		verdict = &ok
+	}
+	return verdict, ""
+}
+
+// vaultSyncedSkip is why a Vault-synced credential is never refresh-probed,
+// not even with ?probe=1.
+const vaultSyncedSkip = "not probed (synced from Vault) — a refresh could not be saved, because ESO copies Vault back over this Secret every minute; the gateway's daily test turn is its liveness check"
+
+// credentialGate is the probe decision for one credential: the census gate,
+// except that a Vault-synced credential is never probed, not even with
+// ?probe=1 (force).
+func credentialGate(ch CredentialHealth, census lineageCensus, expiresAt time.Time, haveExpiry, force bool) (probeGate, bool) {
+	if ch.SyncedFromVault {
+		return probeGate{reason: vaultSyncedSkip}, false
+	}
+	return census.gate(ch.Lineage, expiresAt, haveExpiry), force
+}
+
+func ownedByExternalSecret(s *corev1.Secret) bool {
+	for _, o := range s.OwnerReferences {
+		if o.Kind == "ExternalSecret" {
+			return true
+		}
+	}
+	return false
 }
 
 // ─── refresh-probe safety gate ──────────────────────────────────────────
@@ -520,6 +593,7 @@ func (h *CodexHandler) credentialHealth(ctx context.Context, secretName string, 
 	if err != nil {
 		return ch
 	}
+	ch.SyncedFromVault = ownedByExternalSecret(secret)
 	authData, ok := secret.Data["auth.json"]
 	if !ok {
 		ch.SecretExists = true
@@ -559,7 +633,8 @@ func (h *CodexHandler) credentialHealth(ctx context.Context, secretName string, 
 	}
 
 	if ch.HasRefreshToken {
-		res := h.refreshProbe(ctx, secretName, force, census.gate(ch.Lineage, expiresAt, haveExpiry))
+		gate, force := credentialGate(ch, census, expiresAt, haveExpiry, force)
+		res := h.refreshProbe(ctx, secretName, force, gate)
 		ch.RefreshAlive = res.alive
 		ch.RefreshError = res.err
 		ch.RefreshProbed = res.probed
