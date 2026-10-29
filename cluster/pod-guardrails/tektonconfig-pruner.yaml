@@ -8,9 +8,18 @@
 # wanted, is a smaller keep on pipelinerun only (keep and keep-since are
 # mutually exclusive).
 #
-# Partial object, applied server-side: git owns only spec.pruner, the
-# operator keeps everything else. Prune=false because deleting TektonConfig
-# would uninstall OpenShift Pipelines.
+# The webhook's memory (28 Oct 2026). tekton-pipelines-webhook keeps a copy
+# of every CRD on the cluster in memory: 808 CRDs, about 139 MB of JSON. That
+# alone holds it at 350-460 MiB, against the operator's default limit of
+# 500 MiB. Each burst of build-step checks (a build resolving its ~18 task
+# bundles) pushed it over the limit, it was OOMKilled, and while it was down
+# every Tekton build on the cluster failed with CouldntGetTask. Limit 1 GiB,
+# request 512 MiB. The operator replaces the container's resources with
+# these, so requests and limits are both listed (CPU stays at its defaults).
+#
+# Partial object, applied server-side: git owns spec.pruner and the webhook
+# resources below, the operator keeps everything else. Prune=false because
+# deleting TektonConfig would uninstall OpenShift Pipelines.
 apiVersion: operator.tekton.dev/v1alpha1
 kind: TektonConfig
 metadata:
@@ -24,3 +33,19 @@ spec:
     resources:
       - pipelinerun
     keep: 100
+  pipeline:
+    options:
+      deployments:
+        tekton-pipelines-webhook:
+          spec:
+            template:
+              spec:
+                containers:
+                  - name: webhook
+                    resources:
+                      requests:
+                        cpu: 100m
+                        memory: 512Mi
+                      limits:
+                        cpu: 500m
+                        memory: 1Gi
