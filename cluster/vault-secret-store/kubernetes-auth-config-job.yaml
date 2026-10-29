@@ -129,6 +129,15 @@ spec:
               path "agent-office/metadata/codex-subscription-credentials" {
                 capabilities = ["read"]
               }
+              # One sign-in per Codex gateway (28 Oct 2026): the Dev Hub
+              # card's Re-authenticate writes agent-office/codex/<gateway>,
+              # which ESO syncs into <gateway>-codex-credentials.
+              path "agent-office/data/codex/*" {
+                capabilities = ["create", "update", "read"]
+              }
+              path "agent-office/metadata/codex/*" {
+                capabilities = ["read"]
+              }
               HCL
               vault policy write codex-reauth-writer /tmp/codex-writer-policy.hcl
 
