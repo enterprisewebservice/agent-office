@@ -24,12 +24,12 @@ freshest sign-in its own agents hold (read-only) and streams it straight into
 `vault kv put`; the token never touches disk. Vault never refreshes, so it is
 not a second live holder.
 
-Run from the agent-office repo with `oc` logged in to salamander. It asks for
-the Vault root token (the `root-token` key of Secret `vault-bootstrap-keys`
-in namespace `vault`):
+Run it with `oc` logged in to salamander. It reads Vault's root token from
+the `root-token` key of Secret `vault-bootstrap-keys` in namespace `vault`,
+the master key created when Vault was installed, without printing it:
 
 ```bash
-printf 'Vault root token: '; read -rs VAULT_TOKEN; echo; for gw in handsonmode-help newsroom-gateway research-gateway runtab-help supply-chain-ops-gateway upstreambeat-newsroom-gateway; do echo "== $gw"; oc exec -i -n agent-office deploy/$gw -c codex-auth-sync -- node --no-warnings - < scripts/codex/export-gateway-token.cjs | oc exec -i -n vault vault-0 -- sh -c "VAULT_TOKEN=$VAULT_TOKEN vault kv put -mount=agent-office codex/$gw auth.json=-" | grep -E '^(created_time|version)'; done; unset VAULT_TOKEN
+cd ~/redhat/agent-office && VAULT_TOKEN=$(oc get secret vault-bootstrap-keys -n vault -o jsonpath='{.data.root-token}' | base64 -d) && for gw in handsonmode-help newsroom-gateway research-gateway runtab-help supply-chain-ops-gateway upstreambeat-newsroom-gateway; do echo "== $gw"; oc exec -i -n agent-office deploy/$gw -c codex-auth-sync -- node --no-warnings - < scripts/codex/export-gateway-token.cjs | oc exec -i -n vault vault-0 -- sh -c "VAULT_TOKEN=$VAULT_TOKEN vault kv put -mount=agent-office codex/$gw auth.json=-" | grep -E '^(created_time|version)'; done; unset VAULT_TOKEN
 ```
 
 Each gateway prints the agent and lineage it exported (the same fingerprint
