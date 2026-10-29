@@ -19,10 +19,12 @@ spec:
   # behind this tag every 5 minutes, so subsequent operator-catalog
   # pipeline runs flow through to a fresh tile without manual GitOps
   # edits or Image Updater wiring.
-  image: quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/agent-office-operator-catalog:v1.7.79
-  # Pull secret for the cluster's internal Quay (already exists in
-  # openshift-marketplace; created when the cluster was bootstrapped).
-  # OLM links this to the auto-created CatalogSource ServiceAccount.
+  image: quay.io/dpeterso/agent-office-operator-catalog:v1.7.85
+  # Since v1.7.80 the catalog, bundle and operator images are public on
+  # quay.io/dpeterso and need no credentials. quay-pull-secret is for the
+  # cluster's internal Quay, where catalogs up to v1.7.79 lived; it stays
+  # so a revert to one of those still pulls. OLM links it to the
+  # auto-created CatalogSource ServiceAccount.
   secrets:
     - quay-pull-secret
   updateStrategy:
