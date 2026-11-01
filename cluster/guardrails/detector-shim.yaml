@@ -8,6 +8,9 @@
 # adds one custom criterion Granite Guardian does not ship: illegal_activity.
 # ~90 lines of Python on the UBI Python image; deps pip-installed at boot
 # (the same pattern as mm-bridge).
+# Fails closed (2026-11-01): a risk the model cannot score returns 503, and
+# /health (the readiness probe) follows the model, so callers are refused
+# instead of waved through as clean.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -56,15 +59,19 @@ data:
             return 1.0 if txt.startswith("yes") else 0.0
         return yes / (yes + no)
 
+    class Unavailable(Exception):
+        pass
+
     async def analyse(text):
         results = await asyncio.gather(*(score(text, r) for r in RISKS), return_exceptions=True)
-        out = []
-        for risk, s in zip(RISKS, results):
-            if isinstance(s, Exception):
-                out.append({"start": 0, "end": len(text), "text": text, "detection": risk, "detection_type": "risk", "score": 0.0, "evidences": [], "error": str(s)[:120]})
-            else:
-                out.append({"start": 0, "end": len(text), "text": text, "detection": risk, "detection_type": "risk", "score": round(s, 4), "evidences": []})
-        return out
+        failed = [f"{risk}: {str(s)[:80]}" for risk, s in zip(RISKS, results) if isinstance(s, Exception)]
+        if failed:
+            # Fail closed: a risk that could not be scored is not a pass. Until
+            # 2026-11-01 an unreachable model scored every risk 0.0, so while Guardian
+            # sat stopped (26 Sep to 1 Nov 2026) every message passed as clean.
+            raise Unavailable("; ".join(failed))
+        return [{"start": 0, "end": len(text), "text": text, "detection": risk, "detection_type": "risk",
+                 "score": round(s, 4), "evidences": []} for risk, s in zip(RISKS, results)]
 
     # Per-risk policy (env RISK_THRESHOLDS): applied whenever the caller does not send
     # an explicit `threshold` — that is how the guardrails gateway calls, so the front
@@ -79,7 +86,13 @@ data:
         body = await req.json()
         contents = body.get("contents") or []
         params = body.get("detector_params") or {}
-        res = await asyncio.gather(*(analyse(t) for t in contents))
+        try:
+            res = await asyncio.gather(*(analyse(t) for t in contents))
+        except Unavailable as e:
+            # The orchestrator turns a detector error into an error for its caller:
+            # the bridge refuses the message, the gateway refuses the model call.
+            return JSONResponse({"code": 503, "message": f"Granite Guardian unavailable: {e}"[:300]},
+                                status_code=503, headers={"detector-id": DETECTOR_ID})
         if params.get("threshold") is not None:
             threshold = float(params.get("threshold") or 0.0)
             res = [[d for d in r if d["score"] >= threshold] for r in res]
@@ -89,6 +102,13 @@ data:
 
     @app.get("/health")
     async def health():
+        # The readiness probe: while the model is down this pod leaves the Service,
+        # so callers get an error (fail closed) and `oc get pods` shows 0/1.
+        try:
+            r = await client.get(VLLM + "/health", timeout=3.0)
+            r.raise_for_status()
+        except Exception as e:
+            return JSONResponse({"status": "model unavailable", "vllm": VLLM, "error": str(e)[:120]}, status_code=503)
         return {"status": "ok", "risks": RISKS, "vllm": VLLM}
 ---
 apiVersion: apps/v1
@@ -106,6 +126,10 @@ spec:
   template:
     metadata:
       labels: { app.kubernetes.io/name: guardian-detector }
+      annotations:
+        # The pod reads app.py only at start: change this with every app.py change
+        # so Argo rolls the pod.
+        agentoffice.ai/detector-src: "2026-11-01 fail closed"
     spec:
       containers:
         - name: detector
