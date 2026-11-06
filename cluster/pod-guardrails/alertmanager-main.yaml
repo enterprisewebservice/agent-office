@@ -11,6 +11,13 @@
 #   which has no receiver, which is how 1,301 KubeJobNotCompleted firings
 #   and KubeletTooManyPods on all eight nodes went unseen.
 #
+# Only the app emails (2026-11-06). Dean: "i only want the app alerts going
+# to email". The claude-code-agent namespace (Runtab: ccs-backend, keycloak,
+# keycloak-postgres) is the one route with an email receiver; every other alert
+# (platform pile-ups, critical anywhere, the Codex gateways) goes to "Default",
+# which has no receiver: still visible in the console (Observe > Alerting), never
+# emailed. The PlatformOps and Critical routes and receivers were removed.
+#
 # Sender (since 2026-10-22): Google Workspace's SMTP relay, from
 # alerts@enterprisewebservice.com, authenticated as admin@enterprisewebservice.com.
 # Alerts used to go out through Resend as hello@runtab.io, where they were three
@@ -54,15 +61,7 @@ stringData:
     receivers:
       - name: Default
       - name: Watchdog
-      - name: Critical
-        email_configs:
-          - to: admin@enterprisewebservice.com
-            send_resolved: true
       - name: RuntabOps
-        email_configs:
-          - to: admin@enterprisewebservice.com
-            send_resolved: true
-      - name: PlatformOps
         email_configs:
           - to: admin@enterprisewebservice.com
             send_resolved: true
@@ -75,11 +74,5 @@ stringData:
       routes:
         - matchers: ["alertname = Watchdog"]
           receiver: Watchdog
-        - matchers:
-            - 'alertname =~ "NamespacePendingPodPileUp|JobPodsStuckPending|NodePodCapacityHigh|ClusterPodCapacityHigh|KubeJobNotCompleted|KubeletTooManyPods|KubePodNotReady|CodexGatewayTurnFailing|CodexGatewayTurnStale|CodexGatewayTurnProbeMissing"'
-          receiver: PlatformOps
-          repeat_interval: 4h
         - matchers: ["namespace = claude-code-agent"]
           receiver: RuntabOps
-        - matchers: ["severity = critical"]
-          receiver: Critical

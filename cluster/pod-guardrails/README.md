@@ -26,7 +26,7 @@ everything that was not critical to a receiver with no integration.
 | Layer | File | What it does |
 |---|---|---|
 | 1. Alerts that reach a human | `alerting-rules.yaml` | `NamespacePendingPodPileUp` (>25 Pending pods in a namespace for 30 min), `JobPodsStuckPending` (>3 Job-owned pods Pending for 30 min), `NodePodCapacityHigh` (>92% of a node's pod limit), `ClusterPodCapacityHigh` (>80% overall). Every namespace, not just `openshift-*`. |
-| | `alertmanager-main.yaml` | The Alertmanager config, now in git, plus the `PlatformOps` route that emails those four and the built-in `KubeJobNotCompleted`, `KubeletTooManyPods`, `KubePodNotReady`. |
+| | `alertmanager-main.yaml` | The Alertmanager config, in git. Since 2026-11-06 only the Runtab namespace (`claude-code-agent`) is emailed; everything else, including the pile-up alerts above, stays in the console (the `PlatformOps` and `Critical` email routes were removed at Dean's request). |
 | | `cluster-monitoring-config.yaml` | Mounts the `alertmanager-smtp` Secret into Alertmanager so the config can reference the SMTP password by file. |
 | 2. Caps | `resourcequotas.yaml` | `pods: 40` and `count/jobs.batch: 100` in `openshift-devspaces`, `agent-office-operator`, `vault`, `haveniq`, `claude-code-agent`. Pending pods count toward a `pods` quota, so a pile stops at 40 and never reaches the nodes. |
 | | `project-request.yaml` | The project request template, so every project created with `oc new-project` or the console gets `pods: 100`. |
