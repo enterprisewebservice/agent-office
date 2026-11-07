@@ -5,7 +5,8 @@
 # of the attention and shared layers and half of the 64 routed experts.
 # Shape and environment follow the OpenShift AI 3.4 guide "Deploy models using
 # Distributed Inference with llm-d", section 8.7 (reference multi-node MoE
-# deployment on TCP networking without RDMA), trimmed to one GPU per pod.
+# deployment on TCP networking without RDMA), trimmed to one GPU per pod and
+# without its --enforce-eager: vLLM's default CUDA graphs are on (Dean, 6 Nov).
 apiVersion: serving.kserve.io/v1alpha2
 kind: LLMInferenceService
 metadata:
@@ -16,7 +17,7 @@ metadata:
 spec:
   replicas: 1
   model:
-    uri: pvc://llm-d-models/deepseek-coder-v2-lite   # shared CephFS copy (models-pvc.yaml); was hf://deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct
+    uri: oci://quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/deepseek-coder-v2-lite:v1   # ModelCar image built by build/ from hf://deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct
     name: deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct
   parallelism:
     data: 2          # two pods on two nodes
@@ -41,7 +42,7 @@ spec:
           - name: CUDA_DEVICE_ORDER
             value: PCI_BUS_ID
           - name: VLLM_ADDITIONAL_ARGS
-            value: "--gpu-memory-utilization 0.90 --max-model-len 8192 --enforce-eager --trust-remote-code --disable-uvicorn-access-log"
+            value: "--max-model-len 8192 --trust-remote-code --disable-uvicorn-access-log"   # vLLM defaults otherwise: CUDA graphs on, 0.90 memory
           - name: VLLM_ALL2ALL_BACKEND
             value: naive          # TCP all-to-all, no RDMA needed
           - name: PYTORCH_CUDA_ALLOC_CONF
@@ -105,7 +106,7 @@ spec:
           - name: CUDA_DEVICE_ORDER
             value: PCI_BUS_ID
           - name: VLLM_ADDITIONAL_ARGS
-            value: "--gpu-memory-utilization 0.90 --max-model-len 8192 --enforce-eager --trust-remote-code --disable-uvicorn-access-log"
+            value: "--max-model-len 8192 --trust-remote-code --disable-uvicorn-access-log"   # vLLM defaults otherwise: CUDA graphs on, 0.90 memory
           - name: VLLM_ALL2ALL_BACKEND
             value: naive
           - name: PYTORCH_CUDA_ALLOC_CONF

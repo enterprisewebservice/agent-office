@@ -66,7 +66,11 @@ spec:
         mkdir -p "$BUILDAH_ROOT" "$BUILDAH_RUNROOT"
         ctx="$(workspaces.models.path)/$(params.model-dir)"
         echo "building $(params.image) from $ctx"
-        buildah --root "$BUILDAH_ROOT" --runroot "$BUILDAH_RUNROOT" --storage-driver=vfs bud --isolation chroot \
+        # --layers: one image layer per COPY. Without it buildah squashes every
+        # instruction into a single layer, and a 31 GB blob's final PUT killed a
+        # Quay worker after 246 s (upstream prematurely closed, HTTP 404/502).
+        # Shard-sized layers (under 9 GB) complete in seconds, as qwen3-8b's did.
+        buildah --root "$BUILDAH_ROOT" --runroot "$BUILDAH_RUNROOT" --storage-driver=vfs bud --isolation chroot --layers \
           -f "$(workspaces.scratch.path)/Containerfile" -t "$(params.image)" "$ctx"
         echo "pushing (uncompressed layers)"
         buildah --root "$BUILDAH_ROOT" --runroot "$BUILDAH_RUNROOT" --storage-driver=vfs push --disable-compression \
