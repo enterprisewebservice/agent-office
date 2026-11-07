@@ -1,0 +1,39 @@
+# Caller identity for the demo: a ServiceAccount allowed to `get` the
+# LLMInferenceService is what the gateway's AuthPolicy checks. Get a token
+# with: oc create token llm-user -n llm-d-demo --duration=1h
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: llm-user
+  namespace: llm-d-demo
+  labels:
+    opendatahub.io/dashboard: "true"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: llm-inference-viewer
+  namespace: llm-d-demo
+  labels:
+    opendatahub.io/dashboard: "true"
+rules:
+  - apiGroups: ["serving.kserve.io"]
+    resources: ["llminferenceservices"]
+    resourceNames: ["qwen3-8b"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: llm-user-binding
+  namespace: llm-d-demo
+  labels:
+    opendatahub.io/dashboard: "true"
+subjects:
+  - kind: ServiceAccount
+    name: llm-user
+    namespace: llm-d-demo
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: llm-inference-viewer

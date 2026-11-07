@@ -1,0 +1,56 @@
+# Distributed Inference with llm-d (OpenShift AI 3.4): one Red Hat validated,
+# quantized model served by two vLLM replicas on two commodity GPU nodes
+# (RTX 3090 Ti + RTX 3090, 24 GB each), with the inference scheduler (EPP) in
+# front routing by prefix cache and queue depth. Exposed through the shared
+# openshift-ai-inference Gateway (router.gateway: {} picks it up), which the
+# cluster publishes at ai-inference.apps.salamander.aimlworkbench.com.
+# Authentication is on by default (Connectivity Link AuthPolicy): callers need
+# a token for a ServiceAccount that can `get` this LLMInferenceService, see
+# access.yaml. Procedure: OpenShift AI 3.4, "Deploy models using Distributed
+# Inference with llm-d", chapters 1, 5, 6.3 and 7.3.
+apiVersion: serving.kserve.io/v1alpha2
+kind: LLMInferenceService
+metadata:
+  name: qwen3-8b
+  namespace: llm-d-demo
+  annotations:
+    security.opendatahub.io/enable-auth: "true"
+spec:
+  replicas: 2
+  model:
+    uri: hf://RedHatAI/Qwen3-8B-quantized.w4a16
+    name: RedHatAI/Qwen3-8B-quantized.w4a16
+  router:
+    route: {}
+    gateway: {}
+    scheduler:
+      config:
+        inline:
+          apiVersion: inference.networking.x-k8s.io/v1alpha1
+          kind: EndpointPickerConfig
+          plugins:
+            - type: prefix-cache-scorer
+            - type: queue-scorer
+          schedulingProfiles:
+            - name: default
+              plugins:
+                - pluginRef: queue-scorer
+                  weight: 2
+                - pluginRef: prefix-cache-scorer
+                  weight: 3
+  template:
+    containers:
+      - name: main
+        args:
+          - --disable-uvicorn-access-log
+          - --max-model-len=8192
+          - --gpu-memory-utilization=0.90
+        resources:
+          limits:
+            cpu: "4"
+            memory: 24Gi
+            nvidia.com/gpu: "1"
+          requests:
+            cpu: "2"
+            memory: 12Gi
+            nvidia.com/gpu: "1"

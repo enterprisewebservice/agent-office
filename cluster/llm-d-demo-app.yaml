@@ -1,0 +1,37 @@
+# ArgoCD Application — reconciles cluster/llm-d-demo/ (distributed inference
+# with llm-d for the JCI demo). Apply once: oc apply -f cluster/llm-d-demo-app.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: agent-office-llm-d-demo
+  namespace: openshift-gitops
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/enterprisewebservice/agent-office.git
+    targetRevision: main
+    path: cluster/llm-d-demo
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: llm-d-demo
+  # KServe defaults and status churn on the LLMInferenceService are not drift.
+  ignoreDifferences:
+    - group: serving.kserve.io
+      kind: LLMInferenceService
+      jsonPointers:
+        - /metadata/annotations/modelFormat
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+      - CreateNamespace=false
+    retry:
+      limit: 5
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m
