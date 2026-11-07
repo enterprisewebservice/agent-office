@@ -18,7 +18,7 @@ metadata:
 spec:
   replicas: 1    # was 3; two cards went to the spanning model (llminferenceservice-deepseek.yaml)
   model:
-    uri: pvc://llm-d-models/qwen3-8b   # shared CephFS copy (models-pvc.yaml); was hf://RedHatAI/Qwen3-8B-quantized.w4a16
+    uri: oci://quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/qwen3-8b:v1   # ModelCar image built by build/ from hf://RedHatAI/Qwen3-8B-quantized.w4a16
     name: RedHatAI/Qwen3-8B-quantized.w4a16
   router:
     route: {}
