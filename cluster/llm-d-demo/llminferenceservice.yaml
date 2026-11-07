@@ -16,7 +16,7 @@ metadata:
   annotations:
     security.opendatahub.io/enable-auth: "true"
 spec:
-  replicas: 2
+  replicas: 3
   model:
     uri: hf://RedHatAI/Qwen3-8B-quantized.w4a16
     name: RedHatAI/Qwen3-8B-quantized.w4a16
