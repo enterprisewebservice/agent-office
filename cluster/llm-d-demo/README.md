@@ -25,3 +25,13 @@ All-to-all runs over TCP (`VLLM_ALL2ALL_BACKEND=naive`, NCCL on the pod
 network), per the OpenShift AI 3.4 llm-d guide, section 8.7. Published through
 MaaS like qwen3-8b (`maas-deepseek.yaml`). Qwen3 8B went from three replicas to
 one to free the two cards.
+
+## Model images (7 Nov 2026)
+
+Both models are ModelCar images in the cluster Quay, built in-cluster by
+`build/modelcar-build.yaml` (one TaskRun per model under `build/run/`, run with
+`oc create -f`) and loaded with `model.uri: oci://…` (KServe adds a `modelcar`
+sidecar; no download, the node's image cache serves restarts). Registered in the
+OpenShift AI model registry (`register-models.sh`). The shared CephFS volume and
+fetch jobs that preceded the images are gone. vLLM runs with its defaults, CUDA
+graphs on; streamed calls ask for the usage chunk (see `demo.sh`).
