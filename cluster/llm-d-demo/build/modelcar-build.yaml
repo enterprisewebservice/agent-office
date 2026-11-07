@@ -1,0 +1,74 @@
+# In-cluster build of a ModelCar image: the model files from the shared volume
+# copied into a ubi-micro image under /models (one layer per weight shard, one
+# for the rest), pushed to the cluster's Quay. Same buildah recipe and SCC as
+# the other in-cluster image builds (cluster/help-desk/build). KServe loads it
+# with model.uri oci://<image> and the node caches it like any other image.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: modelcar-build
+  namespace: llm-d-demo
+spec:
+  params:
+    - name: model-dir
+      type: string
+      description: directory under the models workspace holding the model files
+    - name: image
+      type: string
+      description: image reference to push
+  workspaces:
+    - name: models
+      description: the shared model volume (PVC llm-d-models), read-only
+    - name: dockerconfig
+      description: quay-push-secret (kubernetes.io/dockerconfigjson)
+    - name: scratch
+      description: emptyDir for the generated Containerfile
+    - name: containers
+      description: emptyDir for buildah's storage (vfs copies every layer, so tens of GB)
+  steps:
+    - name: containerfile
+      image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+      script: |
+        set -euo pipefail
+        src="$(workspaces.models.path)/$(params.model-dir)"
+        cf="$(workspaces.scratch.path)/Containerfile"
+        {
+          echo "FROM registry.access.redhat.com/ubi9/ubi-micro:latest"
+          for f in $(cd "$src" && ls *.safetensors | sort); do
+            echo "COPY --chown=1001:0 $f /models/$f"
+          done
+          echo "COPY --chown=1001:0 [^.]*.json [^.]*.txt [^.]*.py [^.]*.md /models/"
+          echo "USER 1001"
+        } > "$cf"
+        # tokenizer.model, LICENSE etc. when present
+        for f in tokenizer.model LICENSE LICENSE.txt merges.txt vocab.json; do
+          [ -f "$src/$f" ] && sed -i "s|^USER 1001|COPY --chown=1001:0 $f /models/$f\nUSER 1001|" "$cf" || true
+        done
+        echo "--- Containerfile ---"; cat "$cf"; echo "---"; du -sh "$src"
+    - name: build-and-push
+      image: registry.redhat.io/rhel9/buildah@sha256:43905f40b285c32725fd6239c236df7a6bfc562e5c1b7d8338dc369a2aa2b9f8
+      securityContext:
+        capabilities:
+          add: ["SETFCAP"]
+      env:
+        - name: BUILDAH_ISOLATION
+          value: chroot
+        - name: STORAGE_DRIVER
+          value: vfs
+      computeResources:
+        requests: { cpu: "2", memory: 4Gi, ephemeral-storage: 20Gi }
+        limits: { cpu: "8", memory: 16Gi }
+      script: |
+        set -euo pipefail
+        AUTH="$(workspaces.dockerconfig.path)/.dockerconfigjson"
+        export BUILDAH_ROOT="$(workspaces.containers.path)/storage"
+        export BUILDAH_RUNROOT="$(workspaces.containers.path)/run"
+        mkdir -p "$BUILDAH_ROOT" "$BUILDAH_RUNROOT"
+        ctx="$(workspaces.models.path)/$(params.model-dir)"
+        echo "building $(params.image) from $ctx"
+        buildah --root "$BUILDAH_ROOT" --runroot "$BUILDAH_RUNROOT" --storage-driver=vfs bud --isolation chroot \
+          -f "$(workspaces.scratch.path)/Containerfile" -t "$(params.image)" "$ctx"
+        echo "pushing (uncompressed layers)"
+        buildah --root "$BUILDAH_ROOT" --runroot "$BUILDAH_RUNROOT" --storage-driver=vfs push --disable-compression \
+          --authfile "$AUTH" "$(params.image)"
+        echo "pushed $(params.image)"

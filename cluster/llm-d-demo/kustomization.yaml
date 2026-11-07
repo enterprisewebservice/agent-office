@@ -12,3 +12,4 @@ resources:
   - maas-deepseek.yaml
   - models-pvc.yaml
   - models-fetch-job.yaml
+  - build/modelcar-build.yaml

@@ -1,0 +1,33 @@
+# One-shot build run: oc create -f cluster/llm-d-demo/build/run/taskrun-qwen3-8b.yaml
+# (delete the old TaskRun first to rerun). Uses the pipeline SA (buildah SCC)
+# and the quay-push-secret copied into llm-d-demo.
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  name: modelcar-qwen3-8b-v1
+  namespace: llm-d-demo
+spec:
+  taskRef:
+    name: modelcar-build
+  serviceAccountName: pipeline
+  timeout: 3h
+  params:
+    - name: model-dir
+      value: qwen3-8b
+    - name: image
+      value: quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/qwen3-8b:v1
+  workspaces:
+    - name: models
+      persistentVolumeClaim:
+        claimName: llm-d-models
+    - name: dockerconfig
+      secret:
+        secretName: quay-push-secret
+        items:
+          - key: .dockerconfigjson
+            path: .dockerconfigjson
+    - name: scratch
+      emptyDir: {}
+    - name: containers
+      emptyDir:
+        sizeLimit: 200Gi

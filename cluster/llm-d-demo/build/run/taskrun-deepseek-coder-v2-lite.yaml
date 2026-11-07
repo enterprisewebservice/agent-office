@@ -1,0 +1,33 @@
+# One-shot build run: oc create -f cluster/llm-d-demo/build/run/taskrun-deepseek-coder-v2-lite.yaml
+# (delete the old TaskRun first to rerun). Uses the pipeline SA (buildah SCC)
+# and the quay-push-secret copied into llm-d-demo.
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata:
+  name: modelcar-deepseek-coder-v2-lite-v1
+  namespace: llm-d-demo
+spec:
+  taskRef:
+    name: modelcar-build
+  serviceAccountName: pipeline
+  timeout: 3h
+  params:
+    - name: model-dir
+      value: deepseek-coder-v2-lite
+    - name: image
+      value: quay-quay-quay-test.apps.salamander.aimlworkbench.com/deanpeterson/deepseek-coder-v2-lite:v1
+  workspaces:
+    - name: models
+      persistentVolumeClaim:
+        claimName: llm-d-models
+    - name: dockerconfig
+      secret:
+        secretName: quay-push-secret
+        items:
+          - key: .dockerconfigjson
+            path: .dockerconfigjson
+    - name: scratch
+      emptyDir: {}
+    - name: containers
+      emptyDir:
+        sizeLimit: 200Gi
