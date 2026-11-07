@@ -59,6 +59,11 @@ spec:
       tokenRateLimits:
         - limit: 200000
           window: 1m
+    - name: deepseek-coder-v2-lite   # llm-d, one model across two nodes
+      namespace: llm-d-demo
+      tokenRateLimits:
+        - limit: 200000
+          window: 1m
 ---
 # Ops validation lane: the platform automation SA (group grants don't
 # reach SA tokens), tiny budget, for end-to-end probes only.
@@ -83,6 +88,11 @@ spec:
         - limit: 20000
           window: 1m
     - name: qwen3-8b            # llm-d probe
+      namespace: llm-d-demo
+      tokenRateLimits:
+        - limit: 20000
+          window: 1m
+    - name: deepseek-coder-v2-lite   # llm-d probe
       namespace: llm-d-demo
       tokenRateLimits:
         - limit: 20000

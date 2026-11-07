@@ -31,6 +31,8 @@ spec:
       namespace: models-as-a-service
     - name: qwen3-8b            # llm-d on our own GPUs (cluster/llm-d-demo)
       namespace: llm-d-demo
+    - name: deepseek-coder-v2-lite   # llm-d, one model across two nodes
+      namespace: llm-d-demo
 ---
 apiVersion: maas.opendatahub.io/v1alpha1
 kind: MaaSAuthPolicy
@@ -49,6 +51,8 @@ spec:
     - name: gpt-4o-mini
       namespace: models-as-a-service
     - name: qwen3-8b            # llm-d probe
+      namespace: llm-d-demo
+    - name: deepseek-coder-v2-lite   # llm-d probe
       namespace: llm-d-demo
     - name: qwen3-8-27b
       namespace: models-as-a-service

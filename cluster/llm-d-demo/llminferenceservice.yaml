@@ -16,7 +16,7 @@ metadata:
   annotations:
     security.opendatahub.io/enable-auth: "true"
 spec:
-  replicas: 3
+  replicas: 1    # was 3; two cards went to the spanning model (llminferenceservice-deepseek.yaml)
   model:
     uri: hf://RedHatAI/Qwen3-8B-quantized.w4a16
     name: RedHatAI/Qwen3-8B-quantized.w4a16
