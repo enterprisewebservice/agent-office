@@ -28,6 +28,8 @@ spec:
   steps:
     - name: containerfile
       image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+      computeResources:
+        requests: { cpu: 100m, memory: 128Mi }
       script: |
         set -euo pipefail
         src="$(workspaces.models.path)/$(params.model-dir)"
