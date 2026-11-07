@@ -4,7 +4,9 @@
 # and one 16B Mixture-of-Experts model spanning two GPU nodes.
 # Usage: ./demo.sh   (oc logged in to salamander as a model-admins member; curl, python3)
 # Note: on Connectivity Link 1.4.3 the token-metering filter returns an empty body for
-# non-streaming JSON answers from vLLM (Kuadrant/wasm-shim#443), so every call streams.
+# non-streaming JSON answers from vLLM (Kuadrant/wasm-shim#443), so every call streams and
+# asks for the usage chunk (stream_options.include_usage): without it the filter holds the
+# end of the stream for 30 s waiting for token counts.
 set -eu
 # (no pipefail: the gateway ends SSE streams without the last chunk marker, curl exits 18 with a complete body)
 NS=llm-d-demo
@@ -25,7 +27,7 @@ counts() {
 ask() {  # ask "<prompt>" [url] [model] [max_tokens] [print_width]  (streams, prints the joined answer)
   local u=${2:-$URL} m=${3:-$MODEL} n=${4:-40} w=${5:-110}
   curl -sk -N "$u/chat/completions" -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
-    -d "{\"model\":\"$m\",\"messages\":[{\"role\":\"user\",\"content\":\"$1\"}],\"max_tokens\":$n,\"stream\":true,\"chat_template_kwargs\":{\"enable_thinking\":false}}" 2>/dev/null \
+    -d "{\"model\":\"$m\",\"messages\":[{\"role\":\"user\",\"content\":\"$1\"}],\"max_tokens\":$n,\"stream\":true,\"stream_options\":{\"include_usage\":true},\"chat_template_kwargs\":{\"enable_thinking\":false}}" 2>/dev/null \
     | python3 -c '
 import sys,json
 out=[]
