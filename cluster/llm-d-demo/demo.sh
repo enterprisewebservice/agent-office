@@ -65,7 +65,7 @@ echo
 echo "6. The spanning model: DeepSeek-Coder-V2-Lite, 31 GB in bf16, no single 24 GB card can hold it"
 echo "   leader + worker, one GPU each, half the experts on each node:"
 gpumem
-ask "Write a Python function that returns the busiest hour from a list of (timestamp, kwh) tuples. Code only." "$URL2" "$MODEL2" 160 400
+ask "Write a Python function that returns the busiest hour from a list of (timestamp, kwh) tuples. Code only." "$URL2" "$MODEL2" 120 400
 echo
 echo "7. Same prompt five times to the small model: the prefix-cache scorer keeps it on one replica"
 for i in 1 2 3 4 5; do ask "In one sentence, what does a building management system do?"; done
