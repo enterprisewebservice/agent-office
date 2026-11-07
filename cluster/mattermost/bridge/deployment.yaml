@@ -31,6 +31,10 @@ spec:
               # websocket-client → per-bot presence (green) + typing indicator.
               # Non-fatal: the bridge degrades to polling-only chat if absent.
               pip install --quiet --target=/tmp/pylibs websocket-client || echo "[bridge] WARN: websocket-client install failed"
+              # mlflow-skinny → one MLflow trace per turn (bridge.py Turn). Same
+              # client pin as the genesis pipeline; the server is MLflow 3.10.
+              # Non-fatal: without it turns are not traced, chat is unchanged.
+              pip install --quiet --target=/tmp/pylibs "mlflow-skinny==3.6.0" || echo "[bridge] WARN: mlflow-skinny install failed"
               export PYTHONPATH=/tmp/pylibs:$PYTHONPATH
               echo "[bridge] deps ready"
               exec python3 /scripts/bridge.py
@@ -55,6 +59,15 @@ spec:
               value: "sexual_content=0.5,illegal_activity=0.6,violence=0.7,harm=0.8,unethical_behavior=0.8,jailbreak=0.8"
             - name: GUARDRAILS_FAIL_CLOSED
               value: "true"
+            # turn traces → OpenShift AI MLflow (workspace = namespace agent-office,
+            # experiment agent-turns). Auth: pod SA token + X-MLFLOW-WORKSPACE;
+            # RBAC in cluster/mlflow/rolebindings.yaml (mm-bridge-mlflow-edit).
+            - name: MLFLOW_URI
+              value: https://mlflow.redhat-ods-applications.svc.cluster.local:8443
+            - name: MLFLOW_WORKSPACE
+              value: agent-office
+            - name: MLFLOW_EXPERIMENT
+              value: agent-turns
             - name: GW_NS
               # Shared namespace + every per-seat agent workspace (deployer
               # keeps this list in step with deploy/salamander-workspaces).

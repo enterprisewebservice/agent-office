@@ -17,6 +17,10 @@ Env:
   GW_NS            namespace the gateways live in (default "agent-office")
   POLL_SECONDS     poll interval (default 3)
   REDISCOVER_SECONDS  agent re-discovery interval (default 60)
+  MLFLOW_URI       OpenShift AI MLflow tracking server; when set, every turn is
+                   recorded as an MLflow trace (guardrail, model call, each
+                   tool call with its latency) in MLFLOW_WORKSPACE /
+                   MLFLOW_EXPERIMENT. Chat never waits on or fails for tracing.
 
 Drives openclaw with `oc exec` using the pod's ServiceAccount (needs
 pods/exec + agentworkstations get).
@@ -94,26 +98,226 @@ def react(a, pid, emoji):
 
 
 def guarded_drive(agent, a, ch, text, pid=None):
+    turn = Turn(agent, a, ch, text, pid)
     if GUARD_URL:
         t0 = time.time()
+        g = {"t_start": time.time_ns()}
         try:
             risk, score, scores = screen(text)
         except Exception as e:
             print(f"[guard] {agent} screen failed: {str(e)[:160]}", file=sys.stderr, flush=True)
             react(a, pid, "warning")
+            g.update(t_end=time.time_ns(), decision="unavailable", error=str(e)[:200])
+            turn.guard = g
             if GUARD_FAIL_CLOSED:
-                return "(the content guardrail is unavailable right now — try again in a minute)"
+                return "(the content guardrail is unavailable right now — try again in a minute)", turn
             risk = None
         else:
             top = max(scores.items(), key=lambda x: x[1]) if scores else ("-", 0.0)
             print(f"[guard] screened agent={agent} channel={ch} post={pid} ms={int((time.time() - t0) * 1000)} "
                   f"{'BLOCK' if risk else 'pass'} top={top[0]}:{top[1]:.2f} scores={ {k: round(v, 2) for k, v in scores.items()} }", file=sys.stderr, flush=True)
             react(a, pid, "no_entry_sign" if risk else "shield")
+            g.update(t_end=time.time_ns(), decision="block" if risk else "pass", risk=risk, score=score,
+                     scores={k: round(v, 3) for k, v in scores.items()})
+            turn.guard = g
         if risk:
             print(f"[guard] BLOCKED agent={agent} channel={ch} risk={risk} score={score:.2f} "
                   f"scores={ {k: round(v, 2) for k, v in scores.items()} } text={text[:160]!r}", file=sys.stderr, flush=True)
-            return GUARD_REPLY.format(risk=risk.replace("_", " "))
-    return drive(agent, a["gw"], a["ns"], text, a.get("skey"))
+            return GUARD_REPLY.format(risk=risk.replace("_", " ")), turn
+    reply, run = drive(agent, a["gw"], a["ns"], text, a.get("skey"))
+    turn.run = run
+    sf = (((((run or {}).get("meta") or {}).get("result") or {}).get("meta") or {}).get("agentMeta") or {}).get("sessionFile")
+    if sf and run.get("pod") and _mlf():
+        turn.steps = session_tail(a["ns"], run["pod"], sf)
+    return reply, turn
+
+
+# --- turn traces: OpenShift AI MLflow ------------------------------------------
+# One trace per human turn: root span = the turn, children = the guardrail
+# decision, the agent run (provider/model/usage from `openclaw agent --json`),
+# and inside it one LLM span per model call and one TOOL span per tool call,
+# rebuilt from the agent's session log with its own timestamps. Auth is the
+# documented RHOAI way: the pod's ServiceAccount token as Bearer plus the
+# workspace header on every call (see cluster/mlflow/README.md). Any failure
+# here is logged and ignored: tracing never delays or breaks a reply.
+MLFLOW_URI = os.environ.get("MLFLOW_URI", "").rstrip("/")
+MLFLOW_WORKSPACE = os.environ.get("MLFLOW_WORKSPACE", "agent-office")
+MLFLOW_EXPERIMENT = os.environ.get("MLFLOW_EXPERIMENT", "agent-turns")
+_MLF = None            # (client, experiment_id) once initialised
+_MLF_DEAD = False
+
+
+def _mlf():
+    """Lazy MLflow client; None when unconfigured or broken (retried on the next turn after a failure)."""
+    global _MLF, _MLF_DEAD
+    if _MLF or not MLFLOW_URI or _MLF_DEAD:
+        return _MLF
+    try:
+        tok = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+        if os.path.exists(tok):
+            os.environ["MLFLOW_TRACKING_TOKEN"] = open(tok).read().strip()
+        ca = "/var/run/secrets/kubernetes.io/serviceaccount/service-ca.crt"
+        if MLFLOW_URI.startswith("https") and os.path.exists(ca):
+            os.environ.setdefault("MLFLOW_TRACKING_SERVER_CERT_PATH", ca)
+        else:
+            os.environ.setdefault("MLFLOW_TRACKING_INSECURE_TLS", "true")
+        import mlflow
+        from mlflow.tracking.request_header.abstract_request_header_provider import RequestHeaderProvider
+        from mlflow.tracking.request_header.registry import _request_header_provider_registry
+
+        class _WorkspaceHeader(RequestHeaderProvider):
+            def in_context(self):
+                return True
+
+            def request_headers(self):
+                return {"X-MLFLOW-WORKSPACE": MLFLOW_WORKSPACE}
+        _request_header_provider_registry.register(_WorkspaceHeader)
+        mlflow.set_tracking_uri(MLFLOW_URI)
+        client = mlflow.MlflowClient()
+        exp = client.get_experiment_by_name(MLFLOW_EXPERIMENT)
+        exp_id = exp.experiment_id if exp else client.create_experiment(MLFLOW_EXPERIMENT)
+        _MLF = (client, exp_id)
+        print(f"[trace] MLflow ready: {MLFLOW_URI} workspace={MLFLOW_WORKSPACE} experiment={MLFLOW_EXPERIMENT} id={exp_id}", file=sys.stderr, flush=True)
+    except Exception as e:
+        _MLF_DEAD = True
+        print(f"[trace] MLflow disabled: {str(e)[:200]}", file=sys.stderr, flush=True)
+    return _MLF
+
+
+def _ns(ts):
+    """ISO-8601 'Z' timestamp or epoch ms -> ns; None on anything odd."""
+    try:
+        if isinstance(ts, (int, float)):
+            return int(ts * 1_000_000)
+        from datetime import datetime, timezone
+        return int(datetime.strptime(ts, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc).timestamp() * 1e9)
+    except Exception:
+        return None
+
+
+def _clip(x, n=600):
+    s = x if isinstance(x, str) else json.dumps(x, default=str)
+    return s if len(s) <= n else s[:n] + f"... ({len(s)} chars)"
+
+
+class Turn:
+    """Collects what happened during one human turn, then writes the trace in one go after the reply is posted."""
+
+    def __init__(self, agent, a, ch, text, pid):
+        self.t0 = time.time_ns()
+        self.agent, self.ns, self.ch, self.text, self.pid = agent, a.get("ns"), ch, text, pid
+        self.skey = a.get("skey")
+        self.gw = a.get("gw")
+        self.guard = None          # dict: ms, decision, risk, score, scores, error
+        self.run = None            # dict: t_start, t_end, meta (openclaw --json), reply, error
+        self.steps = []            # session-log entries of this turn (list of dicts)
+
+    def write(self, reply):
+        m = _mlf()
+        if not m:
+            return
+        client, exp_id = m
+        try:
+            from mlflow.entities import SpanType
+            root = client.start_trace(name=f"{self.agent}", span_type=SpanType.AGENT, experiment_id=exp_id,
+                                      inputs={"message": self.text},
+                                      attributes={"agent": self.agent, "namespace": self.ns, "channel": self.ch,
+                                                  "post_id": self.pid, "session_key": self.skey, "gateway": self.gw,
+                                                  "surface": "mattermost"},
+                                      tags={"agent": self.agent, "namespace": self.ns or "",
+                                            "blocked": str(bool(self.guard and self.guard.get("risk"))).lower()},
+                                      start_time_ns=self.t0)
+            tid = root.trace_id if hasattr(root, "trace_id") else root.request_id
+            kw = {"trace_id": tid} if hasattr(root, "trace_id") else {"request_id": tid}
+            if self.guard:
+                g = self.guard
+                s = client.start_span(name="guardrail", parent_id=root.span_id, span_type=SpanType.CHAIN,
+                                      inputs={"text": self.text},
+                                      attributes={"detector": GUARD_DETECTOR, "blocks": GUARD_BLOCK, "fail_closed": GUARD_FAIL_CLOSED},
+                                      start_time_ns=g["t_start"], **kw)
+                client.end_span(span_id=s.span_id, end_time_ns=g["t_end"],
+                                outputs={"decision": g["decision"], "risk": g.get("risk"), "score": g.get("score"),
+                                         "scores": g.get("scores"), "error": g.get("error")},
+                                status="ERROR" if g.get("error") else "OK", **kw)
+            if self.run:
+                r = self.run; meta = r.get("meta") or {}
+                am = ((meta.get("result") or {}).get("meta") or {}).get("agentMeta") or {}
+                ex = ((meta.get("result") or {}).get("meta") or {}).get("executionTrace") or {}
+                usage = am.get("usage") or {}
+                attrs = {"provider": am.get("provider"), "model": am.get("model"), "thinking": (((meta.get("result") or {}).get("meta") or {}).get("requestShaping") or {}).get("thinking"),
+                         "duration_ms": ((meta.get("result") or {}).get("meta") or {}).get("durationMs"),
+                         "usage.input": usage.get("input"), "usage.output": usage.get("output"), "usage.total": usage.get("total"),
+                         "stop_reason": (((meta.get("result") or {}).get("meta") or {}).get("completion") or {}).get("stopReason"),
+                         "fallback_used": ex.get("fallbackUsed"), "session_id": am.get("sessionId"), "status": meta.get("status")}
+                run_span = client.start_span(name="openclaw", parent_id=root.span_id, span_type=SpanType.AGENT,
+                                             inputs={"message": self.text}, attributes={k: v for k, v in attrs.items() if v is not None},
+                                             start_time_ns=r["t_start"], **kw)
+                self._steps(client, kw, run_span.span_id, r["t_start"], r["t_end"], SpanType)
+                client.end_span(span_id=run_span.span_id, end_time_ns=r["t_end"], outputs={"reply": _clip(r.get("reply"))},
+                                status="ERROR" if r.get("error") else "OK", **kw)
+            client.end_trace(outputs={"reply": _clip(reply)}, end_time_ns=time.time_ns(),
+                             attributes={"turn_ms": (time.time_ns() - self.t0) // 1_000_000}, **kw)
+            print(f"[trace] {self.agent} trace={tid} steps={len(self.steps)}", file=sys.stderr, flush=True)
+        except Exception as e:
+            print(f"[trace] {self.agent} failed: {type(e).__name__}: {str(e)[:200]}", file=sys.stderr, flush=True)
+
+    def _steps(self, client, kw, parent, t_start, t_end, SpanType):
+        """One LLM span per assistant message, one TOOL span per tool call, from the session log."""
+        prev = t_start
+        pending = {}   # toolCallId -> (span_id, started)
+        for e in self.steps:
+            m = e.get("message") or {}
+            ts = _ns(e.get("timestamp")) or prev
+            if ts < t_start - 2_000_000_000 or ts > t_end + 2_000_000_000:
+                continue
+            role = m.get("role")
+            if role == "assistant":
+                content = m.get("content") or []
+                texts = [p.get("text", "") for p in content if isinstance(p, dict) and p.get("type") == "text"]
+                calls = [p for p in content if isinstance(p, dict) and p.get("type") == "toolCall"]
+                thinking = sum(1 for p in content if isinstance(p, dict) and p.get("type") == "thinking")
+                u = m.get("usage") or {}
+                s = client.start_span(name=f"llm:{m.get('model') or '?'}", parent_id=parent, span_type=SpanType.LLM,
+                                      attributes={"provider": m.get("provider"), "model": m.get("model"),
+                                                  "usage.input": u.get("input"), "usage.output": u.get("output"),
+                                                  "usage.cache_read": u.get("cacheRead"), "usage.reasoning": u.get("reasoningTokens"),
+                                                  "stop_reason": m.get("stopReason"), "thinking_parts": thinking,
+                                                  "tool_calls": [c.get("name") for c in calls]},
+                                      start_time_ns=max(prev, t_start), **kw)
+                client.end_span(span_id=s.span_id, end_time_ns=ts, outputs={"text": _clip("\n".join(texts)) if texts else None,
+                                                                            "tool_calls": [c.get("name") for c in calls]}, **kw)
+                for c in calls:
+                    ts_ = client.start_span(name=f"tool:{c.get('name')}", parent_id=parent, span_type=SpanType.TOOL,
+                                            inputs={"arguments": c.get("arguments")}, attributes={"tool": c.get("name")},
+                                            start_time_ns=ts, **kw)
+                    pending[c.get("id")] = ts_.span_id
+                prev = ts
+            elif role == "toolResult":
+                sid = pending.pop(m.get("toolCallId"), None)
+                out = m.get("content")
+                if isinstance(out, list):
+                    out = "\n".join(p.get("text", "") for p in out if isinstance(p, dict))
+                if sid:
+                    client.end_span(span_id=sid, end_time_ns=ts, outputs={"result": _clip(out)},
+                                    attributes={"is_error": bool(m.get("isError"))},
+                                    status="ERROR" if m.get("isError") else "OK", **kw)
+                prev = ts
+            elif role == "user":
+                prev = ts
+        for sid in pending.values():   # a call without a result: close it at the turn's end
+            client.end_span(span_id=sid, end_time_ns=t_end, status="ERROR", **kw)
+
+
+def session_tail(ns, pod, path, lines=400):
+    """Last entries of the agent's session log (JSON per line); [] on any problem."""
+    out = oc("exec", "-n", ns, pod, "-c", "openclaw", "--", "tail", "-n", str(lines), path)
+    entries = []
+    for line in out.splitlines():
+        try:
+            entries.append(json.loads(line))
+        except Exception:
+            pass
+    return entries
 
 
 # --- presence + typing via a per-bot WebSocket --------------------------------
@@ -354,26 +558,48 @@ def gw_pod(gw, ns):
 
 
 def drive(agent, gw, ns, text, skey=None):
+    """Run one agent turn on its gateway. Returns (reply_text, run) where run carries the
+    openclaw --json result (provider, model, usage, session file) for the trace."""
+    run = {"t_start": time.time_ns(), "pod": None, "meta": None, "reply": None, "error": None}
     pod = gw_pod(gw, ns)
+    run["pod"] = pod
     if not pod:
-        return "(my gateway is unavailable right now)"
+        run.update(t_end=time.time_ns(), error="gateway unavailable")
+        return "(my gateway is unavailable right now)", run
     cmd = ["oc", "exec", "-n", ns, pod, "-c", "openclaw", "--",
-           "openclaw", "agent", "--agent", agent, "--message", text, "--timeout", "1200"]
+           "openclaw", "agent", "--agent", agent, "--message", text, "--timeout", "1200", "--json"]
     if skey:
         cmd[cmd.index("--message"):cmd.index("--message")] = ["--session-key", skey]
     try:
         out = subprocess.run(cmd, capture_output=True, text=True, timeout=1260)
     except subprocess.TimeoutExpired:
-        return "(I took too long thinking — try again?)"
-    reply = ANSI.sub("", out.stdout).strip()
+        run.update(t_end=time.time_ns(), error="timeout")
+        return "(I took too long thinking — try again?)", run
+    run["t_end"] = time.time_ns()
+    raw = ANSI.sub("", out.stdout).strip()
+    reply, meta = raw, None
+    try:
+        # the JSON object is the last thing on stdout; anything before it is chatter
+        meta = json.loads(raw[raw.index("{"):]) if "{" in raw else None
+    except Exception:
+        meta = None
+    if isinstance(meta, dict):
+        run["meta"] = meta
+        payloads = ((meta.get("result") or {}).get("payloads") or [])
+        reply = "\n\n".join(p.get("text", "") for p in payloads if isinstance(p, dict) and p.get("text")).strip()
+        if not reply and meta.get("status") not in (None, "ok"):
+            run["error"] = meta.get("summary") or meta.get("status")
+            reply = f"({meta.get('summary') or 'the agent run failed'})"
     if out.returncode != 0 and not reply:
         # The exec itself failed: the gateway pod is restarting (a brain
         # swap rolls it twice: once for the key, once for the provider
         # block) or is not ready yet. Say so instead of "(no reply)".
         err = (out.stderr or "").strip()
         print(f"[bridge] {agent} exec failed rc={out.returncode}: {err[:160]}", file=sys.stderr, flush=True)
-        return "(my gateway is restarting — give it a minute and ask again)"
-    return reply or "(no reply)"
+        run["error"] = f"exec rc={out.returncode}"
+        return "(my gateway is restarting — give it a minute and ask again)", run
+    run["reply"] = reply or "(no reply)"
+    return reply or "(no reply)", run
 
 
 def get_user(username):
@@ -494,9 +720,11 @@ def main():
                     # hire runs with no indicator and no retry).
                     if not a.get("ws"):
                         a["ws"] = get_ws(agent, a.get("token", ""))
-                    reply = with_typing(a.get("ws"), ch, lambda: guarded_drive(agent, a, ch, text, p.get("id")))
+                    reply, turn = with_typing(a.get("ws"), ch, lambda: guarded_drive(agent, a, ch, text, p.get("id")))
                     print(f"[bridge] {agent} -> {reply[:80]!r}", file=sys.stderr, flush=True)
                     api("POST", "/api/v4/posts", {"channel_id": ch, "message": reply}, token=a["token"])
+                    # the trace is written after the reply is posted, so tracing never delays chat
+                    threading.Thread(target=turn.write, args=(reply,), daemon=True).start()
         time.sleep(POLL)
 
 
