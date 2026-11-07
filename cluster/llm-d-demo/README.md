@@ -1,7 +1,7 @@
 # llm-d demo
 
 Distributed Inference with llm-d on OpenShift AI 3.4: `RedHatAI/Qwen3-8B-quantized.w4a16`
-(a Red Hat validated, 4-bit quantized model) served by three vLLM replicas on two commodity
+(a Red Hat validated, 4-bit quantized model) served by three vLLM replicas on three commodity
 GPU nodes, with the llm-d inference scheduler routing by prefix cache and queue depth.
 
 - Endpoint: `https://ai-inference.apps.salamander.aimlworkbench.com/llm-d-demo/qwen3-8b/v1`
