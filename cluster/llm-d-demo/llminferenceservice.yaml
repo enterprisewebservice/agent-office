@@ -22,7 +22,10 @@ spec:
     name: RedHatAI/Qwen3-8B-quantized.w4a16
   router:
     route: {}
-    gateway: {}
+    gateway:
+      refs:                       # the MaaS gateway, so MaaSModelRef can publish it
+        - name: maas-default-gateway
+          namespace: openshift-ingress
     scheduler:
       config:
         inline:
