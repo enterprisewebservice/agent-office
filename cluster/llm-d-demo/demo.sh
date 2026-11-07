@@ -22,8 +22,8 @@ counts() {
     printf "  %-36s %-20s %-28s %s requests\n" "$p" "$node" "$gpu" "$n"
   done
 }
-ask() {  # ask "<prompt>" [url] [model] [max_tokens]  (streams, prints the joined answer)
-  local u=${2:-$URL} m=${3:-$MODEL} n=${4:-40}
+ask() {  # ask "<prompt>" [url] [model] [max_tokens] [print_width]  (streams, prints the joined answer)
+  local u=${2:-$URL} m=${3:-$MODEL} n=${4:-40} w=${5:-110}
   curl -sk -N "$u/chat/completions" -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
     -d "{\"model\":\"$m\",\"messages\":[{\"role\":\"user\",\"content\":\"$1\"}],\"max_tokens\":$n,\"stream\":true,\"chat_template_kwargs\":{\"enable_thinking\":false}}" 2>/dev/null \
     | python3 -c '
@@ -34,7 +34,7 @@ for line in sys.stdin:
     if not line.startswith("data:") or line.endswith("[DONE]"): continue
     try: out.append(json.loads(line[5:])["choices"][0]["delta"].get("content") or "")
     except Exception: pass
-print("   ", "".join(out).replace("\n"," ").strip()[:${5:-110}])'
+print("   ", "".join(out).replace("\n"," ").strip()[:int(sys.argv[1])])' "$w"
 }
 gpumem() {  # GPU memory in use on each pod of the spanning model, from inside the pod
   for p in $(oc get pods -n $NS -o jsonpath='{.items[*].metadata.name}' | tr " " "\n" | grep "deepseek-coder-v2-lite-kserve-mn-0"); do
