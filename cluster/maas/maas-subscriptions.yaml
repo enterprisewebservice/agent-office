@@ -54,6 +54,11 @@ spec:
       tokenRateLimits:
         - limit: 200000
           window: 1m
+    - name: qwen3-8b            # llm-d on our own GPUs (cluster/llm-d-demo)
+      namespace: llm-d-demo
+      tokenRateLimits:
+        - limit: 200000
+          window: 1m
 ---
 # Ops validation lane: the platform automation SA (group grants don't
 # reach SA tokens), tiny budget, for end-to-end probes only.

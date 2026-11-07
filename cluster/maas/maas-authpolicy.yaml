@@ -29,6 +29,8 @@ spec:
       namespace: models-as-a-service
     - name: claude-haiku-4-5
       namespace: models-as-a-service
+    - name: qwen3-8b            # llm-d on our own GPUs (cluster/llm-d-demo)
+      namespace: llm-d-demo
 ---
 apiVersion: maas.opendatahub.io/v1alpha1
 kind: MaaSAuthPolicy

@@ -1,0 +1,14 @@
+# Publish the llm-d model through Models-as-a-Service: same front door,
+# API keys, subscriptions and token budgets as the external models.
+# The reference must live in the backend's namespace (RHOAI 3.4 MaaS guide, 1.17.3).
+apiVersion: maas.opendatahub.io/v1alpha1
+kind: MaaSModelRef
+metadata:
+  name: qwen3-8b
+  namespace: llm-d-demo
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  modelRef:
+    kind: LLMInferenceService
+    name: qwen3-8b
