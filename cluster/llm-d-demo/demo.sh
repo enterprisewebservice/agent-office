@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
-# Live demo for the llm-d deployment: shows auth, prefix-cache stickiness and spread across GPU nodes.
-# Usage: ./demo.sh            (needs oc logged in to salamander and curl)
+# Live demo for the llm-d deployment published through Models-as-a-Service:
+# catalog entry, API key, 401 without it, prefix-cache stickiness, spread across GPU nodes.
+# Usage: ./demo.sh   (oc logged in to salamander as a model-admins member; curl, python3)
+# Note: on Connectivity Link 1.4.3 the token-metering filter returns an empty body for
+# non-streaming JSON answers from vLLM (Kuadrant/wasm-shim#443), so every call streams.
 set -euo pipefail
 NS=llm-d-demo
-URL=https://ai-inference.apps.salamander.aimlworkbench.com/llm-d-demo/qwen3-8b/v1
+GW=https://maas.apps.salamander.aimlworkbench.com
+URL=$GW/llm-d-demo/qwen3-8b/v1
 MODEL=RedHatAI/Qwen3-8B-quantized.w4a16
 
 counts() {
@@ -14,31 +18,43 @@ counts() {
     printf "  %-36s %-20s %-28s %s requests\n" "$p" "$node" "$gpu" "$n"
   done
 }
-ask() {  # ask "<prompt>"
-  curl -sk "$URL/chat/completions" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-    -d "{\"model\":\"$MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"$1\"}],\"max_tokens\":48,\"chat_template_kwargs\":{\"enable_thinking\":false}}" \
-    | python3 -c 'import json,sys; d=json.load(sys.stdin); print("   ", d["choices"][0]["message"]["content"].strip().replace("\n"," ")[:110])'
+ask() {  # ask "<prompt>"  (streams, prints the joined answer)
+  curl -sk -N "$URL/chat/completions" -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+    -d "{\"model\":\"$MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"$1\"}],\"max_tokens\":40,\"stream\":true,\"chat_template_kwargs\":{\"enable_thinking\":false}}" \
+    | python3 -c '
+import sys,json
+out=[]
+for line in sys.stdin:
+    line=line.strip()
+    if not line.startswith("data:") or line.endswith("[DONE]"): continue
+    try: out.append(json.loads(line[5:])["choices"][0]["delta"].get("content") or "")
+    except Exception: pass
+print("   ", "".join(out).replace("\n"," ").strip()[:110])'
 }
 
 echo "1. The deployment: one LLMInferenceService, N vLLM replicas, one scheduler"
 oc get llminferenceservice -n $NS
 oc get pods -n $NS -o wide | awk '{print "  "$1, $2, $3, $7}'
 echo
-echo "2. No token: the gateway answers 401"
+echo "2. The model sits in the Models-as-a-Service catalog next to the external ones"
+OCT=$(oc whoami -t)
+curl -sk "$GW/maas-api/v1/models" -H "Authorization: Bearer $OCT" | python3 -c 'import json,sys; d=json.load(sys.stdin); print("   ", [m["id"] for m in d.get("data",d)])'
+echo
+echo "3. No key: the gateway answers 401"
 curl -sk -o /dev/null -w "   HTTP %{http_code}\n" "$URL/models"
 echo
-echo "3. With a token minted for the llm-user service account"
-TOKEN=$(oc create token llm-user -n $NS --duration=1h)
-curl -sk "$URL/models" -H "Authorization: Bearer $TOKEN" | python3 -c 'import json,sys; print("   models:", [m["id"] for m in json.load(sys.stdin)["data"]])'
+echo "4. Mint a MaaS API key for yourself (same flow as for Claude or GPT here)"
+KEY=$(curl -sk -X POST "$GW/maas-api/v1/api-keys" -H "Authorization: Bearer $OCT" -H "Content-Type: application/json" -d '{"name":"llm-d-demo","expiration":"2h"}' | python3 -c 'import json,sys; print(json.load(sys.stdin)["key"])')
+echo "   key minted (sk-oai-..., not shown)"
 echo
-echo "4. Requests served so far, per replica"
+echo "5. Requests served so far, per replica"
 counts
 echo
-echo "5. Same prompt five times: the prefix-cache scorer keeps it on one replica"
+echo "6. Same prompt five times: the prefix-cache scorer keeps it on one replica"
 for i in 1 2 3 4 5; do ask "In one sentence, what does a building management system do?"; done
 counts
 echo
-echo "6. Twelve different prompts at once: the queue scorer spreads them"
+echo "7. Twelve different prompts at once: the queue scorer spreads them"
 topics=(chillers "fire alarms" "access control" "HVAC setpoints" "energy metering" "elevator maintenance" "indoor air quality" "lighting schedules" "boiler safety" "BACnet" "digital twins" "predictive maintenance")
 for t in "${topics[@]}"; do ask "One sentence on $t in commercial buildings." & done; wait
 counts
