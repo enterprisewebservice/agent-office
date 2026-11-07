@@ -76,9 +76,13 @@ spec:
         app: gpu-power-cap
     spec:
       serviceAccountName: gpu-power-cap
-      # Match the GPU Operator's labeling so we only land on GPU nodes.
+      # Only container-mode GPU nodes (the GPU Operator sets this label where
+      # it deploys the device plugin). Control-plane nodes carry GPUs with
+      # operands disabled, so their init step waits forever and stalls the
+      # rollout; the VM-passthrough node's GPUs are vfio-bound and nvidia-smi
+      # cannot set them. Neither needs this DaemonSet.
       nodeSelector:
-        nvidia.com/gpu.present: "true"
+        nvidia.com/gpu.deploy.device-plugin: "true"
       # Same tolerations the GPU Operator's own DSs use.
       tolerations:
         - operator: Exists
@@ -143,7 +147,7 @@ spec:
                   # No cap: set each GPU back to its own factory default limit.
                   nvidia-smi --query-gpu=index,power.default_limit --format=csv,noheader,nounits 2>/dev/null \
                   | while IFS=, read -r idx dflt; do
-                      dflt=$(echo "$dflt" | tr -d ' ')
+                      dflt=$(echo "$dflt" | tr -d ' '); dflt=${dflt%%.*}   # "450.00" -> 450
                       if out=$(nvidia-smi -i "$idx" -pl "$dflt" 2>&1); then
                         echo "[gpu-power-cap] node=$NODE_NAME gpu=$idx default limit ${dflt}W applied (no cap)"
                       else
