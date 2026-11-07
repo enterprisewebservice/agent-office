@@ -82,6 +82,11 @@ spec:
       tokenRateLimits:
         - limit: 20000
           window: 1m
+    - name: qwen3-8b            # llm-d probe
+      namespace: llm-d-demo
+      tokenRateLimits:
+        - limit: 20000
+          window: 1m
     - name: qwen3-8-27b
       namespace: models-as-a-service
       tokenRateLimits:
