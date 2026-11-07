@@ -16,7 +16,7 @@ metadata:
 spec:
   replicas: 1
   model:
-    uri: hf://deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct
+    uri: pvc://llm-d-models/deepseek-coder-v2-lite   # shared CephFS copy (models-pvc.yaml); was hf://deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct
     name: deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct
   parallelism:
     data: 2          # two pods on two nodes
