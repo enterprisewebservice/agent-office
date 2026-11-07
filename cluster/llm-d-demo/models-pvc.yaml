@@ -1,0 +1,14 @@
+# Shared model store on OpenShift Data Foundation (CephFS, read-write-many):
+# one copy of each model, mounted by every vLLM pod on every node, so a pod
+# restart loads from disk instead of downloading 31 GB from Hugging Face.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: llm-d-models
+  namespace: llm-d-demo
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ocs-storagecluster-cephfs
+  resources:
+    requests:
+      storage: 80Gi

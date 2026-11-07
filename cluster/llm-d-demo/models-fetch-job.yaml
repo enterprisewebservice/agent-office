@@ -1,0 +1,34 @@
+# One-time fetch of both models into the shared volume, using the same
+# storage-initializer image KServe runs as an init container (args: source, destination).
+# Leave the completed Job in place: deleting it would make GitOps run it again.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: llm-d-models-fetch
+  namespace: llm-d-demo
+spec:
+  backoffLimit: 2
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: deepseek-coder-v2-lite
+          image: registry.redhat.io/rhoai/odh-kserve-storage-initializer-rhel9@sha256:ff733612e0e3b5f3221c55a7b62562588dc186391e73b7df685a5fd2f5a3c819
+          args: ["hf://deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct", "/models/deepseek-coder-v2-lite"]
+          resources:
+            requests: { cpu: "1", memory: 2Gi }
+            limits: { cpu: "4", memory: 8Gi }
+          volumeMounts:
+            - { name: models, mountPath: /models }
+        - name: qwen3-8b
+          image: registry.redhat.io/rhoai/odh-kserve-storage-initializer-rhel9@sha256:ff733612e0e3b5f3221c55a7b62562588dc186391e73b7df685a5fd2f5a3c819
+          args: ["hf://RedHatAI/Qwen3-8B-quantized.w4a16", "/models/qwen3-8b"]
+          resources:
+            requests: { cpu: "1", memory: 2Gi }
+            limits: { cpu: "4", memory: 8Gi }
+          volumeMounts:
+            - { name: models, mountPath: /models }
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: llm-d-models

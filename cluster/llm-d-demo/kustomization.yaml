@@ -10,3 +10,5 @@ resources:
   - maas.yaml
   - llminferenceservice-deepseek.yaml
   - maas-deepseek.yaml
+  - models-pvc.yaml
+  - models-fetch-job.yaml
