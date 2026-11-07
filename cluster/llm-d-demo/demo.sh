@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Live demo for the llm-d deployment published through Models-as-a-Service:
-# catalog entry, API key, 401 without it, prefix-cache stickiness, spread across GPU nodes.
+# Live demo for the llm-d deployments published through Models-as-a-Service:
+# catalog entries, API key, 401 without it, the scheduler in front of the small model,
+# and one 16B Mixture-of-Experts model spanning two GPU nodes.
 # Usage: ./demo.sh   (oc logged in to salamander as a model-admins member; curl, python3)
 # Note: on Connectivity Link 1.4.3 the token-metering filter returns an empty body for
 # non-streaming JSON answers from vLLM (Kuadrant/wasm-shim#443), so every call streams.
@@ -10,6 +11,8 @@ NS=llm-d-demo
 GW=https://maas.apps.salamander.aimlworkbench.com
 URL=$GW/llm-d-demo/qwen3-8b/v1
 MODEL=RedHatAI/Qwen3-8B-quantized.w4a16
+URL2=$GW/llm-d-demo/deepseek-coder-v2-lite/v1
+MODEL2=deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct
 
 counts() {
   for p in $(oc get pods -n $NS -l kserve.io/component=workload -o jsonpath='{.items[*].metadata.name}'); do
@@ -19,9 +22,10 @@ counts() {
     printf "  %-36s %-20s %-28s %s requests\n" "$p" "$node" "$gpu" "$n"
   done
 }
-ask() {  # ask "<prompt>"  (streams, prints the joined answer)
-  curl -sk -N "$URL/chat/completions" -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
-    -d "{\"model\":\"$MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"$1\"}],\"max_tokens\":40,\"stream\":true,\"chat_template_kwargs\":{\"enable_thinking\":false}}" 2>/dev/null \
+ask() {  # ask "<prompt>" [url] [model] [max_tokens]  (streams, prints the joined answer)
+  local u=${2:-$URL} m=${3:-$MODEL} n=${4:-40}
+  curl -sk -N "$u/chat/completions" -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+    -d "{\"model\":\"$m\",\"messages\":[{\"role\":\"user\",\"content\":\"$1\"}],\"max_tokens\":$n,\"stream\":true,\"chat_template_kwargs\":{\"enable_thinking\":false}}" 2>/dev/null \
     | python3 -c '
 import sys,json
 out=[]
@@ -30,12 +34,19 @@ for line in sys.stdin:
     if not line.startswith("data:") or line.endswith("[DONE]"): continue
     try: out.append(json.loads(line[5:])["choices"][0]["delta"].get("content") or "")
     except Exception: pass
-print("   ", "".join(out).replace("\n"," ").strip()[:110])'
+print("   ", "".join(out).replace("\n"," ").strip()[:${5:-110}])'
+}
+gpumem() {  # GPU memory in use on each pod of the spanning model, from inside the pod
+  for p in $(oc get pods -n $NS -o jsonpath='{.items[*].metadata.name}' | tr " " "\n" | grep "deepseek-coder-v2-lite-kserve-mn-0"); do
+    node=$(oc get pod -n $NS "$p" -o jsonpath='{.spec.nodeName}')
+    used=$(oc exec -n $NS "$p" -c main -- nvidia-smi --query-gpu=memory.used,memory.total --format=csv,noheader 2>/dev/null)
+    printf "  %-44s %-20s %s\n" "$p" "$node" "$used"
+  done
 }
 
-echo "1. The deployment: one LLMInferenceService, N vLLM replicas, one scheduler"
+echo "1. Two LLMInferenceServices: a small model behind a scheduler, and one 16B MoE model across two nodes"
 oc get llminferenceservice -n $NS
-oc get pods -n $NS -o wide | awk '{print "  "$1, $2, $3, $7}'
+oc get pods -n $NS -o wide | grep -v router-scheduler | awk '{print "  "$1, $2, $3, $7}'
 echo
 echo "2. The model sits in the Models-as-a-Service catalog next to the external ones"
 OCT=$(oc whoami -t)
@@ -51,11 +62,16 @@ echo
 echo "5. Requests served so far, per replica"
 counts
 echo
-echo "6. Same prompt five times: the prefix-cache scorer keeps it on one replica"
+echo "6. The spanning model: DeepSeek-Coder-V2-Lite, 31 GB in bf16, no single 24 GB card can hold it"
+echo "   leader + worker, one GPU each, half the experts on each node:"
+gpumem
+ask "Write a Python function that returns the busiest hour from a list of (timestamp, kwh) tuples. Code only." "$URL2" "$MODEL2" 160 400
+echo
+echo "7. Same prompt five times to the small model: the prefix-cache scorer keeps it on one replica"
 for i in 1 2 3 4 5; do ask "In one sentence, what does a building management system do?"; done
 counts
 echo
-echo "7. Twelve different prompts at once: the queue scorer spreads them"
+echo "8. Twelve different prompts at once: the queue scorer spreads them (needs more than one replica)"
 topics=(chillers "fire alarms" "access control" "HVAC setpoints" "energy metering" "elevator maintenance" "indoor air quality" "lighting schedules" "boiler safety" "BACnet" "digital twins" "predictive maintenance")
 for t in "${topics[@]}"; do ask "One sentence on $t in commercial buildings." & done; wait
 counts

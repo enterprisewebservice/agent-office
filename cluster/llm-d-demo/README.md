@@ -13,3 +13,15 @@ GPU nodes, with the llm-d inference scheduler routing by prefix cache and queue 
   for short answers.
 
 Argo Application: `cluster/llm-d-demo-app.yaml` (apply once by hand, then Git rules).
+
+## The spanning model (added 6 Nov 2026)
+
+`llminferenceservice-deepseek.yaml`: DeepSeek-Coder-V2-Lite-Instruct, a 16B
+Mixture-of-Experts model (31 GB in bf16) across two nodes with
+`parallelism: {data: 2, dataLocal: 1, expert: true, tensor: 1}`. KServe renders a
+LeaderWorkerSet (`<name>-kserve-mn`, pods `-0` and `-0-1`), one GPU each; each
+rank holds the attention and shared layers plus half of the 64 routed experts.
+All-to-all runs over TCP (`VLLM_ALL2ALL_BACKEND=naive`, NCCL on the pod
+network), per the OpenShift AI 3.4 llm-d guide, section 8.7. Published through
+MaaS like qwen3-8b (`maas-deepseek.yaml`). Qwen3 8B went from three replicas to
+one to free the two cards.
