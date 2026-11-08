@@ -30,7 +30,7 @@ data:
         | jq -rj --unbuffered '.choices[0].delta.content // empty'
       t1=$(date +%s.%N)
       n=$(grep -o '"completion_tokens":[0-9]*' "$raw" | tail -1 | cut -d: -f2); rm -f "$raw"
-      printf '\n%s%s tokens in %.1f s, %.0f tokens/s%s\n' "$D" "${n:-?}" "$(echo "$t1 - $t0" | bc)" "$(echo "${n:-0} / ($t1 - $t0)" | bc -l)" "$R"
+      printf '\n%s%s tokens in %.1f s, %.0f tokens/s%s\n' "$D" "${n:-?}" "$(awk -v a="$t1" -v b="$t0" 'BEGIN{print a-b}')" "$(awk -v n="${n:-0}" -v a="$t1" -v b="$t0" 'BEGIN{print (a-b>0)? n/(a-b) : 0}')" "$R"
     }
     case "${1:-}" in
     door)
