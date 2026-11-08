@@ -1,0 +1,35 @@
+# One-time fetch of the spanning model into the shared volume, using the same
+# storage-initializer image KServe runs as an init container (args: source,
+# destination), with KServe's 24Gi memory limit: the high-performance HF
+# downloader buffers several GB (an 8Gi limit got the first job OOM-killed).
+# v3 (8 Nov 2026): Qwen3-Coder-30B-A3B-Instruct-FP8 replaces DeepSeek-Coder-V2-Lite
+# as the model across two nodes, because the IDE beat needs tool calling and
+# DeepSeek-Coder-V2 has no tool format. Leave the completed Job in place:
+# deleting it would make GitOps run it again.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: llm-d-models-fetch-v3
+  namespace: llm-d-demo
+spec:
+  backoffLimit: 2
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: qwen3-coder-30b-a3b
+          image: registry.redhat.io/rhoai/odh-kserve-storage-initializer-rhel9@sha256:ff733612e0e3b5f3221c55a7b62562588dc186391e73b7df685a5fd2f5a3c819
+          args: ["hf://Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8", "/models/qwen3-coder-30b-a3b"]
+          env:
+            - { name: HF_HUB_ENABLE_HF_TRANSFER, value: "1" }
+            - { name: HF_XET_HIGH_PERFORMANCE, value: "1" }
+            - { name: HF_XET_NUM_CONCURRENT_RANGE_GETS, value: "8" }
+          resources:
+            requests: { cpu: "1", memory: 4Gi }
+            limits: { cpu: "4", memory: 24Gi }
+          volumeMounts:
+            - { name: models, mountPath: /models }
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: llm-d-models

@@ -39,7 +39,7 @@ spec:
           for f in $(cd "$src" && ls *.safetensors | sort); do
             echo "COPY --chown=1001:0 $f /models/$f"
           done
-          echo "COPY --chown=1001:0 [^.]*.json [^.]*.txt [^.]*.py [^.]*.md /models/"
+          echo "COPY --chown=1001:0 [^.]*.json [^.]*.txt [^.]*.py [^.]*.md [^.]*.jinja /models/"
           echo "USER 1001"
         } > "$cf"
         # tokenizer.model, LICENSE etc. when present

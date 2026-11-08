@@ -1,0 +1,16 @@
+# Shared model store on OpenShift Data Foundation (CephFS, read-write-many).
+# Used by the one-time fetch Job and the ModelCar build Task: Hugging Face
+# weights land here once, buildah packages them into an image in the cluster
+# Quay, and KServe then loads the image (model.uri oci://...). The served pods
+# never mount this volume.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: llm-d-models
+  namespace: llm-d-demo
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ocs-storagecluster-cephfs
+  resources:
+    requests:
+      storage: 80Gi

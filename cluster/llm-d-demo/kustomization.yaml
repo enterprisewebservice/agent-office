@@ -12,3 +12,5 @@ resources:
   - maas-deepseek.yaml
   - governed-road-helper.yaml
   - build/modelcar-build.yaml
+  - models-pvc.yaml
+  - models-fetch-job.yaml
