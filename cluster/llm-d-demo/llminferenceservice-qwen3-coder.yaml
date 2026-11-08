@@ -11,7 +11,10 @@
 # Shape and environment follow the OpenShift AI 3.4 guide "Deploy models using
 # Distributed Inference with llm-d", section 8.7 (reference multi-node MoE
 # deployment on TCP networking without RDMA), trimmed to one GPU per pod and
-# without its --enforce-eager: vLLM's default CUDA graphs are on (Dean, 6 Nov).
+# without its --enforce-eager: vLLM's default CUDA graphs are on (Dean, 6 Nov). The FP8 weights
+# take 15.8 GiB per card; the KV cache (about 4 GiB, 32K context fits 1.3 times) is sized after
+# the graphs' memory (VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS) at 0.88 utilisation, because at
+# 0.90 with the default estimate the graph capture ran out of memory.
 apiVersion: serving.kserve.io/v1alpha2
 kind: LLMInferenceService
 metadata:
@@ -47,7 +50,9 @@ spec:
           - name: CUDA_DEVICE_ORDER
             value: PCI_BUS_ID
           - name: VLLM_ADDITIONAL_ARGS
-            value: "--max-model-len 32768 --enable-auto-tool-choice --tool-call-parser qwen3_xml --enable-force-include-usage --disable-uvicorn-access-log"   # vLLM defaults otherwise: CUDA graphs on, 0.90 memory
+            value: "--max-model-len 32768 --gpu-memory-utilization 0.88 --enable-auto-tool-choice --tool-call-parser qwen3_xml --enable-force-include-usage --disable-uvicorn-access-log"   # CUDA graphs on (vLLM default); 0.88 leaves room for them
+          - name: VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS
+            value: "1"            # size the KV cache after CUDA-graph memory; without it the first start OOMed while capturing graphs (8 Nov)
           - name: VLLM_ALL2ALL_BACKEND
             value: naive          # TCP all-to-all, no RDMA needed
           - name: PYTORCH_CUDA_ALLOC_CONF
@@ -111,7 +116,9 @@ spec:
           - name: CUDA_DEVICE_ORDER
             value: PCI_BUS_ID
           - name: VLLM_ADDITIONAL_ARGS
-            value: "--max-model-len 32768 --enable-auto-tool-choice --tool-call-parser qwen3_xml --enable-force-include-usage --disable-uvicorn-access-log"   # vLLM defaults otherwise: CUDA graphs on, 0.90 memory
+            value: "--max-model-len 32768 --gpu-memory-utilization 0.88 --enable-auto-tool-choice --tool-call-parser qwen3_xml --enable-force-include-usage --disable-uvicorn-access-log"   # CUDA graphs on (vLLM default); 0.88 leaves room for them
+          - name: VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS
+            value: "1"            # size the KV cache after CUDA-graph memory; without it the first start OOMed while capturing graphs (8 Nov)
           - name: VLLM_ALL2ALL_BACKEND
             value: naive
           - name: PYTORCH_CUDA_ALLOC_CONF
