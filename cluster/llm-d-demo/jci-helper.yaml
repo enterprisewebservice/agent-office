@@ -1,0 +1,79 @@
+# Helper for the recorded JCI session: the same proof as demo.sh, written for the
+# console's web terminal (oc, curl, jq; no python). Extract it in the terminal with
+#   oc extract cm/jci-demo -n llm-d-demo --to=. --confirm && chmod +x jci.sh
+# then ./jci.sh door | span | mcp | guard
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: jci-demo
+  namespace: llm-d-demo
+data:
+  jci.sh: |
+    #!/usr/bin/env bash
+    # One front door for models, one model across two nodes, governed tools, the guardrail log.
+    # Streams every model call and asks for the usage chunk: on Connectivity Link 1.4.3 the metering
+    # filter returns an empty body for non-streaming answers (Kuadrant/wasm-shim#443).
+    set -u
+    NS=llm-d-demo
+    GW=https://maas.apps.salamander.aimlworkbench.com
+    URL=$GW/llm-d-demo/qwen3-8b/v1;   MODEL=RedHatAI/Qwen3-8B-quantized.w4a16
+    URL2=$GW/llm-d-demo/deepseek-coder-v2-lite/v1; MODEL2=deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct
+    B=$'\e[1m'; D=$'\e[2m'; R=$'\e[0m'
+    say() { printf '\n%s%s%s\n' "$B" "$*" "$R"; }
+    stream() {  # stream "<prompt>" <url> <model> <max_tokens> : prints tokens as they arrive, then tokens/s
+      local t0 t1 n
+      t0=$(date +%s.%N)
+      n=$(curl -sk -N "$2/chat/completions" -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+        -d "{\"model\":\"$3\",\"messages\":[{\"role\":\"user\",\"content\":\"$1\"}],\"max_tokens\":$4,\"stream\":true,\"stream_options\":{\"include_usage\":true},\"chat_template_kwargs\":{\"enable_thinking\":false}}" 2>/dev/null \
+        | sed -u -e 's/^data: //' | grep --line-buffered -v '^\[DONE\]' \
+        | jq -rj --unbuffered 'if .usage then "\n@@USAGE \(.usage.completion_tokens)" else (.choices[0].delta.content // empty) end' \
+        | tee /dev/stderr | sed -n 's/^@@USAGE //p' | tail -1)
+      t1=$(date +%s.%N)
+      printf '\n%s%s tokens in %.1f s, %.0f tokens/s%s\n' "$D" "${n:-?}" "$(echo "$t1 - $t0" | bc)" "$(echo "${n:-0} / ($t1 - $t0)" | bc -l)" "$R"
+    }
+    case "${1:-}" in
+    door)
+      OCT=$(oc whoami -t)
+      say "1. The Models-as-a-Service catalog: one endpoint, every model"
+      curl -sk "$GW/maas-api/v1/models" -H "Authorization: Bearer $OCT" | jq -r '(.data // .)[] | .id' | column -c 110
+      say "2. No key"
+      curl -sk -o /dev/null -w "   HTTP %{http_code}\n" "$URL/models"
+      say "3. Mint a key for myself (the same flow as for Claude or GPT here)"
+      KEY=$(curl -sk -X POST "$GW/maas-api/v1/api-keys" -H "Authorization: Bearer $OCT" -H "Content-Type: application/json" -d '{"name":"jci-session","expiration":"2h"}' | jq -r .key)
+      echo "   key minted: ${KEY:0:10}... (expires in two hours)"
+      curl -sk -o /dev/null -w "   with the key: HTTP %{http_code}\n" "$URL/models" -H "Authorization: Bearer $KEY"
+      say "4. A key from another lane, asking for a model that lane does not include"
+      LT=$(oc create token claude-code-agent -n claude-code-agent --duration=1h)
+      LKEY=$(curl -sk -X POST "$GW/maas-api/v1/api-keys" -H "Authorization: Bearer $LT" -H "Content-Type: application/json" -d '{"name":"jci-lane-demo","expiration":"1h"}' | jq -r .key)
+      echo "   ops lane key: ${LKEY:0:10}...  ->  claude-opus-5"
+      curl -sk -w "\n   HTTP %{http_code}\n" "$GW/models-as-a-service/claude-opus-5/v1/chat/completions" -H "Authorization: Bearer $LKEY" -H "Content-Type: application/json" \
+        -d '{"model":"claude-opus-5","messages":[{"role":"user","content":"hi"}],"max_tokens":5,"stream":true,"stream_options":{"include_usage":true}}' | head -c 600; echo
+      ;;
+    span)
+      KEY=$(curl -sk -X POST "$GW/maas-api/v1/api-keys" -H "Authorization: Bearer $(oc whoami -t)" -H "Content-Type: application/json" -d '{"name":"jci-session-span","expiration":"1h"}' | jq -r .key)
+      say "1. Two LLMInferenceServices: a small model, and one 16B Mixture-of-Experts model across two nodes"
+      oc get llminferenceservice -n $NS -o custom-columns='NAME:.metadata.name,READY:.status.conditions[?(@.type=="Ready")].status,MODEL:.spec.model.uri'
+      echo
+      oc get pods -n $NS -l 'kserve.io/component=workload' -o custom-columns='POD:.metadata.name,NODE:.spec.nodeName,STATUS:.status.phase'
+      say "2. GPU memory on each half of the spanning model (31 GB of weights, 24 GB cards)"
+      for p in $(oc get pods -n $NS -o name | grep 'deepseek-coder-v2-lite-kserve-mn-0'); do
+        node=$(oc get -n $NS "$p" -o jsonpath='{.spec.nodeName}')
+        printf '   %-46s %-20s %s\n' "${p#pod/}" "$node" "$(oc exec -n $NS "${p#pod/}" -c main -- nvidia-smi --query-gpu=name,memory.used,memory.total --format=csv,noheader 2>/dev/null)"
+      done
+      say "3. A coding question to the spanning model, streamed through the front door"
+      stream "Write a Python function that returns the busiest hour from a list of (timestamp, kwh) tuples. Code only, no explanation." "$URL2" "$MODEL2" 160
+      ;;
+    mcp)
+      say "Tool servers registered on the MCP gateway"
+      oc get mcpserverregistration -n agent-office -o json | jq -r '.items[] | [.metadata.name, .spec.state, (.status.discoveredTools|tostring)+" tools", "credential: "+.spec.credentialRef.name] | @tsv' | column -t -s $'\t' | sed 's/^/   /'
+      say "The GitHub registration: the route it fronts and the credential the gateway injects"
+      oc get mcpserverregistration github -n agent-office -o json | jq -r '"   route:      \(.spec.targetRef.kind)/\(.spec.targetRef.name) (path \(.spec.path))\n   credential: secret \(.spec.credentialRef.name), key \(.spec.credentialRef.key)\n   tools:      \(.status.discoveredTools) discovered"'
+      say "Who may call what: the allow-list is an annotation on each caller's own credential"
+      oc get secret -A -l agentoffice.ai/mcp-gateway-caller=true -o json | jq -r '.items[] | [.metadata.namespace+"/"+.metadata.name, (.metadata.annotations["agentoffice.ai/mcp-servers"] // "-")] | @tsv' | column -t -s $'\t' | head -8 | sed 's/^/   /'
+      ;;
+    guard)
+      say "The bridge log: what the guardrail decided, and the scores behind it"
+      oc logs deploy/mm-bridge -n agent-office --since=30m 2>/dev/null | grep '\[guard\] BLOCKED' | tail -1 | sed 's/ \([a-z_]*\)=/\n   \1= /g'
+      ;;
+    *) echo "usage: ./jci.sh door | span | mcp | guard";;
+    esac

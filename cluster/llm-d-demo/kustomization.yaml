@@ -10,4 +10,5 @@ resources:
   - maas.yaml
   - llminferenceservice-deepseek.yaml
   - maas-deepseek.yaml
+  - jci-helper.yaml
   - build/modelcar-build.yaml
