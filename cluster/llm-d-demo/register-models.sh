@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Register the two served models in the OpenShift AI model registry
+# Register the served models in the OpenShift AI model registry
 # (autoresearch-registry): a RegisteredModel, a version, and a model artifact
 # whose URI is the ModelCar image in Quay. Idempotent: existing names are reused.
 # Usage: ./register-models.sh   (oc logged in; the registry REST API takes the OpenShift token)
@@ -23,7 +23,7 @@ register() {  # name hf_id image format description
   local v_id
   v_id=$(api "$REG/registered_models/$rm_id/versions?pageSize=100" | jqget "next((v['id'] for v in d.get('items',[]) if v['name']=='v1'),'')")
   if [ -z "$v_id" ]; then
-    v_id=$(api -X POST "$REG/model_versions" -d "{\"name\":\"v1\",\"registeredModelId\":\"$rm_id\",\"description\":\"Weights from Hugging Face ($hf), packaged as a ModelCar image in the cluster Quay on 6 Nov 2026.\",\"state\":\"LIVE\",\"customProperties\":{\"image\":{\"metadataType\":\"MetadataStringValue\",\"string_value\":\"$image\"}}}" | jqget "d['id']")
+    v_id=$(api -X POST "$REG/model_versions" -d "{\"name\":\"v1\",\"registeredModelId\":\"$rm_id\",\"description\":\"Weights from Hugging Face ($hf), packaged as a ModelCar image in the cluster Quay.\",\"state\":\"LIVE\",\"customProperties\":{\"image\":{\"metadataType\":\"MetadataStringValue\",\"string_value\":\"$image\"}}}" | jqget "d['id']")
     echo "  version v1 id=$v_id"
   else
     echo "  version v1 exists id=$v_id"
@@ -38,7 +38,7 @@ register() {  # name hf_id image format description
   fi
 }
 
-register "DeepSeek-Coder-V2-Lite-Instruct" "deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct" "$QUAY/deepseek-coder-v2-lite:v1" "safetensors" \
-  "16B Mixture-of-Experts coding model, bf16, 31 GB. Served by llm-d across two GPU nodes (data parallel 2, expert parallel) and published through Models-as-a-Service."
+register "Qwen3-Coder-30B-A3B-Instruct-FP8" "Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8" "$QUAY/qwen3-coder-30b-a3b:v1" "safetensors" \
+  "30B Mixture-of-Experts coding model (3.3B active), FP8, 31 GB, native tool calling. Served by llm-d across two GPU nodes (data parallel 2, expert parallel) and published through Models-as-a-Service. Replaced DeepSeek-Coder-V2-Lite on 8 Nov 2026."
 register "Qwen3-8B-quantized.w4a16" "RedHatAI/Qwen3-8B-quantized.w4a16" "$QUAY/qwen3-8b:v1" "safetensors" \
   "Red Hat validated 4-bit quantized Qwen3 8B. Served by llm-d behind the inference scheduler and published through Models-as-a-Service."

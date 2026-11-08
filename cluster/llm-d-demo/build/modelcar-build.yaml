@@ -34,18 +34,21 @@ spec:
         set -euo pipefail
         src="$(workspaces.models.path)/$(params.model-dir)"
         cf="$(workspaces.scratch.path)/Containerfile"
+        # Order matters with the vfs storage driver: every layer is a full copy of the image so
+        # far, so the small files and USER go first (megabytes) and the weight shards go last,
+        # nothing after them. Shards first put a 31 GB model at ~250 GB of scratch (evicted at
+        # 200 GiB on 8 Nov 2026); this order needs about 90 GB.
         {
           echo "FROM registry.access.redhat.com/ubi9/ubi-micro:latest"
+          echo "COPY --chown=1001:0 [^.]*.json [^.]*.txt [^.]*.py [^.]*.md [^.]*.jinja /models/"
+          for f in tokenizer.model LICENSE; do   # no extension, missed by the globs above
+            [ -f "$src/$f" ] && echo "COPY --chown=1001:0 $f /models/$f" || true
+          done
+          echo "USER 1001"
           for f in $(cd "$src" && ls *.safetensors | sort); do
             echo "COPY --chown=1001:0 $f /models/$f"
           done
-          echo "COPY --chown=1001:0 [^.]*.json [^.]*.txt [^.]*.py [^.]*.md [^.]*.jinja /models/"
-          echo "USER 1001"
         } > "$cf"
-        # tokenizer.model, LICENSE etc. when present
-        for f in tokenizer.model LICENSE LICENSE.txt merges.txt vocab.json; do
-          [ -f "$src/$f" ] && sed -i "s|^USER 1001|COPY --chown=1001:0 $f /models/$f\nUSER 1001|" "$cf" || true
-        done
         echo "--- Containerfile ---"; cat "$cf"; echo "---"; du -sh "$src"
     - name: build-and-push
       image: registry.redhat.io/rhel9/buildah@sha256:43905f40b285c32725fd6239c236df7a6bfc562e5c1b7d8338dc369a2aa2b9f8

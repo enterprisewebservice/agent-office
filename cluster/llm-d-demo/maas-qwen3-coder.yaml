@@ -1,0 +1,12 @@
+# The spanning model in the Models-as-a-Service catalog, same as qwen3-8b.
+apiVersion: maas.opendatahub.io/v1alpha1
+kind: MaaSModelRef
+metadata:
+  name: qwen3-coder-30b-a3b
+  namespace: llm-d-demo
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  modelRef:
+    kind: LLMInferenceService
+    name: qwen3-coder-30b-a3b

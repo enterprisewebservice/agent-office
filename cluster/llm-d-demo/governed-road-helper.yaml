@@ -1,7 +1,7 @@
 # Helper for the recorded session "The governed road": the same proof as demo.sh, written for the
 # console's web terminal (oc, curl, jq; no python). Extract it in the terminal with
 #   oc extract cm/governed-road -n llm-d-demo --to=. --confirm && chmod +x road.sh
-# then ./road.sh door | span | mcp | guard
+# then ./road.sh door | span | mcp | guard | image | allow github | deny github
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -17,7 +17,8 @@ data:
     NS=llm-d-demo
     GW=https://maas.apps.salamander.aimlworkbench.com
     URL=$GW/llm-d-demo/qwen3-8b/v1;   MODEL=RedHatAI/Qwen3-8B-quantized.w4a16
-    URL2=$GW/llm-d-demo/deepseek-coder-v2-lite/v1; MODEL2=deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct
+    URL2=$GW/llm-d-demo/qwen3-coder-30b-a3b/v1; MODEL2=Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8
+    SEAT_NS=${SEAT_NS:-deanpeterson-agent-workspace}; SEAT_SECRET=${SEAT_SECRET:-deanpeterson-gitea-token}   # the presenter's seat credential (allow/deny)
     B=$'\e[1m'; D=$'\e[2m'; R=$'\e[0m'
     say() { printf '\n%s%s%s\n' "$B" "$*" "$R"; }
     p() { [ -z "${FAST:-}" ] && sleep "$1" || true; }   # pacing for the narration; FAST=1 skips
@@ -55,13 +56,13 @@ data:
       ;;
     span)
       KEY=$(curl -sk -X POST "$GW/maas-api/v1/api-keys" -H "Authorization: Bearer $(oc whoami -t)" -H "Content-Type: application/json" -d '{"name":"road-span","expiration":"1h"}' | jq -r .key)
-      say "1. Two LLMInferenceServices: a small model, and one 16B Mixture-of-Experts model across two nodes"
+      say "1. Two LLMInferenceServices: a small model, and one 30B Mixture-of-Experts coding model across two nodes"
       oc get llminferenceservice -n $NS -o custom-columns='NAME:.metadata.name,READY:.status.conditions[?(@.type=="Ready")].status,MODEL:.spec.model.uri'
       echo
       oc get pods -n $NS -o custom-columns='POD:.metadata.name,NODE:.spec.nodeName,STATUS:.status.phase' | grep -v router-scheduler
       p 20
       say "2. GPU memory on each half of the spanning model (31 GB of weights, 24 GB cards)"
-      for p in $(oc get pods -n $NS -o name | grep 'deepseek-coder-v2-lite-kserve-mn-0'); do
+      for p in $(oc get pods -n $NS -o name | grep 'qwen3-coder-30b-a3b-kserve-mn-0'); do
         node=$(oc get -n $NS "$p" -o jsonpath='{.spec.nodeName}')
         printf '   %-46s %-20s %s\n' "${p#pod/}" "$node" "$(oc exec -n $NS "${p#pod/}" -c main -- nvidia-smi --query-gpu=name,memory.used,memory.total --format=csv,noheader 2>/dev/null)"
       done
@@ -83,8 +84,19 @@ data:
       ;;
     image)
       say "The model weights are a container image in Quay (public repository): tags, size, when it was pushed"
-      curl -sk "https://quay-quay-quay-test.apps.salamander.aimlworkbench.com/api/v1/repository/deanpeterson/deepseek-coder-v2-lite/tag/" \
+      curl -sk "https://quay-quay-quay-test.apps.salamander.aimlworkbench.com/api/v1/repository/deanpeterson/qwen3-coder-30b-a3b/tag/" \
         | jq -r '.tags[] | "   \(.name)\t\(((.size // 0) / 1073741824 * 10 | floor) / 10) GB\t\(.last_modified)"' | column -t -s "$(printf '\t')"
       ;;
-    *) echo "usage: ./road.sh door | span | mcp | guard | image";;
+    allow|deny)
+      # The seat's allow-list is an annotation on its own credential (callers-auth-policy.yaml): add or
+      # remove one registered server, e.g. ./road.sh allow github. Authorino watches the Secret, so the
+      # next tools/call from the IDE sees the change; nothing restarts and nothing on the laptop changes.
+      srv="agent-office/${2:?usage: ./road.sh allow|deny <registration>, e.g. github}"
+      cur=$(oc get secret "$SEAT_SECRET" -n "$SEAT_NS" -o jsonpath='{.metadata.annotations.agentoffice\.ai/mcp-servers}')
+      new=$(printf '%s' "$cur" | tr ',' '\n' | grep -v '^$' | grep -vx "$srv" | { cat; [ "$1" = allow ] && echo "$srv"; } | paste -sd, -)
+      oc annotate secret "$SEAT_SECRET" -n "$SEAT_NS" "agentoffice.ai/mcp-servers=$new" --overwrite >/dev/null
+      say "Seat $SEAT_NS/$SEAT_SECRET may now call:"
+      printf '%s' "$new" | tr ',' '\n' | sed 's/^/   /'
+      ;;
+    *) echo "usage: ./road.sh door | span | mcp | guard | image | allow <server> | deny <server>";;
     esac

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Live demo for the llm-d deployments published through Models-as-a-Service:
 # catalog entries, API key, 401 without it, the scheduler in front of the small model,
-# and one 16B Mixture-of-Experts model spanning two GPU nodes.
+# and one 30B Mixture-of-Experts coding model spanning two GPU nodes.
 # Usage: ./demo.sh   (oc logged in to salamander as a model-admins member; curl, python3)
 # Note: on Connectivity Link 1.4.3 the token-metering filter returns an empty body for
 # non-streaming JSON answers from vLLM (Kuadrant/wasm-shim#443), so every call streams and
@@ -13,8 +13,8 @@ NS=llm-d-demo
 GW=https://maas.apps.salamander.aimlworkbench.com
 URL=$GW/llm-d-demo/qwen3-8b/v1
 MODEL=RedHatAI/Qwen3-8B-quantized.w4a16
-URL2=$GW/llm-d-demo/deepseek-coder-v2-lite/v1
-MODEL2=deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct
+URL2=$GW/llm-d-demo/qwen3-coder-30b-a3b/v1
+MODEL2=Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8
 
 counts() {
   for p in $(oc get pods -n $NS -l kserve.io/component=workload -o jsonpath='{.items[*].metadata.name}'); do
@@ -39,14 +39,14 @@ for line in sys.stdin:
 print("   ", "".join(out).replace("\n"," ").strip()[:int(sys.argv[1])])' "$w"
 }
 gpumem() {  # GPU memory in use on each pod of the spanning model, from inside the pod
-  for p in $(oc get pods -n $NS -o jsonpath='{.items[*].metadata.name}' | tr " " "\n" | grep "deepseek-coder-v2-lite-kserve-mn-0"); do
+  for p in $(oc get pods -n $NS -o jsonpath='{.items[*].metadata.name}' | tr " " "\n" | grep "qwen3-coder-30b-a3b-kserve-mn-0"); do
     node=$(oc get pod -n $NS "$p" -o jsonpath='{.spec.nodeName}')
     used=$(oc exec -n $NS "$p" -c main -- nvidia-smi --query-gpu=memory.used,memory.total --format=csv,noheader 2>/dev/null)
     printf "  %-44s %-20s %s\n" "$p" "$node" "$used"
   done
 }
 
-echo "1. Two LLMInferenceServices: a small model behind a scheduler, and one 16B MoE model across two nodes"
+echo "1. Two LLMInferenceServices: a small model behind a scheduler, and one 30B MoE coding model across two nodes"
 oc get llminferenceservice -n $NS
 oc get pods -n $NS -o wide | grep -v router-scheduler | awk '{print "  "$1, $2, $3, $7}'
 echo
@@ -64,7 +64,7 @@ echo
 echo "5. Requests served so far, per replica"
 counts
 echo
-echo "6. The spanning model: DeepSeek-Coder-V2-Lite, 31 GB in bf16, no single 24 GB card can hold it"
+echo "6. The spanning model: Qwen3-Coder-30B-A3B, 31 GB in FP8, no single 24 GB card can hold it"
 echo "   leader + worker, one GPU each, half the experts on each node:"
 gpumem
 ask "Write a Python function that returns the busiest hour from a list of (timestamp, kwh) tuples. Code only." "$URL2" "$MODEL2" 120 400
