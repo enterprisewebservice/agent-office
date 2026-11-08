@@ -12,5 +12,6 @@ resources:
   - maas-qwen3-coder.yaml
   - governed-road-helper.yaml
   - build/modelcar-build.yaml
-  - models-pvc.yaml
-  - models-fetch-job.yaml
+  # For the next model build only: add models-pvc.yaml and models-fetch-job.yaml (edit the
+  # Job's model), run the TaskRun under build/run/, then remove both again: the volume holds
+  # 31 GB of CephFS that nothing reads once the image is in Quay.
