@@ -151,4 +151,13 @@ spec:
       tokenRateLimits:
         - limit: 500000
           window: 1m
-
+    - name: qwen3-8b            # llm-d on our own GPUs, so admin keys reach the lab models too
+      namespace: llm-d-demo
+      tokenRateLimits:
+        - limit: 500000
+          window: 1m
+    - name: deepseek-coder-v2-lite   # llm-d, one model across two nodes
+      namespace: llm-d-demo
+      tokenRateLimits:
+        - limit: 500000
+          window: 1m
