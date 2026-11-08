@@ -55,3 +55,5 @@ resources:
   - gateway/broker-rbac.yaml
   - gateway/authorino-tls-envoyfilter.yaml
   - gateway/callers-auth-policy.yaml
+  # Public hostname for IDEs on laptops (same listener, same policies).
+  - gateway/mcp-gateway-external-route.yaml

@@ -1,0 +1,76 @@
+# External front door for the MCP gateway: the same `mcp` listener, the same
+# broker and the same caller policy, reached from a developer's laptop (an
+# IDE's MCP client) instead of from a pod. The controller-owned HTTPRoute
+# (mcp-gateway-route) only answers to the in-cluster Service name, so this
+# adds a second HTTPRoute on the same listener with the public hostname, plus
+# the OpenShift Route that terminates TLS with the apps wildcard certificate
+# and hands the request to the gateway Service.
+#
+# Path /mcp only: the public name carries no /.well-known route, so an IDE
+# configured with a static caller token never starts an OAuth discovery.
+# The callers AuthPolicy targets the listener (sectionName mcp), so it applies
+# here unchanged: no recognised caller token -> 401; the tool allow-list on the
+# caller's Secret still decides tools/call on the backend hop.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: mcp-gateway-external
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/name: mcp-gateway
+    app.kubernetes.io/component: external-route
+    app.kubernetes.io/managed-by: agent-office-gitops
+    # Connectivity Link's dashboards join request metrics to routes on these
+    # two labels (RHCL 1.4 observability guide).
+    service: mcp-gateway
+    deployment: mcp-gateway
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: mcp-gateway
+      namespace: agent-office
+      sectionName: mcp
+  hostnames:
+    - mcp-gateway-agent-office.apps.salamander.aimlworkbench.com
+  rules:
+    - name: mcp
+      matches:
+        - path:
+            type: PathPrefix
+            value: /mcp
+      filters:
+        # Same guard as the controller-owned route: callers may not inject
+        # the router's internal headers.
+        - type: RequestHeaderModifier
+          requestHeaderModifier:
+            remove:
+              - mcp-init-host
+              - router-key
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: mcp-gateway
+          port: 8080
+          weight: 1
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: mcp-gateway-external
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/name: mcp-gateway
+    app.kubernetes.io/component: external-route
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  host: mcp-gateway-agent-office.apps.salamander.aimlworkbench.com
+  port:
+    targetPort: mcp
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+  to:
+    kind: Service
+    name: mcp-gateway-data-science-gateway-class
+    weight: 100
