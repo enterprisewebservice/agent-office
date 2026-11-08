@@ -20,6 +20,7 @@ data:
     URL2=$GW/llm-d-demo/deepseek-coder-v2-lite/v1; MODEL2=deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct
     B=$'\e[1m'; D=$'\e[2m'; R=$'\e[0m'
     say() { printf '\n%s%s%s\n' "$B" "$*" "$R"; }
+    p() { [ -z "${FAST:-}" ] && sleep "$1" || true; }   # pacing for the narration; FAST=1 skips
     stream() {  # stream "<prompt>" <url> <model> <max_tokens> : prints tokens as they arrive, then tokens/s
       local t0 t1 n raw=/tmp/jci-stream.$$
       t0=$(date +%s.%N)
@@ -36,12 +37,15 @@ data:
       OCT=$(oc whoami -t)
       say "1. The Models-as-a-Service catalog: one endpoint, every model"
       curl -sk "$GW/maas-api/v1/models" -H "Authorization: Bearer $OCT" | jq -r '(.data // .)[] | .id' | column -c 110
+      p 4
       say "2. No key"
       curl -sk -o /dev/null -w "   HTTP %{http_code}\n" "$URL/models"
+      p 4
       say "3. Mint a key for myself (the same flow as for Claude or GPT here)"
       KEY=$(curl -sk -X POST "$GW/maas-api/v1/api-keys" -H "Authorization: Bearer $OCT" -H "Content-Type: application/json" -d '{"name":"jci-session","expiration":"2h"}' | jq -r .key)
       echo "   key minted: ${KEY:0:10}... (expires in two hours)"
       curl -sk -o /dev/null -w "   with the key: HTTP %{http_code}\n" "$URL/models" -H "Authorization: Bearer $KEY"
+      p 4
       say "4. A key from another lane, asking for a model that lane does not include"
       LT=$(oc create token claude-code-agent -n claude-code-agent --duration=1h)
       LKEY=$(curl -sk -X POST "$GW/maas-api/v1/api-keys" -H "Authorization: Bearer $LT" -H "Content-Type: application/json" -d '{"name":"jci-lane-demo","expiration":"1h"}' | jq -r .key)
@@ -55,11 +59,13 @@ data:
       oc get llminferenceservice -n $NS -o custom-columns='NAME:.metadata.name,READY:.status.conditions[?(@.type=="Ready")].status,MODEL:.spec.model.uri'
       echo
       oc get pods -n $NS -o custom-columns='POD:.metadata.name,NODE:.spec.nodeName,STATUS:.status.phase' | grep -v router-scheduler
+      p 20
       say "2. GPU memory on each half of the spanning model (31 GB of weights, 24 GB cards)"
       for p in $(oc get pods -n $NS -o name | grep 'deepseek-coder-v2-lite-kserve-mn-0'); do
         node=$(oc get -n $NS "$p" -o jsonpath='{.spec.nodeName}')
         printf '   %-46s %-20s %s\n' "${p#pod/}" "$node" "$(oc exec -n $NS "${p#pod/}" -c main -- nvidia-smi --query-gpu=name,memory.used,memory.total --format=csv,noheader 2>/dev/null)"
       done
+      p 16
       say "3. A coding question to the spanning model, streamed through the front door"
       stream "Write a Python function that returns the busiest hour from a list of (timestamp, kwh) tuples. Code only, no explanation." "$URL2" "$MODEL2" 160
       ;;
