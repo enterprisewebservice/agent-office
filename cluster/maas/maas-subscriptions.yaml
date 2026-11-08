@@ -102,6 +102,12 @@ spec:
       tokenRateLimits:
         - limit: 20000
           window: 1m
+    - name: claude-sonnet-5     # so the ops probe (claude-code-agent) can test the IDE path through the door
+      namespace: models-as-a-service
+      tokenRateLimits:
+        - limit: 20000
+          window: 1m
+
 ---
 # Admin personal-API lane: models billed to Dean's own keys, visible
 # only to model-admins. Subscriptions (Codex/Claude Max OAuth) can
