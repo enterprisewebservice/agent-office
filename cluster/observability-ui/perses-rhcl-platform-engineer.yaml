@@ -34,6 +34,7 @@ spec:
               kind: PrometheusDatasource
               name: accelerators-thanos-querier-datasource
         name: gateway_namespace
+        customAllValue: .*
     - kind: ListVariable
       spec:
         display:
@@ -53,6 +54,8 @@ spec:
               kind: PrometheusDatasource
               name: accelerators-thanos-querier-datasource
         name: api_policy_namespace
+        defaultValue: $__all
+        customAllValue: .*
     - kind: ListVariable
       spec:
         display:
@@ -72,6 +75,8 @@ spec:
               kind: PrometheusDatasource
               name: accelerators-thanos-querier-datasource
         name: route_name
+        defaultValue: $__all
+        customAllValue: .*
     panels:
       '1':
         kind: Panel
@@ -116,154 +121,6 @@ spec:
                     kind: PrometheusDatasource
                     name: accelerators-thanos-querier-datasource
                   query: count(gatewayapi_gateway_info{exported_namespace=~"${gateway_namespace}"})
-      '2_1':
-        kind: Panel
-        spec:
-          display:
-            name: Gateways
-            description: List of all Gateways, their class and status.
-          plugin:
-            kind: Table
-            spec:
-              columnSettings:
-              - header: Gateway Class
-                name: gatewayclass_name
-              - header: ''
-                hide: true
-                name: timestamp
-              - hide: true
-                name: __name__ 1
-              - hide: true
-                name: container 1
-              - hide: true
-                name: customresource_group 1
-              - hide: true
-                name: customresource_kind 1
-              - hide: true
-                name: customresource_version 1
-              - header: Name
-                hide: false
-                name: name 1
-              - header: Namespace
-                hide: false
-                name: exported_namespace 1
-              - hide: true
-                name: instance 1
-              - header: ''
-                hide: true
-                name: job 1
-              - hide: true
-                name: namespace 1
-              - hide: true
-                name: prometheus 1
-              - hide: true
-                name: 'Value #A'
-              - hide: true
-                name: __name__ 2
-              - hide: true
-                name: container 2
-              - hide: true
-                name: customresource_group 2
-              - hide: true
-                name: customresource_kind 2
-              - hide: true
-                name: customresource_version 2
-              - hide: true
-                name: exported_namespace 2
-              - hide: true
-                name: instance 2
-              - hide: true
-                name: job 2
-              - hide: true
-                name: name 2
-              - hide: true
-                name: namespace 2
-              - hide: true
-                name: prometheus 2
-              - hide: true
-                name: type 1
-              - header: Programmed
-                name: 'Value #B'
-              - header: ''
-                hide: true
-                name: __name__ 3
-              - hide: true
-                name: container 3
-              - hide: true
-                name: customresource_group 3
-              - hide: true
-                name: customresource_kind 3
-              - hide: true
-                name: customresource_version 3
-              - hide: true
-                name: exported_namespace 3
-              - hide: true
-                name: instance 3
-              - hide: true
-                name: job 3
-              - hide: true
-                name: name 3
-              - hide: true
-                name: namespace 3
-              - hide: true
-                name: prometheus 3
-              - hide: true
-                name: type 2
-              - header: Accepted
-                name: 'Value #C'
-              - hide: true
-                name: cluster_id 2
-              - hide: true
-                name: cluster_id 3
-              - hide: true
-                name: receive 1
-              - hide: true
-                name: receive 2
-              - hide: true
-                name: receive 3
-              - hide: true
-                name: replica 1
-              - hide: true
-                name: replica 2
-              - hide: true
-                name: replica 3
-              - hide: true
-                name: tenant_id 1
-              - hide: true
-                name: tenant_id 2
-              - hide: true
-                name: tenant_id 3
-              - header: Cluster ID
-                name: cluster_id 1
-              density: compact
-          queries:
-          - kind: TimeSeriesQuery
-            spec:
-              plugin:
-                kind: PrometheusTimeSeriesQuery
-                spec:
-                  datasource:
-                    kind: PrometheusDatasource
-                    name: accelerators-thanos-querier-datasource
-                  query: gatewayapi_gateway_info{exported_namespace=~"${gateway_namespace}"}
-          - kind: TimeSeriesQuery
-            spec:
-              plugin:
-                kind: PrometheusTimeSeriesQuery
-                spec:
-                  datasource:
-                    kind: PrometheusDatasource
-                    name: accelerators-thanos-querier-datasource
-                  query: gatewayapi_gateway_status{exported_namespace=~"${gateway_namespace}",type="Programmed"}
-          - kind: TimeSeriesQuery
-            spec:
-              plugin:
-                kind: PrometheusTimeSeriesQuery
-                spec:
-                  datasource:
-                    kind: PrometheusDatasource
-                    name: accelerators-thanos-querier-datasource
-                  query: gatewayapi_gateway_status{exported_namespace=~"${gateway_namespace}",type="Accepted"}
       '2_2':
         kind: Panel
         spec:
@@ -902,51 +759,6 @@ spec:
                     * on(workload) (group by(workload) (label_replace(gatewayapi_httproute_labels{exported_namespace=~\"$api_policy_namespace\",name=~\"$route_name\"}, \"workload\", \"$1\",\"deployment\"\
                     , \"(.+)\")))"
                   seriesNameFormat: 'API: {{workload}}'
-      '3_7':
-        kind: Panel
-        spec:
-          display:
-            name: Errors (req/s)
-            description: Rate of 4xx & 5xx response codes and total HTTP response code errors by API/HTTPRoute
-          plugin:
-            kind: TimeSeriesChart
-            spec:
-              legend:
-                mode: list
-                position: bottom
-              visual:
-                areaOpacity: 0.05
-                connectNulls: false
-                display: line
-                lineWidth: 1
-              yAxis:
-                format:
-                  decimalPlaces: 2
-                  unit: requests/sec
-                min: 0
-          queries:
-          - kind: TimeSeriesQuery
-            spec:
-              plugin:
-                kind: PrometheusTimeSeriesQuery
-                spec:
-                  datasource:
-                    kind: PrometheusDatasource
-                    name: accelerators-thanos-querier-datasource
-                  query: sum(rate(istio_requests_total{response_code=~"4.*|5.*"}[5m])) by (destination_service_name, response_code) * on(destination_service_name) group_left(name) (group without(cluster_id,
-                    instance, app_kubernetes_io_instance) (label_replace(gatewayapi_httproute_labels{exported_namespace=~"${api_policy_namespace}"}, "destination_service_name", "$1","service", "(.+)")))
-                  seriesNameFormat: '{{name}} - {{response_code}}'
-          - kind: TimeSeriesQuery
-            spec:
-              plugin:
-                kind: PrometheusTimeSeriesQuery
-                spec:
-                  datasource:
-                    kind: PrometheusDatasource
-                    name: accelerators-thanos-querier-datasource
-                  query: sum(rate(istio_requests_total{response_code=~"4.*|5.*"}[5m])) by (destination_service_name) * on(destination_service_name) group_left(name) (group without(cluster_id, instance,
-                    app_kubernetes_io_instance) (label_replace(gatewayapi_httproute_labels{exported_namespace=~"${api_policy_namespace}"}, "destination_service_name", "$1","service", "(.+)")))
-                  seriesNameFormat: '{{name}} - Total Errors'
       '4_0':
         kind: Panel
         spec:
@@ -1085,12 +897,6 @@ spec:
           height: 3
           content:
             $ref: '#/spec/panels/2_0'
-        - x: 3
-          y: 8
-          width: 21
-          height: 9
-          content:
-            $ref: '#/spec/panels/2_1'
         - x: 0
           y: 11
           width: 3
@@ -1164,12 +970,6 @@ spec:
           height: 7
           content:
             $ref: '#/spec/panels/3_6'
-        - x: 16
-          y: 40
-          width: 8
-          height: 7
-          content:
-            $ref: '#/spec/panels/3_7'
     - kind: Grid
       spec:
         display:
