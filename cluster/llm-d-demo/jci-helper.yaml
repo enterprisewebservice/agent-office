@@ -21,14 +21,14 @@ data:
     B=$'\e[1m'; D=$'\e[2m'; R=$'\e[0m'
     say() { printf '\n%s%s%s\n' "$B" "$*" "$R"; }
     stream() {  # stream "<prompt>" <url> <model> <max_tokens> : prints tokens as they arrive, then tokens/s
-      local t0 t1 n
+      local t0 t1 n raw=/tmp/jci-stream.$$
       t0=$(date +%s.%N)
-      n=$(curl -sk -N "$2/chat/completions" -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+      curl -sk -N "$2/chat/completions" -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
         -d "{\"model\":\"$3\",\"messages\":[{\"role\":\"user\",\"content\":\"$1\"}],\"max_tokens\":$4,\"stream\":true,\"stream_options\":{\"include_usage\":true},\"chat_template_kwargs\":{\"enable_thinking\":false}}" 2>/dev/null \
-        | sed -u -e 's/^data: //' | grep --line-buffered -v '^\[DONE\]' \
-        | jq -rj --unbuffered 'if .usage then "\n@@USAGE \(.usage.completion_tokens)" else (.choices[0].delta.content // empty) end' \
-        | tee /dev/stderr | sed -n 's/^@@USAGE //p' | tail -1)
+        | tee "$raw" | sed -u -e 's/^data: //' | grep --line-buffered -v '^\[DONE\]' \
+        | jq -rj --unbuffered '.choices[0].delta.content // empty'
       t1=$(date +%s.%N)
+      n=$(grep -o '"completion_tokens":[0-9]*' "$raw" | tail -1 | cut -d: -f2); rm -f "$raw"
       printf '\n%s%s tokens in %.1f s, %.0f tokens/s%s\n' "$D" "${n:-?}" "$(echo "$t1 - $t0" | bc)" "$(echo "${n:-0} / ($t1 - $t0)" | bc -l)" "$R"
     }
     case "${1:-}" in
@@ -54,7 +54,7 @@ data:
       say "1. Two LLMInferenceServices: a small model, and one 16B Mixture-of-Experts model across two nodes"
       oc get llminferenceservice -n $NS -o custom-columns='NAME:.metadata.name,READY:.status.conditions[?(@.type=="Ready")].status,MODEL:.spec.model.uri'
       echo
-      oc get pods -n $NS -l 'kserve.io/component=workload' -o custom-columns='POD:.metadata.name,NODE:.spec.nodeName,STATUS:.status.phase'
+      oc get pods -n $NS -o custom-columns='POD:.metadata.name,NODE:.spec.nodeName,STATUS:.status.phase' | grep -v router-scheduler
       say "2. GPU memory on each half of the spanning model (31 GB of weights, 24 GB cards)"
       for p in $(oc get pods -n $NS -o name | grep 'deepseek-coder-v2-lite-kserve-mn-0'); do
         node=$(oc get -n $NS "$p" -o jsonpath='{.spec.nodeName}')
