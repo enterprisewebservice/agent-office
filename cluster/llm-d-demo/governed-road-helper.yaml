@@ -1,14 +1,14 @@
-# Helper for the recorded JCI session: the same proof as demo.sh, written for the
+# Helper for the recorded session "The governed road": the same proof as demo.sh, written for the
 # console's web terminal (oc, curl, jq; no python). Extract it in the terminal with
-#   oc extract cm/jci-demo -n llm-d-demo --to=. --confirm && chmod +x jci.sh
-# then ./jci.sh door | span | mcp | guard
+#   oc extract cm/governed-road -n llm-d-demo --to=. --confirm && chmod +x road.sh
+# then ./road.sh door | span | mcp | guard
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: jci-demo
+  name: governed-road
   namespace: llm-d-demo
 data:
-  jci.sh: |
+  road.sh: |
     #!/usr/bin/env bash
     # One front door for models, one model across two nodes, governed tools, the guardrail log.
     # Streams every model call and asks for the usage chunk: on Connectivity Link 1.4.3 the metering
@@ -22,7 +22,7 @@ data:
     say() { printf '\n%s%s%s\n' "$B" "$*" "$R"; }
     p() { [ -z "${FAST:-}" ] && sleep "$1" || true; }   # pacing for the narration; FAST=1 skips
     stream() {  # stream "<prompt>" <url> <model> <max_tokens> : prints tokens as they arrive, then tokens/s
-      local t0 t1 n raw=/tmp/jci-stream.$$
+      local t0 t1 n raw=/tmp/road-stream.$$
       t0=$(date +%s.%N)
       curl -sk -N "$2/chat/completions" -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
         -d "{\"model\":\"$3\",\"messages\":[{\"role\":\"user\",\"content\":\"$1\"}],\"max_tokens\":$4,\"stream\":true,\"stream_options\":{\"include_usage\":true},\"chat_template_kwargs\":{\"enable_thinking\":false}}" 2>/dev/null \
@@ -86,5 +86,5 @@ data:
       curl -sk "https://quay-quay-quay-test.apps.salamander.aimlworkbench.com/api/v1/repository/deanpeterson/deepseek-coder-v2-lite/tag/" \
         | jq -r '.tags[] | "   \(.name)\t\(((.size // 0) / 1073741824 * 10 | floor) / 10) GB\t\(.last_modified)"' | column -t -s "$(printf '\t')"
       ;;
-    *) echo "usage: ./jci.sh door | span | mcp | guard | image";;
+    *) echo "usage: ./road.sh door | span | mcp | guard | image";;
     esac

@@ -1,6 +1,6 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-# llm-d demo for JCI (9 Nov 2026): a small model with the inference scheduler in
+# llm-d demo for the recorded session "The governed road": a small model with the inference scheduler in
 # front, and a 16B MoE model spanning two commodity GPU nodes. See README.md.
 namespace: llm-d-demo
 resources:
@@ -10,5 +10,5 @@ resources:
   - maas.yaml
   - llminferenceservice-deepseek.yaml
   - maas-deepseek.yaml
-  - jci-helper.yaml
+  - governed-road-helper.yaml
   - build/modelcar-build.yaml
