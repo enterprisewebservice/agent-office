@@ -81,5 +81,10 @@ data:
       say "The bridge log: what the guardrail decided, and the scores behind it"
       oc logs deploy/mm-bridge -n agent-office --since=30m 2>/dev/null | grep '\[guard\] BLOCKED' | tail -1 | sed 's/ \([a-z_]*\)=/\n   \1= /g'
       ;;
-    *) echo "usage: ./jci.sh door | span | mcp | guard";;
+    image)
+      say "The model weights are a container image in Quay (public repository): tags, size, when it was pushed"
+      curl -sk "https://quay-quay-quay-test.apps.salamander.aimlworkbench.com/api/v1/repository/deanpeterson/deepseek-coder-v2-lite/tag/" \
+        | jq -r '.tags[] | "   \(.name)\t\(((.size // 0) / 1073741824 * 10 | floor) / 10) GB\t\(.last_modified)"' | column -t -s "$(printf '\t')"
+      ;;
+    *) echo "usage: ./jci.sh door | span | mcp | guard | image";;
     esac
