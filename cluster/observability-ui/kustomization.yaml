@@ -5,3 +5,4 @@ resources:
   - perses-loki-datasource.yaml
   - perses-api-demo.yaml
   - perses-governed-apis.yaml
+  - perses-rhcl-platform-engineer.yaml
