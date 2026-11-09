@@ -97,6 +97,13 @@ data:
       oc annotate secret "$SEAT_SECRET" -n "$SEAT_NS" "agentoffice.ai/mcp-servers=$new" --overwrite >/dev/null
       say "Seat $SEAT_NS/$SEAT_SECRET may now call:"
       printf '%s' "$new" | tr ',' '\n' | sed 's/^/   /'
+      # RHCL 1.4.3: Authorino re-reads a seat's annotations only when the policy spec changes (its secret controller
+      # looks for AuthConfigs in the secret's namespace; ours live in kuadrant-system). A comment change in the
+      # rule makes Kuadrant regenerate the AuthConfigs and Authorino re-index every seat; effective in ~10 s.
+      rego=$(oc get authpolicy mcp-gateway-tool-access -n agent-office -o jsonpath='{.spec.rules.authorization.server-allow-list.opa.rego}' | sed '/^# reindex [0-9]*$/d')
+      rego="$rego"$'\n'"# reindex $(date +%s)"
+      oc patch authpolicy mcp-gateway-tool-access -n agent-office --type=json -p "$(jq -cn --arg r "$rego" '[{op:"replace",path:"/spec/rules/authorization/server-allow-list/opa/rego",value:$r}]')" >/dev/null
+      echo "   policy re-synced; the gateway applies it within about ten seconds"
       ;;
     *) echo "usage: ./road.sh door | span | mcp | guard | image | allow <server> | deny <server>";;
     esac
