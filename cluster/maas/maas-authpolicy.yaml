@@ -88,4 +88,6 @@ spec:
       namespace: models-as-a-service
     - name: claude-opus-5
       namespace: models-as-a-service
+    - name: claude-sonnet-5     # Demo 9 (IDE beat) through the presenter's key
+      namespace: models-as-a-service
 

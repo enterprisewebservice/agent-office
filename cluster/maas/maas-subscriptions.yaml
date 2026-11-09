@@ -157,6 +157,11 @@ spec:
       tokenRateLimits:
         - limit: 500000
           window: 1m
+    - name: claude-sonnet-5     # Demo 9 of the governed road: the IDE reaches it through the presenter's key
+      namespace: models-as-a-service
+      tokenRateLimits:
+        - limit: 500000
+          window: 1m
     - name: qwen3-8b            # llm-d on our own GPUs, so admin keys reach the lab models too
       namespace: llm-d-demo
       tokenRateLimits:
