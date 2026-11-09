@@ -54,6 +54,7 @@ resources:
   - gateway/broker-token-externalsecret.yaml
   - gateway/broker-rbac.yaml
   - gateway/authorino-tls-envoyfilter.yaml
+  - gateway/mcp-deny-as-jsonrpc-envoyfilter.yaml
   - gateway/callers-auth-policy.yaml
   # Public hostname for IDEs on laptops (same listener, same policies).
   - gateway/mcp-gateway-external-route.yaml
