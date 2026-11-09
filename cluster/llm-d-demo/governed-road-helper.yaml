@@ -22,8 +22,13 @@ data:
     B=$'\e[1m'; D=$'\e[2m'; R=$'\e[0m'
     say() { printf '\n%s%s%s\n' "$B" "$*" "$R"; }
     p() { [ -z "${FAST:-}" ] && sleep "$1" || true; }   # pacing for the narration; FAST=1 skips
-    stream() {  # stream "<prompt>" <url> <model> <max_tokens> : prints tokens as they arrive, then tokens/s
+    stream() {  # stream "<prompt>" <url> <model> <max_tokens> : shows the request, prints tokens as they arrive, then tokens/s
       local t0 t1 n raw=/tmp/road-stream.$$
+      printf '   %sPOST%s      %s/chat/completions\n' "$D" "$R" "$2"
+      printf '   %sheader%s    Authorization: Bearer %s... (the key minted for this run)\n' "$D" "$R" "${KEY:0:10}"
+      printf '   %smodel%s     %s\n' "$D" "$R" "$3"
+      printf '   %squestion%s  "%s"\n' "$D" "$R" "$1"
+      printf '   %sanswer%s\n' "$D" "$R"
       t0=$(date +%s.%N)
       curl -sk -N "$2/chat/completions" -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
         -d "{\"model\":\"$3\",\"messages\":[{\"role\":\"user\",\"content\":\"$1\"}],\"max_tokens\":$4,\"stream\":true,\"stream_options\":{\"include_usage\":true},\"chat_template_kwargs\":{\"enable_thinking\":false}}" 2>/dev/null \
