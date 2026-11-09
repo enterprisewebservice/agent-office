@@ -68,6 +68,7 @@ spec:
                 msg = string.gsub(msg, "\\", "\\\\")
                 msg = string.gsub(msg, '"', '\\"')
                 local out = '{"jsonrpc":"2.0","id":' .. md["id"] .. ',"result":{"content":[{"type":"text","text":"' .. msg .. '"}],"isError":true}}'
+                hdr = h:headers()
                 hdr:replace(":status", "200")
                 hdr:replace("content-type", "application/json")
                 hdr:remove("content-length")
