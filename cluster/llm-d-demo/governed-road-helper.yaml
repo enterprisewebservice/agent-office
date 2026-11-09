@@ -78,10 +78,18 @@ data:
     mcp)
       say "Tool servers registered on the MCP gateway"
       oc get mcpserverregistration -n agent-office -o json | jq -r '.items[] | [.metadata.name, .spec.state, (.status.discoveredTools|tostring)+" tools", "credential: "+.spec.credentialRef.name] | @tsv' | column -t -s $'\t' | sed 's/^/   /'
-      say "The GitHub registration: the route it fronts and the credential the gateway injects"
+      say "The GitHub registration: the route it fronts, and the GitHub credential the gateway injects on the way out (no caller ever holds it)"
       oc get mcpserverregistration github -n agent-office -o json | jq -r '"   route:      \(.spec.targetRef.kind)/\(.spec.targetRef.name) (path \(.spec.path))\n   credential: secret \(.spec.credentialRef.name), key \(.spec.credentialRef.key)\n   tools:      \(.status.discoveredTools) discovered"'
-      say "Who may call what: the allow-list is an annotation on each caller's own credential"
-      oc get secret -A -l agentoffice.ai/mcp-gateway-caller=true -o json | jq -r '.items[] | [.metadata.namespace+"/"+.metadata.name, (.metadata.annotations["agentoffice.ai/mcp-servers"] // "-")] | @tsv' | column -t -s $'\t' | head -8 | sed 's/^/   /'
+      say "Who may call what"
+      echo "   A caller is anything that holds a gateway key: an agent, a developer's IDE seat, or the platform itself."
+      echo "   Each key lives in a Secret labelled as a gateway caller. The Secret's annotation agentoffice.ai/mcp-servers"
+      echo "   is that caller's allow-list: the registered tool servers it may use (* = all). The gateway checks it on every tool call."
+      echo
+      oc get secret -A -l agentoffice.ai/mcp-gateway-caller=true -o json | jq -r --arg seat "$SEAT_NS/$SEAT_SECRET" '
+        ["CALLER","KEY LIVES IN (Secret)","MAY USE (registered tool servers)"],
+        (.items[] | [ (if (.metadata.namespace|endswith("-agent-workspace")) then "seat" elif (.metadata.name|test("installation")) then "platform" else "agent" end),
+                      (.metadata.namespace+"/"+.metadata.name) + (if (.metadata.namespace+"/"+.metadata.name)==$seat then " (you)" else "" end),
+                      (.metadata.annotations["agentoffice.ai/mcp-servers"] // "-") ]) | @tsv' | column -t -s $'\t' | head -9 | sed 's/^/   /'
       ;;
     guard)
       say "The bridge log: what the guardrail decided, and the scores behind it"
