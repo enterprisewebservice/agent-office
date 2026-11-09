@@ -127,7 +127,10 @@ spec:
         body:
           value: '{"error":"Unauthorized","message":"MCP access denied: caller token not recognised on the backend hop."}'
       unauthorized:
-        code: 403
+        # 400, not 403: MCP clients (VS Code 1.142, the MCP SDK) treat 401/403 from a tools/call as "get a token"
+        # and fall into OAuth discovery; a 400 is surfaced to the model as the tool's error text and the
+        # client reconnects. The body still says Forbidden and names tool and server (8 Nov 2026).
+        code: 400
         body:
           expression: |
             '{"error":"Forbidden","message":"MCP access denied: this caller may not use tool ' + ('x-mcp-toolname' in request.headers ? request.headers['x-mcp-toolname'] : '?') + ' on server ' + ('x-mcp-servername' in request.headers ? request.headers['x-mcp-servername'] : '?') + '. Ask the platform to add that server to your seat allow-list."}'
