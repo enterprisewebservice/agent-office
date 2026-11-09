@@ -1,0 +1,76 @@
+# Return a per-tool policy denial as a JSON-RPC tool result instead of an HTTP error.
+#
+# WHY: the mcps-hop AuthPolicy denies a tools/call the seat may not use with an HTTP 4xx and a JSON
+# body naming tool and server. MCP clients treat HTTP errors as a broken transport: VS Code 1.142 reads
+# 401/403 as "get a token" (OAuth discovery, then "Dynamic Client Registration not supported") and any
+# other status as a connection error (server in Error, pending call "Canceled"), so the model never
+# sees the message. The MCP spec's shape for this is a 200 with a tool result `isError: true`.
+#
+# HOW: a Lua filter first in the chain (before ext_proc and the Kuadrant auth filter) buffers POST /mcp
+# bodies, keeps the JSON-RPC id of a tools/call in dynamic metadata, and on a local reply that carries
+# x-ext-auth-reason with status 400/403 rewrites it to 200 + {"jsonrpc":"2.0","id":<id>,"result":
+# {"content":[{"type":"text","text":"<the policy's message>"}],"isError":true}}. Everything else, the
+# broker's own calls, initialize, tools/list, allowed tools/call streams, passes untouched. Reversible:
+# delete this file (8 Nov 2026).
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: mcp-gateway-deny-as-jsonrpc
+  namespace: agent-office
+  labels:
+    app.kubernetes.io/managed-by: agent-office-gitops
+spec:
+  workloadSelector:
+    labels:
+      gateway.networking.k8s.io/gateway-name: mcp-gateway
+  configPatches:
+    - applyTo: HTTP_FILTER
+      match:
+        context: GATEWAY
+        listener:
+          filterChain:
+            filter:
+              name: envoy.filters.network.http_connection_manager
+      patch:
+        operation: INSERT_FIRST
+        value:
+          name: mcp-deny-as-jsonrpc.lua
+          typed_config:
+            "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
+            inlineCode: |
+              function envoy_on_request(h)
+                local hdr = h:headers()
+                if hdr:get(":method") ~= "POST" then return end
+                local p = hdr:get(":path") or ""
+                if not (p == "/mcp" or p:sub(1,5) == "/mcp/" or p:sub(1,5) == "/mcp?") then return end
+                local body = h:body()
+                if body == nil then return end
+                local len = body:length()
+                if len == 0 or len > 262144 then return end
+                local text = body:getBytes(0, len)
+                if not text:find('"method"%s*:%s*"tools/call"') then return end
+                local id = text:match('"id"%s*:%s*(%d+)') or text:match('"id"%s*:%s*(%b"")')
+                if id ~= nil then
+                  h:streamInfo():dynamicMetadata():set("mcp.deny", "id", id)
+                end
+              end
+              function envoy_on_response(h)
+                local hdr = h:headers()
+                local status = hdr:get(":status")
+                if status ~= "403" and status ~= "400" then return end
+                if hdr:get("x-ext-auth-reason") == nil then return end
+                local md = h:streamInfo():dynamicMetadata():get("mcp.deny")
+                if md == nil or md["id"] == nil then return end
+                local body = h:body(true)
+                local text = ""
+                if body ~= nil and body:length() > 0 then text = body:getBytes(0, body:length()) end
+                local msg = text:match('"message"%s*:%s*"(.-)"') or "MCP access denied by the gateway policy."
+                msg = string.gsub(msg, "\\", "\\\\")
+                msg = string.gsub(msg, '"', '\\"')
+                local out = '{"jsonrpc":"2.0","id":' .. md["id"] .. ',"result":{"content":[{"type":"text","text":"' .. msg .. '"}],"isError":true}}'
+                hdr:replace(":status", "200")
+                hdr:replace("content-type", "application/json")
+                hdr:remove("content-length")
+                hdr:remove("x-ext-auth-reason")
+                if body ~= nil then body:setBytes(out) end
+              end
