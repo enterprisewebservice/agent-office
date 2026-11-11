@@ -115,4 +115,4 @@ metadata:
   name: no-pins-to-control-plane
 spec:
   policyName: no-pins-to-control-plane
-  validationActions: ["Warn", "Audit"]
+  validationActions: ["Deny", "Audit"]
