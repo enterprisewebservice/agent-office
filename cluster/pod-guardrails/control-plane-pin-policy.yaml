@@ -1,0 +1,118 @@
+# Admission policy: no pod pinned to a control-plane node outside the
+# platform namespaces (Kubernetes ValidatingAdmissionPolicy, CEL).
+#
+# Why: 2026-11-11, 23:28Z to 23:42Z. A throwaway test pod was pinned to
+# ec-0d-9a-92-a5-6a with a kubernetes.io/hostname node selector because the
+# node showed spare CPU. That node is a control-plane node, and on this
+# cluster control-plane nodes also carry the worker role and no taint, so
+# nothing refused it. The pod's image was 12.3 GB. The node's system disk
+# holds etcd and container storage together and wrote about 20 MB/s; the
+# pull saturated it, etcd WAL fsync p99 on that member went from 50 ms to
+# over 8 s, API p99 from 0.09 s to 44 s, and controllers across the cluster
+# lost their leases and crash-looped. Deleting the pod did not stop the
+# pull. Recovery took until 23:47Z.
+#
+# What is denied: a Pod created outside openshift-* and kube-* that names a
+# control-plane node in any of the three ways a pod can be pinned:
+#   - spec.nodeName
+#   - spec.nodeSelector["kubernetes.io/hostname"]
+#   - required node affinity whose every term matches only control-plane
+#     nodes by kubernetes.io/hostname or by the metadata.name field
+#
+# What is never touched:
+#   - openshift-* and kube-* (etcd, the API servers, Ceph OSDs and mons in
+#     openshift-storage and every other platform pod that belongs there)
+#   - pods owned by a DaemonSet in any namespace (istio-cni, collectors)
+#   - host-network pods, which is what `oc debug node/<name>` creates
+#   - pods OpenShift Virtualization creates (label key kubevirt.io)
+#   - pods the scheduler places on its own. This rule stops deliberate
+#     pins only. An unpinned pod can still land on a control-plane node;
+#     the lasting fix for that is etcd on its own fast disk.
+#
+# The control-plane node names are listed below because an admission
+# policy cannot look up Node objects. Update the list when a control-plane
+# node is replaced: oc get nodes -l node-role.kubernetes.io/control-plane
+#
+# failurePolicy is Ignore on purpose: this guards against a mistake, and a
+# rule that errors must never be the reason a pod cannot start.
+#
+# Break-glass: annotate the pod (or the pod template) with
+#   agent-office.io/control-plane-pin: exempt
+#
+# Only pod creation is checked, so nothing running is affected by applying
+# this. On 2026-11-11 no running pod outside the exemptions was pinned to a
+# control-plane node.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: no-pins-to-control-plane
+spec:
+  failurePolicy: Ignore
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE"]
+        resources: ["pods"]
+  matchConditions:
+    - name: outside-platform-namespaces
+      expression: >-
+        !request.namespace.matches('^(openshift-.*|kube-.*|openshift)$')
+    - name: not-daemonset-owned
+      expression: >-
+        !(has(object.metadata.ownerReferences) &&
+          object.metadata.ownerReferences.exists(o, o.kind == 'DaemonSet'))
+    - name: not-host-network
+      expression: >-
+        !(has(object.spec.hostNetwork) && object.spec.hostNetwork)
+    - name: not-openshift-virtualization
+      expression: >-
+        !(has(object.metadata.labels) && 'kubevirt.io' in object.metadata.labels)
+    - name: not-exempt
+      expression: >-
+        !(has(object.metadata.annotations) &&
+          'agent-office.io/control-plane-pin' in object.metadata.annotations &&
+          object.metadata.annotations['agent-office.io/control-plane-pin'] == 'exempt')
+  variables:
+    - name: controlPlane
+      expression: >-
+        ['3c-ec-ef-30-cc-2b.localdomain', 'ec-0d-9a-92-a4-c2', 'ec-0d-9a-92-a5-6a']
+    - name: byNodeName
+      expression: >-
+        has(object.spec.nodeName) && object.spec.nodeName in variables.controlPlane
+    - name: bySelector
+      expression: >-
+        has(object.spec.nodeSelector) &&
+        'kubernetes.io/hostname' in object.spec.nodeSelector &&
+        object.spec.nodeSelector['kubernetes.io/hostname'] in variables.controlPlane
+    - name: byAffinity
+      expression: >-
+        has(object.spec.affinity) &&
+        has(object.spec.affinity.nodeAffinity) &&
+        has(object.spec.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution) &&
+        object.spec.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms.size() > 0 &&
+        object.spec.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms.all(t,
+          (has(t.matchExpressions) && t.matchExpressions.exists(e,
+            e.key == 'kubernetes.io/hostname' && e.operator == 'In' &&
+            has(e.values) && e.values.size() > 0 && e.values.all(v, v in variables.controlPlane))) ||
+          (has(t.matchFields) && t.matchFields.exists(e,
+            e.key == 'metadata.name' && e.operator == 'In' &&
+            has(e.values) && e.values.size() > 0 && e.values.all(v, v in variables.controlPlane))))
+  validations:
+    - expression: >-
+        !(variables.byNodeName || variables.bySelector || variables.byAffinity)
+      message: >-
+        This pod is pinned to a control-plane node (spec.nodeName, a kubernetes.io/hostname
+        node selector, or required node affinity that names one). Control-plane nodes hold etcd:
+        on 2026-11-11 one pinned pod with a 12 GB image stalled the API for 14 minutes.
+        Remove the pin or pick a worker. Break-glass: annotation
+        agent-office.io/control-plane-pin: exempt.
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: no-pins-to-control-plane
+spec:
+  policyName: no-pins-to-control-plane
+  validationActions: ["Warn", "Audit"]

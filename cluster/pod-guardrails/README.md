@@ -40,6 +40,33 @@ setting is visible in git. An OLM clean-up CronJob for openshift-marketplace liv
 (22-25 Oct 2026) and was removed: OLM reuses those unpack objects across InstallPlans and a pending
 manual InstallPlan breaks when its ConfigMap disappears, so the platform namespace is left alone.
 
+## Control-plane pins (added 2026-11-11)
+
+`control-plane-pin-policy.yaml` holds one more admission policy, `no-pins-to-control-plane`.
+
+2026-11-11, 23:28Z to 23:42Z: a throwaway test pod was pinned by hostname to
+`ec-0d-9a-92-a5-6a`, a control-plane node. Control-plane nodes here also carry the
+worker role and no taint, so the pod was accepted. Its image was 12.3 GB. That node
+keeps etcd and container storage on one system disk, which wrote about 20 MB/s. The
+pull saturated the disk, etcd fsync p99 on that member went from 50 ms to over 8 s,
+API p99 from 0.09 s to 44 s, and controllers cluster-wide lost their leases and
+crash-looped until 23:47Z. Deleting the pod did not stop the pull.
+
+The policy denies a Pod created outside `openshift-*` and `kube-*` that names a
+control-plane node through `spec.nodeName`, a `kubernetes.io/hostname` node selector,
+or required node affinity. It leaves alone DaemonSet pods, host-network pods (what
+`oc debug node/<name>` creates) and pods OpenShift Virtualization creates.
+
+- The three control-plane node names are listed in the policy. Update them when a
+  control-plane node is replaced.
+- `failurePolicy: Ignore`: a rule that errors never blocks a pod.
+- Break-glass: annotation `agent-office.io/control-plane-pin: exempt` on the pod or
+  the pod template.
+- Limit: it stops deliberate pins only. The scheduler can still place an unpinned pod
+  with a large image on a control-plane node. The lasting fix is etcd on its own fast
+  disk on `ec-0d-9a-92-a5-6a`, whose etcd fsync p99 sits near 48 ms on a normal day
+  against 4 ms and 7 ms on the other two.
+
 ## What every CronJob in this repo must have
 
 ```yaml

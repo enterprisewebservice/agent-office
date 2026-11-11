@@ -10,5 +10,7 @@ resources:
   - project-request.yaml
   # layer 3: admission policy for CronJobs
   - cronjob-policy.yaml
+  # admission policy: no pod pinned to a control-plane node outside platform namespaces
+  - control-plane-pin-policy.yaml
   # the Pipelines pruner, declared with the operator's default values
   - tektonconfig-pruner.yaml
