@@ -23,6 +23,8 @@ resources:
   - supply-chain-demo/orders-api/orders-data.yaml
   # supply-chain demo: declarative PaC onboarding (new repos build hands-free)
   - supply-chain-demo/pac-repositories.yaml
+  # Data Science Pipelines server (pipeline API, MariaDB, MinIO) for autoresearch and genesis-train
+  - pipelines/dspa.yaml
 # Image source-of-truth. Change `newTag` here to deploy a different version;
 # Image Updater rewrites it automatically when a new build lands.
 images:

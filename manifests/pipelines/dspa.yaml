@@ -1,0 +1,36 @@
+# Data Science Pipelines server for agent-office. The AutoResearchProject
+# controller and the genesis-train skill submit their runs to it.
+#
+# Applied by hand on 13 May 2026 and declared here since 12 Nov 2026 with the
+# same spec, apart from the MinIO image: quay.io/minio/minio stopped serving
+# anonymous pulls, so the object store runs the same final community build
+# from Red Hat AI Services' public mirror.
+#
+# Prune=false,Delete=false: this resource owns the MariaDB and MinIO volumes.
+# Taking this file out of git, or deleting the Application, must leave the
+# pipeline server and its data in place.
+apiVersion: datasciencepipelinesapplications.opendatahub.io/v1
+kind: DataSciencePipelinesApplication
+metadata:
+  name: dspa
+  namespace: agent-office
+  labels:
+    agentoffice.ai/purpose: autoresearch
+    app.kubernetes.io/managed-by: agent-office-operator
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+spec:
+  dspVersion: v2
+  apiServer:
+    deploy: true
+  persistenceAgent:
+    deploy: true
+  scheduledWorkflow:
+    deploy: true
+  database:
+    mariaDB:
+      deploy: true
+  objectStorage:
+    minio:
+      deploy: true
+      image: quay.io/rh-aiservices-bu/minio:RELEASE.2025-09-07T16-13-09Z
