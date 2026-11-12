@@ -31,6 +31,34 @@ releases streams at once. It replaced DeepSeek-Coder-V2-Lite (16B, bf16), which
 has no tool-call format. Qwen3 8B went from three replicas to one to free the
 two cards.
 
+## Start and stop the spanning model (11 Nov 2026)
+
+The model is parked between demos so its two GPUs are free. The switch is one
+annotation in `llminferenceservice-qwen3-coder.yaml`:
+
+- `serving.kserve.io/stop: "true"`: the OpenShift AI controller deletes the
+  LeaderWorkerSet, the route, the scheduler and the inference pool, and keeps the
+  LLMInferenceService (conditions read `Stopped`). Requests to the model fail.
+- `serving.kserve.io/stop: "false"`: everything is recreated.
+
+Commit, push, and OpenShift GitOps applies it (application `agent-office-llm-d-demo`).
+Change it in Git only: the application self-heals, so a change made on the cluster
+is put back to what Git says.
+
+Before a demo, start it the day before:
+
+- Two GPU nodes must have their card free (`oc describe node <node> | grep nvidia.com/gpu`).
+- Ready takes about 3 minutes when both nodes still hold the 31 GB model image
+  (measured 11 Nov 2026 on `d8-43-ae-5b-c9-9a` and `ec-0d-9a-2e-71-28`). A node
+  that has dropped the image, or a different node, pulls it first: about 20
+  minutes per node (first pulls, 7 Nov 2026).
+- Check: `oc get llmisvc qwen3-coder-30b-a3b -n llm-d-demo` shows Ready True,
+  then run `./demo.sh`.
+
+The LeaderWorkerSet controller comes from the Red Hat Leader Worker Set Operator
+(`cluster/leader-worker-set`, namespace `openshift-lws-operator`). If the model
+stays pending, check `oc get leaderworkersetoperator cluster` for Available True.
+
 ## Model images (7 Nov 2026)
 
 Both models are ModelCar images in the cluster Quay, built in-cluster by
