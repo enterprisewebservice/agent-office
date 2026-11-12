@@ -1,0 +1,30 @@
+# Red Hat Leader Worker Set Operator (see cluster/leader-worker-set/kustomization.yaml).
+# Applied once with: oc apply -f cluster/leader-worker-set-app.yaml
+#
+# No resources finalizer, unlike the other app files: deleting this Application must not
+# cascade to the LeaderWorkerSetOperator object, which owns the LeaderWorkerSet CRD.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: leader-worker-set
+  namespace: openshift-gitops
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/enterprisewebservice/agent-office.git
+    targetRevision: main
+    path: cluster/leader-worker-set
+  destination:
+    server: https://kubernetes.default.svc
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+    retry:
+      limit: 10
+      backoff:
+        duration: 20s
+        factor: 2
+        maxDuration: 3m

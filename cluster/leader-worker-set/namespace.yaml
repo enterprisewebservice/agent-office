@@ -1,0 +1,8 @@
+# The namespace the docs and the operator's own manifests use. The label lets cluster
+# monitoring scrape the controller's ServiceMonitor.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: openshift-lws-operator
+  labels:
+    openshift.io/cluster-monitoring: "true"

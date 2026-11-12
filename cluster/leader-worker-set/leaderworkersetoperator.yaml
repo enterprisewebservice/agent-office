@@ -1,0 +1,17 @@
+# Tells the operator to deploy the LeaderWorkerSet controller. It must be named "cluster".
+#
+# DO NOT DELETE while multi-node models exist: the operator makes this object the owner of
+# the LeaderWorkerSet CRD, so deleting it deletes the CRD and with it every LeaderWorkerSet
+# (the model pods). Prune=false and Delete=false keep OpenShift GitOps from ever doing
+# that, even if this file or the Application is removed.
+apiVersion: operator.openshift.io/v1
+kind: LeaderWorkerSetOperator
+metadata:
+  name: cluster
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true,Prune=false,Delete=false
+spec:
+  managementState: Managed
+  logLevel: Normal
+  operatorLogLevel: Normal

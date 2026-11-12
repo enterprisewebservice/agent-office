@@ -1,0 +1,13 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# Red Hat Leader Worker Set Operator: the controller behind multi-node llm-d models
+# (cluster/llm-d-demo/llminferenceservice-qwen3-coder.yaml). OpenShift AI 3.4 requires it
+# for Distributed Inference with llm-d (install guide 3.1.2, llm-d guide 8.5); install
+# steps follow the OpenShift 4.22 docs, AI workloads > Leader Worker Set Operator.
+# On 11 Nov 2026 it replaced a hand-applied upstream v0.8.0 controller in lws-system whose
+# staging image could no longer be pulled.
+resources:
+  - namespace.yaml
+  - operatorgroup.yaml
+  - subscription.yaml
+  - leaderworkersetoperator.yaml
