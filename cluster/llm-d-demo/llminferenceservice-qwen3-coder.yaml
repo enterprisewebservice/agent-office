@@ -23,6 +23,10 @@ metadata:
   namespace: llm-d-demo
   annotations:
     security.opendatahub.io/enable-auth: "true"
+    # Stop switch. While this line is present the OpenShift AI controller removes the
+    # model's LeaderWorkerSet, route and scheduler (both GPUs are released) and keeps
+    # this object. Delete the line to start the model again; see README "Start and stop".
+    serving.kserve.io/stop: "true"
 spec:
   replicas: 1
   model:
