@@ -19,7 +19,7 @@ spec:
   # behind this tag every 5 minutes, so subsequent operator-catalog
   # pipeline runs flow through to a fresh tile without manual GitOps
   # edits or Image Updater wiring.
-  image: quay.io/dpeterso/agent-office-operator-catalog:v1.7.85
+  image: quay.io/dpeterso/agent-office-operator-catalog:v1.7.86
   # Since v1.7.80 the catalog, bundle and operator images are public on
   # quay.io/dpeterso and need no credentials. quay-pull-secret is for the
   # cluster's internal Quay, where catalogs up to v1.7.79 lived; it stays
