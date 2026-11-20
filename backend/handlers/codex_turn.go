@@ -46,7 +46,14 @@ const turnProbeMessage = "Daily health check from the agent platform. Reply with
 // turnProbeSh runs in the gateway's openclaw container: the first agent the
 // operator registered (main when none), one turn, no delivery. $1 is the
 // message.
-const turnProbeSh = `id=$(node -e 'try{const c=JSON.parse(require("fs").readFileSync("/home/node/.openclaw/openclaw.json","utf8"));const l=((c.agents||{}).list)||[];process.stdout.write((l[0]&&l[0].id)||"main")}catch(e){process.stdout.write("main")}'); printf 'agent=%s\n' "$id"; openclaw agent --agent "$id" --session-id platform-healthcheck-daily --message "$1" --json 2>&1`
+//
+// The roster is the array agents.list up to OpenClaw 2026.7.x and the keyed
+// map agents.entries from 2026.8.1 (insertion order kept, so the first key is
+// the first agent). Reading only the list made an upgraded gateway's probe
+// fall back to "main", an agent a multi-agent gateway no longer has: the daily
+// turn would have failed and raised CodexGatewayTurnFailing for a healthy
+// gateway.
+const turnProbeSh = `id=$(node -e 'try{const c=JSON.parse(require("fs").readFileSync("/home/node/.openclaw/openclaw.json","utf8"));const a=c.agents||{};const e=a.entries;const ids=(e&&typeof e==="object"&&!Array.isArray(e))?Object.keys(e):(Array.isArray(a.list)?a.list:[]).map(x=>x&&x.id);process.stdout.write(ids[0]||"main")}catch(e){process.stdout.write("main")}'); printf 'agent=%s\n' "$id"; openclaw agent --agent "$id" --session-id platform-healthcheck-daily --message "$1" --json 2>&1`
 
 var turnStore = struct {
 	sync.Mutex
