@@ -30,6 +30,12 @@ command -v gh >/dev/null 2>&1 || die "gh not found -- prep needs it to reset the
 gh auth status >/dev/null 2>&1 || die "gh is not authenticated. Run: gh auth login"
 oc whoami >/dev/null 2>&1     || die "not logged in to the cluster. Run: oc login"
 
+# The demo's cast was retired on 19 Nov 2026. forge-dev runs on
+# research-gateway, so without that gateway there is nothing to drive.
+oc get agentgateway research-gateway -n $NS >/dev/null 2>&1 \
+  || die "research-gateway does not exist (retired 19 Nov 2026). Bring the cast back first:
+        cluster/_removed/2026-11-19-demo-agents/README.md"
+
 say "1/5  Installing the demo's automation (Tasks, Pipelines, RBAC)"
 # Must land BEFORE the teardown run below: that run references
 # pipelineRef: supply-chain-teardown, which does not exist until this applies.
@@ -64,7 +70,7 @@ fi
 
 say "4/5  Making sure forge-dev exists and its brain answers"
 if ! oc get agentworkstation forge-dev -n $NS >/dev/null 2>&1; then
-  oc apply -f "$HERE/supply-chain-demo/forge-dev.yaml" >/dev/null 2>&1 && info "forge-dev created"
+  oc apply -f "$HERE/_removed/2026-11-19-demo-agents/forge-dev.yaml" >/dev/null 2>&1 && info "forge-dev created"
   oc rollout status deploy/research-gateway -n $NS --timeout=300s >/dev/null 2>&1
   sleep 20
 else

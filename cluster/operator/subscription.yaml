@@ -28,6 +28,12 @@ spec:
       # the gateway pod, which already holds the OAuth session every agent
       # here uses. Keyword scoring stays as the fallback when the gateway
       # is unreachable.
+      #
+      # 19 Nov 2026: research-gateway was retired with the demo agents
+      # (cluster/_removed/2026-11-19-demo-agents/README.md), so Suggest
+      # answers from keyword scoring until that gateway is brought back or
+      # these three values name a gateway and agent that exist. The values
+      # were left as they are on purpose: changing them restarts the operator.
       - name: AGENT_RECOMMENDER_GATEWAY
         value: research-gateway
       - name: AGENT_RECOMMENDER_AGENT

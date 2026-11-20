@@ -93,7 +93,11 @@ echo "THE CAST  (agents -- forge-dev is staff, ops-reporter is a demo beat)"
 GWP=$(oc get pods -n $NS --no-headers 2>/dev/null | grep research-gateway | grep Running | awk '{print $1}' | head -1)
 if [ -z "$GWP" ]; then
   f "no Running research-gateway pod -- no agent can answer"
-  fix "oc rollout status deploy/research-gateway -n $NS"
+  if oc get agentgateway research-gateway -n $NS >/dev/null 2>&1; then
+    fix "oc rollout status deploy/research-gateway -n $NS"
+  else
+    fix "research-gateway was retired on 19 Nov 2026: cluster/_removed/2026-11-19-demo-agents/README.md"
+  fi
 else
   lane=$(oc exec -n $NS "$GWP" -c openclaw -- node -e 'const c=require("/home/node/.openclaw/openclaw.json");
 console.log(JSON.stringify(Object.keys(c.models.providers))+" "+(c.models.providers.openai?.apiKey===undefined?"nokey":"KEY"))' 2>/dev/null)
@@ -109,7 +113,7 @@ if [ "$ph" = "Running" ]; then
   p "forge-dev Running (platform staff -- never created on camera)"
 else
   f "forge-dev is ${ph:-ABSENT} -- prep step 2 has no agent to drive"
-  fix "oc apply -f cluster/supply-chain-demo/forge-dev.yaml"
+  fix "oc apply -f cluster/_removed/2026-11-19-demo-agents/forge-dev.yaml"
 fi
 rp=$(oc get agentworkstation ops-reporter -n $NS -o jsonpath='{.status.phase}' 2>/dev/null)
 if [ "$rp" = "Running" ]; then

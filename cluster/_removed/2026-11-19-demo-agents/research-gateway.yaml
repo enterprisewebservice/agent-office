@@ -1,8 +1,8 @@
 # research-gateway — the shared OpenClaw runtime gateway the genesis + research
 # agents slot into (spec.runtime.shared.gatewayRef: research-gateway).
 #
-# Declarative source of truth (previously applied ad-hoc). Reproduce with:
-#   oc apply -f cluster/runtime/research-gateway.yaml
+# RETIRED on 19 Nov 2026 with the demo agents; this file is no longer applied.
+# How to bring it back: README.md in this folder.
 #
 # spec.skillsImage pins the Quay skills-catalog image version mounted into the
 # gateway pod + seeded into every agent's workspace. Bump it (after rebuilding

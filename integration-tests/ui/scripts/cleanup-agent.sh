@@ -6,7 +6,8 @@
 #   - AgentWorkstation   <name>   (+ KnowledgeBase <name>-wiki)
 #   - Backstage catalog Location for the gitops repo
 #   - the agent's DEDICATED AgentGateway (<name>-gateway, or whatever its
-#     gatewayRef names) when no other AgentWorkstation still runs on it
+#     gatewayRef names) when no other AgentWorkstation still runs on it AND
+#     the gateway was declared in this agent's own repo
 #
 # WHY THE GATEWAY STEP (9 Nov 2026): the operator never owns a gateway —
 # a gateway is a declarative object several agents may share, so the
@@ -57,6 +58,23 @@ items=json.load(sys.stdin).get("items",[])
 others=[i["metadata"]["name"] for i in items if i["metadata"]["name"]!=me
         and ((i.get("spec",{}).get("runtime") or {}).get("shared") or {}).get("gatewayRef")==gw]
 print(",".join(others)); sys.exit(0 if others else 1)'
+}
+
+# gateway_declared_by_agent <gateway> <ns>: succeeds when the gateway was
+# declared in THIS agent's own gitops repo. The scaffold's kustomization
+# stamps agentoffice.ai/agent=<name> on everything it declares, and Argo CD
+# records the owning Application in the tracking id. A gateway declared
+# anywhere else carries neither and must survive its last agent: on
+# 19 Nov 2026 forge-dev was the only workstation left on research-gateway
+# (declared in cluster/runtime of the platform repo), and without this check
+# removing forge-dev would have deleted that shared gateway and its volume.
+gateway_declared_by_agent() {
+  local lbl trk
+  lbl=$(oc get agentgateway "$1" -n "$2" -o jsonpath='{.metadata.labels.agentoffice\.ai/agent}' 2>/dev/null || true)
+  trk=$(oc get agentgateway "$1" -n "$2" -o jsonpath='{.metadata.annotations.argocd\.argoproj\.io/tracking-id}' 2>/dev/null || true)
+  [ "$lbl" = "$NAME" ] && return 0
+  case "$trk" in "${NAME}-agent:"*|*"-${NAME}-agent:"*) return 0 ;; esac
+  return 1
 }
 
 # delete a namespaced resource and wait for it to be GONE; if a finalizer
@@ -137,6 +155,8 @@ del_wait knowledgebase "$WIKI_REPO" "$NS"
 if oc get agentgateway "$GW" -n "$NS" >/dev/null 2>&1; then
   if others=$(gateway_in_use "$GW" "$NS"); then
     echo "  agentgateway/$GW: kept (shared with $others)"
+  elif ! gateway_declared_by_agent "$GW" "$NS"; then
+    echo "  agentgateway/$GW: kept (not declared in $REPO; a shared gateway is removed where it is declared)"
   else
     del_wait agentgateway "$GW" "$NS"
   fi
